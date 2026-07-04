@@ -1,0 +1,12 @@
+[package]
+name = "mock_validator"
+version = "0.1.0"
+edition = "2021"
+description = "Demo-only stand-in for the TxLINE validator: approves any proof"
+
+[lib]
+crate-type = ["cdylib", "lib"]
+name = "mock_validator"
+
+[dependencies]
+solana-program = "^1.18"
