@@ -16,12 +16,17 @@ export function startMockFeed(fixtureId: number, onEvent: (e: TxEvent) => void):
     minute += 1;
     price = Math.max(1.4, Math.min(3.2, price + (Math.random() - 0.5) * 0.12));
     const messageId = `mock-${fixtureId}-${seq++}`;
+    // Emit on the SAME scale as the real feed: implied probability × 1000 (not odds × 1000).
+    // Implied prob% = (1 / decimalOdds) * 100, so value = round(100000 / price).
+    // e.g. odds 1.9 -> 52631 (52.631%); crosses a level of 60000 (60%) when odds dip below ~1.667.
+    const value = Math.round(100000 / price);
     onEvent({
       kind: "odds",
       fixtureId,
-      statKey: 0,
-      value: Math.round(price * 1000),
+      oddKey: 0,
+      value,
       messageId,
+      ts: Math.floor(Date.now() / 1000),
       raw: { minute, price },
     });
     if (minute >= 90) {

@@ -423,7 +423,11 @@ function openMatch(id){
     curOdds.filter(o=>o.grp===g).map(o=>`<div class="ochip" id="oc-${o.key}" onclick="selectOdd('${o.key}')"><span class="fl">${o.fl}</span>${o.label}<span class="op">${o.prob}%</span></div>`).join('')
   }</div>`).join(''):'';
 
-  // all-odds list — signal button when live, "opens at KO" pre-match
+  // all-odds list — signal button when live, "opens at KO" pre-match.
+  // PRODUCTION NOTE: only odds that carry a TxLINE Pct[] (demargined %) may be shown as signals —
+  // i.e. no-push markets: 1X2, BTTS, whole/half lines (O/U x.0 or x.5). Push markets (shared
+  // outcomes: quarter lines like a 2.25 Asian handicap, some over/unders) carry no Pct and can't
+  // be settled on a probability, so they must be excluded. This mock list is already all no-push.
   const all=curOdds.map(o=>`
     <div class="orow2">
       <div class="mini">${spark(id+o.key,o.prob,30)}</div>

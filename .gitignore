@@ -5,3 +5,7 @@ dist/
 .env
 test-ledger/
 *.log
+
+# Secrets & local artifacts — never commit
+*id.json
+keeper/signal_markets.idl.json

@@ -5,8 +5,8 @@ import { authHeaders } from "./auth.js";
 
 /**
  * Normalised proof the on-chain `resolve_market` needs:
- *  - value: the attested datapoint as a scaled integer
- *           (score as-is; odds as price*1000 to stay integer)
+ *  - value: the attested datapoint as a scaled integer — for odds this is the demargined
+ *           implied PROBABILITY × 1000 (see pctToValue), score as-is
  *  - proofBytes: the bytes forwarded to TxLINE's validate instruction
  *  - accounts: extra accounts that validate instruction expects
  *              (e.g. the on-chain batch/commitment account), passed as remaining_accounts
@@ -21,12 +21,67 @@ export interface ProofResult {
 export interface TxEvent {
   kind: "score" | "odds" | "status";
   fixtureId: number;
-  statKey?: number;     // which stat/market the datapoint refers to
-  value?: number;       // scaled integer value (score, or odds*1000)
+  oddKey?: number;      // which odd (SuperOddsType + PriceName) the datapoint refers to
+  value?: number;       // scaled integer — odds: implied probability × 1000 (see pctToValue); score: as-is
   messageId?: string;   // for odds updates — needed (with ts) to fetch their proof
   ts?: number;          // for odds updates — REQUIRED alongside messageId (see getOddsProof)
   status?: string;      // e.g. "in_play" | "ended"
   raw: unknown;
+}
+
+/**
+ * TxLINE's confirmed odds format: a datapoint carries both `Prices[]` (decimal-odds × 1000,
+ * e.g. 2536 = 2.536) and `Pct[]` (demargined implied probability as a 3-decimal percent STRING,
+ * e.g. "39.432" = 39.432%). We settle on `Pct` — the true probability — NOT `Prices`.
+ * Scale it to an integer by × 1000 ("39.432" -> 39432): probability × 1000, i.e. a percent
+ * with 3 decimals as an int. Market level L is stored on the SAME scale so comparisons line up.
+ */
+function pctToValue(pct: unknown): number {
+  return Math.round(parseFloat(String(pct)) * 1000);
+}
+
+/**
+ * The odds record — the object carrying the parallel PriceNames[] / Prices[] / Pct[] arrays —
+ * can arrive in two shapes: as the payload itself (the stream) or nested under `.odds` (the
+ * validation response). Resolve whichever one actually holds the Pct so callers work with either.
+ */
+function oddsRecord(payload: any): any {
+  if (payload && (payload.Pct != null || payload.pct != null)) return payload;
+  if (payload?.odds && (payload.odds.Pct != null || payload.odds.pct != null)) return payload.odds;
+  return payload?.odds ?? payload;
+}
+
+/** The Pct[] array from either payload shape, or null if absent / not an array. */
+function pctArray(payload: any): unknown[] | null {
+  const rec = oddsRecord(payload);
+  const pct = rec?.Pct ?? rec?.pct;
+  return Array.isArray(pct) ? pct : null;
+}
+
+/**
+ * Settlement value for ONE outcome of an odds record: its demargined implied probability × 1000.
+ * `outcomeIndex` is the market's oddKey used as the index into the parallel Pct[]/PriceNames[]
+ * arrays (convention: oddKey = the outcome's array position). Returns NaN if that entry is
+ * missing or unparseable — callers guard on it.
+ */
+function outcomeValue(payload: any, outcomeIndex: number): number {
+  const pct = pctArray(payload);
+  return pctToValue(pct?.[outcomeIndex]);
+}
+
+/**
+ * True only if an odds record carries a usable demargined percentage. Some TxLINE market types
+ * have 'push' behaviour (shared outcomes — e.g. quarter Asian handicaps like 2.25, some
+ * over/unders) and carry NO Pct[]; they can't be settled on a probability and must never become
+ * a signal market. Requires Pct to be a non-empty array of parseable numbers (either payload shape).
+ */
+export function hasPct(payload: any): boolean {
+  const pct = pctArray(payload);
+  return (
+    !!pct &&
+    pct.length > 0 &&
+    pct.every((p: unknown) => Number.isFinite(parseFloat(String(p))))
+  );
 }
 
 // auth headers now come from ./auth.ts (real subscribe -> sign -> activate flow)
@@ -58,29 +113,44 @@ export function subscribeStream(onEvent: (e: TxEvent) => void): () => void {
 
 /** Adapt a raw stream payload to a TxEvent. TODO: map to the real World Cup schema. */
 function normaliseStreamEvent(raw: any): TxEvent | null {
-  if (!raw || raw.fixtureId == null) return null;
-  if (raw.type === "odds" || raw.odds) {
+  // The real payload uses PascalCase (FixtureId/MessageId/Ts/Pct); accept camelCase too.
+  if (!raw) return null;
+  const fixtureId = Number(raw.FixtureId ?? raw.fixtureId);
+  if (!Number.isFinite(fixtureId)) return null;
+
+  if (raw.type === "odds" || raw.odds || raw.Pct) {
+    // Only expose signal markets on odds that carry a demargined percentage. Push-behaviour
+    // markets (shared outcomes — quarter Asian handicaps like 2.25, some over/unders) carry NO
+    // Pct[] and can't be settled on a probability, so skip them — never create a Pct-less market.
+    if (!hasPct(raw)) {
+      log.debug("skipping push/no-Pct market", "fixture", fixtureId, "odd", raw.oddKey ?? raw.marketKey ?? raw.statKey);
+      return null;
+    }
+    // oddKey identifies which outcome of the line this refers to, and doubles as the index into
+    // the parallel Pct[] array (convention: oddKey = the outcome's array position). Settle on that
+    // outcome's demargined implied probability × 1000.
+    const oddKey = Number(raw.oddKey ?? raw.marketKey ?? raw.statKey ?? 0);
     return {
       kind: "odds",
-      fixtureId: Number(raw.fixtureId),
-      statKey: Number(raw.marketKey ?? raw.statKey ?? 0),
-      value: Math.round(Number(raw.price ?? raw.odds) * 1000),
-      messageId: String(raw.messageId ?? raw.id),
-      ts: Number(raw.ts ?? raw.timestamp ?? Date.now()),
+      fixtureId,
+      oddKey,
+      value: outcomeValue(raw, oddKey),
+      messageId: String(raw.MessageId ?? raw.messageId ?? raw.id),
+      ts: Number(raw.Ts ?? raw.ts ?? raw.timestamp ?? Date.now()),
       raw,
     };
   }
   if (raw.type === "score" || raw.score) {
     return {
       kind: "score",
-      fixtureId: Number(raw.fixtureId),
-      statKey: Number(raw.statKey ?? 0),
+      fixtureId,
+      oddKey: Number(raw.oddKey ?? raw.statKey ?? 0),
       value: Number(raw.value ?? raw.score),
       raw,
     };
   }
   if (raw.type === "status" || raw.status) {
-    return { kind: "status", fixtureId: Number(raw.fixtureId), status: String(raw.status), raw };
+    return { kind: "status", fixtureId, status: String(raw.status), raw };
   }
   return null;
 }
@@ -100,24 +170,34 @@ export async function getScoreProof(fixtureId: number, statKey: number): Promise
  * Requires BOTH messageId and ts — messageId alone is not sufficient.
  * Odds use a TWO-stage proof (subTree + mainTree); scores use three-stage.
  */
-export async function getOddsProof(messageId: string, ts: number | string): Promise<ProofResult> {
+export async function getOddsProof(
+  messageId: string,
+  ts: number | string,
+  outcomeIndex: number
+): Promise<ProofResult> {
   const url = `${CONFIG.txlineBaseUrl}/api/odds/validation?messageId=${encodeURIComponent(messageId)}&ts=${encodeURIComponent(String(ts))}`;
   const res = await fetch(url, { headers: authHeaders() });
   if (!res.ok) throw new Error(`odds proof ${res.status} for ${messageId}@${ts}`);
-  return parseOddsValidation(await res.json());
+  return parseOddsValidation(await res.json(), outcomeIndex);
 }
 
 /**
  * Parse an OddsValidation response into the ProofResult resolve_market expects.
  * Forwards BOTH subTreeProof and mainTreeProof (two-stage) — see README seam #2.
- * TODO: confirm the integer scale/units of odds.Prices[] (asked in Discord thread)
- * before treating it as price*1000; adjust the value scaling here once confirmed.
+ *
+ * Settlement value comes from Pct[outcomeIndex] — the demargined implied PROBABILITY for the
+ * outcome this market tracks, a 3-decimal percent string like "39.432" — NOT Prices[] (decimal-odds
+ * × 1000, e.g. 2536 = 2.536). `outcomeIndex` is the market's oddKey (convention: oddKey = the
+ * outcome's index into the parallel Pct[]/PriceNames[] arrays). pctToValue scales × 1000
+ * ("39.432" -> 39432): probability × 1000, matching the market's level L so the comparison lines up.
  */
-function parseOddsValidation(json: any): ProofResult {
-  const odds = json.odds ?? {};
-  const priceIdx = 0; // TODO: index into odds.PriceNames[] for the outcome this market tracks
-  const rawPrice = Number(odds.Prices?.[priceIdx] ?? odds.prices?.[priceIdx] ?? 0);
-  const value = Math.round(rawPrice); // TODO: apply confirmed scale (bp vs prob*100) once known
+function parseOddsValidation(json: any, outcomeIndex: number): ProofResult {
+  const value = outcomeValue(json, outcomeIndex);
+  if (!Number.isFinite(value)) {
+    // No usable Pct at this index — a push market or a bad oddKey. Fail loudly rather than
+    // submit a NaN value on-chain; markets should only ever be created on Pct-bearing odds.
+    throw new Error(`odds validation has no usable Pct[${outcomeIndex}] for ${json?.odds?.MessageId ?? "?"}`);
+  }
   const subTree = json.subTreeProof ?? [];
   const mainTree = json.mainTreeProof ?? [];
   const proofBytes = encodeTwoStageProof(subTree, mainTree);

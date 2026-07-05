@@ -1,69 +1,72 @@
 use anchor_lang::prelude::*;
-use anchor_lang::solana_program::pubkey;
 use anchor_spl::token::{self, Mint, Token, TokenAccount, Transfer};
 
 declare_id!("Fg6PaFpoGXkYsidMpWTK6W2BeZ7FEfcYkg476zPFsLnS");
 
-// Placeholder. Replace with the real TxLINE validator program id from
-// https://txline-docs.txodds.com/documentation/programs/addresses
-pub const TXLINE_PROGRAM_ID: Pubkey = pubkey!("Fg6PaFpoGXkYsidMpWTK6W2BeZ7FEfcYkg476zPFsLnS");
+// Placeholder sentinel (Solana's System Program id) so an un-swapped build fails loudly
+// instead of silently CPI-ing into something plausible-looking. Before deploying, point
+// this at the real TxLINE validator (see
+// https://txline-docs.txodds.com/documentation/programs/addresses) or, for a devnet demo,
+// at `mock_validator`'s deployed program id.
+pub const TXLINE_PROGRAM_ID: Pubkey = anchor_lang::solana_program::system_program::ID;
 
 pub const BPS_DENOMINATOR: u64 = 10_000;
 
-// ----- enum-like u8 constants (kept as u8 for simple, robust serialization) -----
-pub const CMP_LTE: u8 = 0;
-pub const CMP_GTE: u8 = 1;
-pub const CMP_EQ: u8 = 2;
+// Market.side — which predicate this market resolves. Fixed at creation.
+pub const MARKET_SIDE_HOLD: u8 = 0;
+pub const MARKET_SIDE_BREAK: u8 = 1;
 
+// Position.side — which pool a deposit backs: that the market's declared
+// predicate comes true (YES) or doesn't (NO).
 pub const SIDE_YES: u8 = 1;
 pub const SIDE_NO: u8 = 2;
 
 pub const STATUS_OPEN: u8 = 0;
-pub const STATUS_LOCKED: u8 = 1;
-pub const STATUS_RESOLVED: u8 = 2;
+pub const STATUS_RESOLVED: u8 = 1;
 
 pub const OUTCOME_UNSET: u8 = 0;
 pub const OUTCOME_YES: u8 = 1;
 pub const OUTCOME_NO: u8 = 2;
 
-// market_type: 0 = score stat, 1 = odds threshold, 2 = odds movement
-// resolution_mode: 0 = deterministic, 1 = optimistic
-
 #[program]
 pub mod signal_markets {
     use super::*;
 
-    /// Host creates a market over a TxLINE-settleable predicate and inits the USDC vault PDA.
+    /// Opens a market over a single TxLINE-settleable odd and inits its USDC vault PDA.
+    /// `level` is the L snapped from TxLINE's anchored StablePrice at market open
+    /// (support = current - delta for a HOLD market, resistance = current + delta for BREAK).
+    /// L is on the same scale as the values submitted to `resolve_market`: TxLINE's demargined
+    /// implied probability × 1000 (a 3-decimal percent as an integer, e.g. 39.432% -> 39432),
+    /// so the crossing comparison is apples-to-apples. This program stays scale-agnostic — the
+    /// keeper is responsible for supplying L and the resolving value on this shared scale.
     pub fn create_market(
         ctx: Context<CreateMarket>,
-        market_id: u64,
         fixture_id: u64,
-        market_type: u8,
-        resolution_mode: u8,
-        predicate: Predicate,
+        odd_key: u64,
+        side: u8,
+        level: i64,
+        window_start: i64,
+        window_end: i64,
         fee_bps: u16,
-        deadline: i64,
-        group: Pubkey,
     ) -> Result<()> {
-        require!(fee_bps as u64 <= BPS_DENOMINATOR, MarketError::InvalidFee);
         require!(
-            matches!(predicate.comparator, CMP_LTE | CMP_GTE | CMP_EQ),
-            MarketError::InvalidComparator
+            side == MARKET_SIDE_HOLD || side == MARKET_SIDE_BREAK,
+            MarketError::InvalidMarketSide
         );
+        require!(window_end > window_start, MarketError::InvalidWindow);
+        require!(fee_bps as u64 <= BPS_DENOMINATOR, MarketError::InvalidFee);
 
         let m = &mut ctx.accounts.market;
-        m.market_id = market_id;
         m.fixture_id = fixture_id;
-        m.authority = ctx.accounts.authority.key();
+        m.odd_key = odd_key;
+        m.side = side;
+        m.level = level;
+        m.window_start = window_start;
+        m.window_end = window_end;
         m.usdc_mint = ctx.accounts.usdc_mint.key();
         m.vault = ctx.accounts.vault.key();
-        m.fee_recipient = ctx.accounts.authority.key();
-        m.group = group;
-        m.predicate = predicate;
+        m.authority = ctx.accounts.authority.key();
         m.fee_bps = fee_bps;
-        m.deadline = deadline;
-        m.market_type = market_type;
-        m.resolution_mode = resolution_mode;
         m.status = STATUS_OPEN;
         m.outcome = OUTCOME_UNSET;
         m.total_yes = 0;
@@ -73,20 +76,9 @@ pub mod signal_markets {
         Ok(())
     }
 
-    /// Optional grouping layer: a shared label + fee config that members predict under.
-    pub fn create_group(ctx: Context<CreateGroup>, group_id: u64, fee_bps: u16) -> Result<()> {
-        require!(fee_bps as u64 <= BPS_DENOMINATOR, MarketError::InvalidFee);
-        let g = &mut ctx.accounts.group;
-        g.group_id = group_id;
-        g.creator = ctx.accounts.creator.key();
-        g.market = ctx.accounts.market.key();
-        g.fee_bps = fee_bps;
-        g.member_count = 0;
-        g.bump = ctx.bumps.group;
-        Ok(())
-    }
-
-    /// User stakes USDC on a side. Funds move into the market vault PDA.
+    /// Stakes USDC into the vault on YES (the market's declared HOLD/BREAK predicate
+    /// comes true) or NO (it doesn't). Volume only informs the displayed profile —
+    /// it never settles the market.
     pub fn deposit(ctx: Context<Deposit>, side: u8, amount: u64) -> Result<()> {
         require!(side == SIDE_YES || side == SIDE_NO, MarketError::InvalidSide);
         require!(amount > 0, MarketError::ZeroAmount);
@@ -107,10 +99,7 @@ pub mod signal_markets {
         pos.market = ctx.accounts.market.key();
         pos.owner = ctx.accounts.user.key();
         pos.side = side;
-        pos.amount = pos
-            .amount
-            .checked_add(amount)
-            .ok_or(MarketError::Overflow)?;
+        pos.amount = pos.amount.checked_add(amount).ok_or(MarketError::Overflow)?;
         pos.claimed = false;
         pos.bump = ctx.bumps.position;
 
@@ -123,53 +112,95 @@ pub mod signal_markets {
         Ok(())
     }
 
-    /// Permissionless resolution. Verifies the datapoint against TxLINE on-chain,
-    /// then evaluates the deterministic predicate to set the outcome.
-    pub fn resolve_market(
-        ctx: Context<ResolveMarket>,
-        datapoint_value: i64,
+    /// Permissionless single-proof settlement.
+    ///
+    /// BREAK resolves the moment anyone submits the update where value >= L (one proof,
+    /// CPI'd through TxLINE's validator). HOLD is the mirror, settled optimistically: it
+    /// wins by default, and anyone may defeat it early by submitting the update where
+    /// value dipped below L. If the window closes with BREAK unproven or HOLD undefeated,
+    /// the default outcome wins outright — window_end doubles as HOLD's challenge close.
+    pub fn resolve_market<'info>(
+        ctx: Context<'_, '_, '_, 'info, ResolveMarket<'info>>,
+        value: i64,
         proof: Vec<u8>,
     ) -> Result<()> {
         require!(
-            ctx.accounts.market.status == STATUS_OPEN
-                || ctx.accounts.market.status == STATUS_LOCKED,
+            ctx.accounts.market.status == STATUS_OPEN,
             MarketError::AlreadyResolved
         );
 
+        let side = ctx.accounts.market.side;
+        let level = ctx.accounts.market.level;
+        let window_start = ctx.accounts.market.window_start;
+        let window_end = ctx.accounts.market.window_end;
+        let fixture_id = ctx.accounts.market.fixture_id;
+        let odd_key = ctx.accounts.market.odd_key;
+
+        let now = Clock::get()?.unix_timestamp;
+
+        // Challenge close: window is over with no resolving proof submitted.
+        // BREAK never crossed L -> loses. HOLD never got defeated -> wins.
+        if now >= window_end {
+            let outcome = if side == MARKET_SIDE_BREAK {
+                OUTCOME_NO
+            } else {
+                OUTCOME_YES
+            };
+            let m = &mut ctx.accounts.market;
+            m.outcome = outcome;
+            m.status = STATUS_RESOLVED;
+            return Ok(());
+        }
+
+        require!(now >= window_start, MarketError::WindowNotStarted);
+
         // ---- TxLINE validation seam ----
-        // CPI into the TxLINE validate instruction. Replace `proof` bytes with the
-        // anchor-encoded `validate_stat` call (discriminator + args) from the devnet IDL:
-        // https://txline-docs.txodds.com/documentation/programs/devnet
+        // Verifies `value` is the genuine anchored StablePrice datapoint `proof` claims
+        // it is. Swap the encoding inside `validate_with_txline` for the real IDL-encoded
+        // call once available; until then point TXLINE_PROGRAM_ID at `mock_validator`.
+        let mut cpi_accounts: Vec<AccountInfo> = ctx.remaining_accounts.to_vec();
+        cpi_accounts.push(ctx.accounts.txline_program.to_account_info());
+
         validate_with_txline(
-            &ctx.accounts.txline_program,
+            ctx.accounts.txline_program.key(),
             ctx.remaining_accounts,
+            &cpi_accounts,
+            fixture_id,
+            odd_key,
+            value,
             &proof,
         )?;
 
-        // ---- deterministic predicate evaluation over the verified value ----
-        let p = &ctx.accounts.market.predicate;
-        let hit = match p.comparator {
-            CMP_LTE => datapoint_value <= p.value,
-            CMP_GTE => datapoint_value >= p.value,
-            CMP_EQ => datapoint_value == p.value,
-            _ => return err!(MarketError::InvalidComparator),
+        // ---- deterministic predicate over the verified value ----
+        let outcome = match side {
+            MARKET_SIDE_BREAK if value >= level => OUTCOME_YES,
+            MARKET_SIDE_HOLD if value < level => OUTCOME_NO,
+            MARKET_SIDE_BREAK | MARKET_SIDE_HOLD => {
+                return err!(MarketError::ProofDoesNotResolve)
+            }
+            _ => return err!(MarketError::InvalidMarketSide),
         };
 
         let m = &mut ctx.accounts.market;
-        m.outcome = if hit { OUTCOME_YES } else { OUTCOME_NO };
+        m.outcome = outcome;
         m.status = STATUS_RESOLVED;
         Ok(())
     }
 
-    /// Winner claims pro-rata payout from the vault. The fee_bps "cut" routes to the fee recipient.
+    /// Winner claims pro-rata payout from the vault. The fee_bps "cut" is taken on
+    /// winnings only and routes to the market authority. Non-custodial throughout.
     pub fn claim(ctx: Context<Claim>) -> Result<()> {
-        // capture scalars before taking the mutable position borrow
+        // capture scalars before taking the mutable market/position borrows
         let outcome = ctx.accounts.market.outcome;
         let total_yes = ctx.accounts.market.total_yes;
         let total_no = ctx.accounts.market.total_no;
         let fee_bps = ctx.accounts.market.fee_bps as u128;
         let bump = ctx.accounts.market.bump;
-        let market_id = ctx.accounts.market.market_id;
+        let fixture_id = ctx.accounts.market.fixture_id;
+        let odd_key = ctx.accounts.market.odd_key;
+        let market_side = ctx.accounts.market.side;
+        let level = ctx.accounts.market.level;
+        let window_start = ctx.accounts.market.window_start;
         let side = ctx.accounts.position.side;
         let stake = ctx.accounts.position.amount as u128;
 
@@ -199,9 +230,21 @@ pub mod signal_markets {
         let fee_u64 = u64::try_from(fee).map_err(|_| error!(MarketError::Overflow))?;
 
         // market PDA signs vault transfers
-        let mid = market_id.to_le_bytes();
+        let fid = fixture_id.to_le_bytes();
+        let oid = odd_key.to_le_bytes();
+        let side_arr = [market_side];
+        let level_b = level.to_le_bytes();
+        let ws_b = window_start.to_le_bytes();
         let bump_arr = [bump];
-        let seeds: &[&[u8]] = &[b"market".as_ref(), mid.as_ref(), bump_arr.as_ref()];
+        let seeds: &[&[u8]] = &[
+            b"market".as_ref(),
+            fid.as_ref(),
+            oid.as_ref(),
+            side_arr.as_ref(),
+            level_b.as_ref(),
+            ws_b.as_ref(),
+            bump_arr.as_ref(),
+        ];
         let signer: &[&[&[u8]]] = &[seeds];
 
         token::transfer(
@@ -237,10 +280,22 @@ pub mod signal_markets {
     }
 }
 
-// ---- TxLINE CPI helper (integration seam) ----
+// ---- TxLINE CPI helper (the single swappable integration seam) ----
+//
+// Takes the proof-only accounts (for building the instruction's AccountMetas) and the
+// full CPI account list (proof accounts + the validator program itself, for `invoke`)
+// as two independent slices rather than combining them here — combining accounts
+// sourced from different parts of `Context` (an `UncheckedAccount` field vs.
+// `remaining_accounts`) inside one function trips Anchor's invariant account-info
+// lifetimes; the caller already holds both in the same scope, so it combines them
+// before calling in.
 fn validate_with_txline(
-    txline_program: &UncheckedAccount,
+    program_id: Pubkey,
     proof_accounts: &[AccountInfo],
+    cpi_accounts: &[AccountInfo],
+    fixture_id: u64,
+    odd_key: u64,
+    value: i64,
     proof: &[u8],
 ) -> Result<()> {
     use anchor_lang::solana_program::instruction::{AccountMeta, Instruction};
@@ -255,23 +310,36 @@ fn validate_with_txline(
         })
         .collect();
 
+    // ---- SWAP HERE for the real TxLINE IDL-encoded call ----
+    // This layout is a placeholder: it binds `value` into the bytes sent for
+    // verification (so it travels alongside `proof` instead of being a bare,
+    // unrelated argument), but it is NOT the real TxLINE wire format. Once the
+    // tx-on-chain repo's IDL is in hand, replace this with the anchor-encoded
+    // `validate` instruction (8-byte discriminator + messageId/ts/proof args)
+    // and swap `proof_accounts` for the real validator's expected account list
+    // (batch-commitment PDA, etc.) instead of a raw remaining_accounts passthrough.
+    // `mock_validator` ignores all of this and returns Ok, so this seam is safe
+    // to point at it for a devnet demo in the meantime.
+    let mut data = Vec::with_capacity(24 + proof.len());
+    data.extend_from_slice(&fixture_id.to_le_bytes());
+    data.extend_from_slice(&odd_key.to_le_bytes());
+    data.extend_from_slice(&value.to_le_bytes());
+    data.extend_from_slice(proof);
+
     let ix = Instruction {
-        program_id: txline_program.key(),
+        program_id,
         accounts: metas,
-        data: proof.to_vec(),
+        data,
     };
 
-    let mut infos = proof_accounts.to_vec();
-    infos.push(txline_program.to_account_info());
-
-    invoke(&ix, &infos).map_err(|_| error!(MarketError::ValidationFailed))?;
+    invoke(&ix, cpi_accounts).map_err(|_| error!(MarketError::ValidationFailed))?;
     Ok(())
 }
 
 // =========================== Accounts ===========================
 
 #[derive(Accounts)]
-#[instruction(market_id: u64)]
+#[instruction(fixture_id: u64, odd_key: u64, side: u8, level: i64, window_start: i64)]
 pub struct CreateMarket<'info> {
     #[account(mut)]
     pub authority: Signer<'info>,
@@ -280,7 +348,14 @@ pub struct CreateMarket<'info> {
         init,
         payer = authority,
         space = 8 + Market::INIT_SPACE,
-        seeds = [b"market", market_id.to_le_bytes().as_ref()],
+        seeds = [
+            b"market",
+            fixture_id.to_le_bytes().as_ref(),
+            odd_key.to_le_bytes().as_ref(),
+            side.to_le_bytes().as_ref(),
+            level.to_le_bytes().as_ref(),
+            window_start.to_le_bytes().as_ref(),
+        ],
         bump
     )]
     pub market: Account<'info, Market>,
@@ -303,26 +378,6 @@ pub struct CreateMarket<'info> {
 }
 
 #[derive(Accounts)]
-#[instruction(group_id: u64)]
-pub struct CreateGroup<'info> {
-    #[account(mut)]
-    pub creator: Signer<'info>,
-
-    pub market: Account<'info, Market>,
-
-    #[account(
-        init,
-        payer = creator,
-        space = 8 + Group::INIT_SPACE,
-        seeds = [b"group", group_id.to_le_bytes().as_ref()],
-        bump
-    )]
-    pub group: Account<'info, Group>,
-
-    pub system_program: Program<'info, System>,
-}
-
-#[derive(Accounts)]
 #[instruction(side: u8)]
 pub struct Deposit<'info> {
     #[account(mut)]
@@ -330,7 +385,14 @@ pub struct Deposit<'info> {
 
     #[account(
         mut,
-        seeds = [b"market", market.market_id.to_le_bytes().as_ref()],
+        seeds = [
+            b"market",
+            market.fixture_id.to_le_bytes().as_ref(),
+            market.odd_key.to_le_bytes().as_ref(),
+            market.side.to_le_bytes().as_ref(),
+            market.level.to_le_bytes().as_ref(),
+            market.window_start.to_le_bytes().as_ref(),
+        ],
         bump = market.bump,
         constraint = market.status == STATUS_OPEN @ MarketError::MarketNotOpen,
     )]
@@ -361,20 +423,27 @@ pub struct Deposit<'info> {
 
 #[derive(Accounts)]
 pub struct ResolveMarket<'info> {
-    #[account(mut)]
-    pub keeper: Signer<'info>,
+    /// Permissionless: anyone may submit a resolving proof. Only pays the tx fee.
+    pub resolver: Signer<'info>,
 
     #[account(
         mut,
-        seeds = [b"market", market.market_id.to_le_bytes().as_ref()],
+        seeds = [
+            b"market",
+            market.fixture_id.to_le_bytes().as_ref(),
+            market.odd_key.to_le_bytes().as_ref(),
+            market.side.to_le_bytes().as_ref(),
+            market.level.to_le_bytes().as_ref(),
+            market.window_start.to_le_bytes().as_ref(),
+        ],
         bump = market.bump,
     )]
     pub market: Account<'info, Market>,
 
-    /// CHECK: TxLINE validator program, pinned by address.
+    /// CHECK: TxLINE validator program (or mock_validator on devnet), pinned by address.
     #[account(address = TXLINE_PROGRAM_ID)]
     pub txline_program: UncheckedAccount<'info>,
-    // proof accounts are passed as remaining_accounts
+    // proof-specific accounts (e.g. the batch-commitment PDA) are passed as remaining_accounts
 }
 
 #[derive(Accounts)]
@@ -383,7 +452,14 @@ pub struct Claim<'info> {
     pub user: Signer<'info>,
 
     #[account(
-        seeds = [b"market", market.market_id.to_le_bytes().as_ref()],
+        seeds = [
+            b"market",
+            market.fixture_id.to_le_bytes().as_ref(),
+            market.odd_key.to_le_bytes().as_ref(),
+            market.side.to_le_bytes().as_ref(),
+            market.level.to_le_bytes().as_ref(),
+            market.window_start.to_le_bytes().as_ref(),
+        ],
         bump = market.bump,
         constraint = market.status == STATUS_RESOLVED @ MarketError::NotResolved,
     )]
@@ -410,7 +486,7 @@ pub struct Claim<'info> {
 
     #[account(
         mut,
-        constraint = fee_token.owner == market.fee_recipient @ MarketError::Unauthorized,
+        constraint = fee_token.owner == market.authority @ MarketError::Unauthorized,
         constraint = fee_token.mint == market.usdc_mint @ MarketError::WrongMint,
     )]
     pub fee_token: Account<'info, TokenAccount>,
@@ -420,30 +496,19 @@ pub struct Claim<'info> {
 
 // =========================== State ===========================
 
-#[derive(AnchorSerialize, AnchorDeserialize, Clone, InitSpace)]
-pub struct Predicate {
-    pub stat_key: u32,
-    pub comparator: u8,
-    pub value: i64,
-    pub window_start: i64,
-    pub window_end: i64,
-}
-
 #[account]
 #[derive(InitSpace)]
 pub struct Market {
-    pub market_id: u64,
     pub fixture_id: u64,
-    pub authority: Pubkey,
+    pub odd_key: u64,
+    pub side: u8, // MARKET_SIDE_HOLD | MARKET_SIDE_BREAK
+    pub level: i64,
+    pub window_start: i64,
+    pub window_end: i64,
     pub usdc_mint: Pubkey,
     pub vault: Pubkey,
-    pub fee_recipient: Pubkey,
-    pub group: Pubkey,
-    pub predicate: Predicate,
+    pub authority: Pubkey,
     pub fee_bps: u16,
-    pub deadline: i64,
-    pub market_type: u8,
-    pub resolution_mode: u8,
     pub status: u8,
     pub outcome: u8,
     pub total_yes: u64,
@@ -457,20 +522,9 @@ pub struct Market {
 pub struct Position {
     pub market: Pubkey,
     pub owner: Pubkey,
-    pub side: u8,
+    pub side: u8, // SIDE_YES | SIDE_NO
     pub amount: u64,
     pub claimed: bool,
-    pub bump: u8,
-}
-
-#[account]
-#[derive(InitSpace)]
-pub struct Group {
-    pub group_id: u64,
-    pub creator: Pubkey,
-    pub market: Pubkey,
-    pub fee_bps: u16,
-    pub member_count: u32,
     pub bump: u8,
 }
 
@@ -482,18 +536,24 @@ pub enum MarketError {
     InvalidFee,
     #[msg("side must be YES (1) or NO (2)")]
     InvalidSide,
+    #[msg("market side must be HOLD (0) or BREAK (1)")]
+    InvalidMarketSide,
     #[msg("amount must be greater than zero")]
     ZeroAmount,
     #[msg("market is not open for deposits")]
     MarketNotOpen,
+    #[msg("window_end must be after window_start")]
+    InvalidWindow,
     #[msg("token account mint does not match the market USDC mint")]
     WrongMint,
     #[msg("arithmetic overflow")]
     Overflow,
     #[msg("market already resolved")]
     AlreadyResolved,
-    #[msg("invalid comparator")]
-    InvalidComparator,
+    #[msg("window has not started yet")]
+    WindowNotStarted,
+    #[msg("proof does not resolve this market yet (no crossing / no defeat)")]
+    ProofDoesNotResolve,
     #[msg("TxLINE proof validation failed")]
     ValidationFailed,
     #[msg("market is not resolved yet")]

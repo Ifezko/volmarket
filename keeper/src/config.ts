@@ -1,12 +1,6 @@
 import "dotenv/config";
 import { PublicKey } from "@solana/web3.js";
 
-function req(name: string): string {
-  const v = process.env[name];
-  if (!v) throw new Error(`Missing env var ${name} (see .env.example)`);
-  return v;
-}
-
 // Real values confirmed from github.com/txodds/tx-on-chain (README, as of the repo's last update).
 // NOTE: that repo is dated ~Sept-Nov 2025 and may predate World Cup coverage — see
 // scripts/check-worldcup-coverage.ts, run it before trusting these for the hackathon build.
@@ -33,9 +27,13 @@ export const CONFIG = {
   // exists on DEVNET right now — not mainnet. Devnet is the correct network for real-time.
   network,
   rpcUrl: process.env.SOLANA_RPC_URL ?? netDefaults.rpcUrl,
-  keeperKeypair: req("KEEPER_KEYPAIR"),
+  // Path to the keeper keypair file. Optional: on deployed hosts, set KEEPER_SECRET_KEY
+  // (a JSON byte array) instead, which takes priority — see loadKeeperKeypair in resolver.ts.
+  keeperKeypair: process.env.KEEPER_KEYPAIR ?? "",
   programId: new PublicKey(process.env.PROGRAM_ID ?? "Fg6PaFpoGXkYsidMpWTK6W2BeZ7FEfcYkg476zPFsLnS"), // your own signal_markets program
-  idlPath: process.env.IDL_PATH ?? "../signal_markets/target/idl/signal_markets.json",
+  // Self-contained IDL copied into keeper/ (see DEPLOY.md) so the keeper can be deployed
+  // on its own without the signal_markets/ workspace present next to it.
+  idlPath: process.env.IDL_PATH ?? "./signal_markets.idl.json",
   // TxLINE's own on-chain "txoracle" program — validate + subscribe CPI target.
   txlineProgramId: new PublicKey(process.env.TXLINE_PROGRAM_ID ?? netDefaults.txlineProgramId),
   txlineTokenMint: new PublicKey(process.env.TXLINE_TOKEN_MINT ?? netDefaults.tokenMint),
@@ -46,6 +44,10 @@ export const CONFIG = {
   // Service level: 1 = World Cup free, 60s delay. 12 = World Cup + Int Friendlies, free, real-time.
   // (Per the older tx-on-chain README, the *no-subscription* guest free tier only lists 9 leagues
   //  — no World Cup by name. Run scripts/check-worldcup-coverage.ts to confirm before building on it.)
+  // CONFIRMED (TxLINE, hackathon): on DEVNET during the hackathon, Level 1 is NOT downgraded —
+  // it delivers real-time data (equivalent to mainnet Level 12), so sub-minute windows work on
+  // devnet Level 1. This parity is a hackathon accommodation and likely won't persist afterward,
+  // so don't rely on devnet Level 1 being real-time in production.
   serviceLevel: Number(process.env.TXLINE_SERVICE_LEVEL ?? 1),
   txlineApiKey: process.env.TXLINE_API_KEY ?? "", // populated at runtime by activate() if left blank
   pollIntervalMs: Number(process.env.POLL_INTERVAL_MS ?? 15000),

@@ -2,26 +2,31 @@
 
 Non-custodial Solana settlement engine for **group prediction markets on second-order match signals**, settled trustlessly off TxLINE's on-chain Merkle proofs. Built for the TxODDS World Cup hackathon — **Prediction Markets & Settlement** track.
 
-This repo is the deterministic-settlement core: `create_market → deposit → resolve_market → claim`, plus a `create_group` layer and the TxLINE validation CPI seam.
+This repo is the deterministic-settlement core: `create_market → deposit → resolve_market → claim`, plus the TxLINE validation CPI seam.
 
 ## Why it's structured this way
 
-Funds only ever exist as USDC inside PDA vaults. Fiat on-ramping (naira → USDC) happens off-protocol via a third-party widget, so the licensing/KYC sits with the provider, not you. Resolution is permissionless: any keeper submits a TxLINE proof, the program CPIs into TxLINE's validator, and on success evaluates a deterministic predicate to set the outcome. No trusted admin touches the result.
+Funds only ever exist as USDC inside PDA vaults. Fiat on-ramping (naira → USDC) happens off-protocol via a third-party widget, so the licensing/KYC sits with the provider, not you. Resolution is permissionless: any keeper submits a TxLINE proof, the program CPIs into TxLINE's validator, and on success evaluates a deterministic HOLD/BREAK predicate to set the outcome. No trusted admin touches the result.
 
 ## Program surface
 
 | Instruction | Who | What |
 |---|---|---|
-| `create_market` | host | inits `Market` PDA + USDC vault PDA over a `Predicate` |
-| `create_group` | creator | inits a `Group` PDA (shared fee config / label) |
-| `deposit` | user | stakes USDC on YES/NO into the vault; records a `Position` |
-| `resolve_market` | keeper (permissionless) | CPIs TxLINE validator, then sets outcome from the predicate |
-| `claim` | winner | pro-rata payout from vault; `fee_bps` cut routes to fee recipient |
+| `create_market` | host | inits a `Market` PDA (fixture, odd, HOLD\|BREAK side, level, window, fee) + its USDC vault PDA |
+| `deposit` | user | stakes USDC on YES (predicate comes true) / NO into the vault; records a `Position` |
+| `resolve_market` | keeper (permissionless) | single-proof settlement — CPIs the TxLINE validator, then evaluates HOLD/BREAK against the verified value |
+| `claim` | winner | pro-rata payout from vault; `fee_bps` cut (on winnings only) routes to the market authority |
 
 ### Accounts
-- **Market** — config, predicate, per-side totals, status/outcome, vault.
+- **Market** — `[b"market", fixture_id, odd_key, side, level, window_start]`; fixture/odd/level/window, HOLD\|BREAK side, per-side (YES/NO) totals, status/outcome, vault, authority.
 - **Position** — `[b"position", market, owner, side]`; one per user per side (top-ups via `init_if_needed`).
-- **Group** — `[b"group", group_id]`; creator, fee, member count.
+
+### Settlement logic (`resolve_market`)
+- If `now >= window_end` with no resolving proof yet: the default outcome wins outright (BREAK → NO, it never crossed; HOLD → YES, it was never defeated). `window_end` doubles as HOLD's challenge close.
+- Otherwise the submitted `(value, proof)` is CPI-verified via `validate_with_txline`, then:
+  - **BREAK** market, `value >= level` → resolves YES immediately (the crossing happened).
+  - **HOLD** market, `value < level` → resolves NO immediately (defeated).
+  - Any other value doesn't move the market — the call reverts with `ProofDoesNotResolve` rather than silently no-op'ing.
 
 ### Payout math (in `claim`)
 ```

@@ -13,7 +13,7 @@ import { assert } from "chai";
 // Side / status constants mirror the on-chain program.
 const SIDE_YES = 1;
 const SIDE_NO = 2;
-const CMP_LTE = 0;
+const MARKET_SIDE_BREAK = 1;
 
 describe("signal_markets — deterministic settlement core", () => {
   const provider = anchor.AnchorProvider.env();
@@ -22,10 +22,13 @@ describe("signal_markets — deterministic settlement core", () => {
   const authority = provider.wallet as anchor.Wallet;
 
   let usdcMint: PublicKey;
-  const marketId = new anchor.BN(1);
   const fixtureId = new anchor.BN(99001);
+  const oddKey = new anchor.BN(1); // e.g. hash of (SuperOddsType, PriceName)
+  const level = new anchor.BN(60000); // L = implied probability × 1000 (60000 = 60.000%), from TxLINE's Pct[]
+  const windowStart = new anchor.BN(Math.floor(Date.now() / 1000) - 60);
+  const windowEnd = new anchor.BN(Math.floor(Date.now() / 1000) + 86400);
 
-  // Two stakers: alice on YES, bob on NO.
+  // Two stakers: alice on YES (BREAK happens), bob on NO (it doesn't).
   const alice = Keypair.generate();
   const bob = Keypair.generate();
 
@@ -43,7 +46,14 @@ describe("signal_markets — deterministic settlement core", () => {
     );
 
     [marketPda] = PublicKey.findProgramAddressSync(
-      [Buffer.from("market"), marketId.toArrayLike(Buffer, "le", 8)],
+      [
+        Buffer.from("market"),
+        fixtureId.toArrayLike(Buffer, "le", 8),
+        oddKey.toArrayLike(Buffer, "le", 8),
+        Buffer.from([MARKET_SIDE_BREAK]),
+        level.toArrayLike(Buffer, "le", 8),
+        windowStart.toArrayLike(Buffer, "le", 8),
+      ],
       program.programId
     );
     [vaultPda] = PublicKey.findProgramAddressSync(
@@ -57,26 +67,16 @@ describe("signal_markets — deterministic settlement core", () => {
     }
   });
 
-  it("creates a market with a deterministic predicate", async () => {
-    // Predicate: settling stat (e.g. home moneyline * 1000) <= 1500
-    const predicate = {
-      statKey: 1,
-      comparator: CMP_LTE,
-      value: new anchor.BN(1500),
-      windowStart: new anchor.BN(0),
-      windowEnd: new anchor.BN(0),
-    };
-
+  it("creates a BREAK market over a single odd", async () => {
     await program.methods
       .createMarket(
-        marketId,
         fixtureId,
-        1, // market_type: odds threshold
-        0, // resolution_mode: deterministic
-        predicate,
-        500, // fee_bps = 5%
-        new anchor.BN(Math.floor(Date.now() / 1000) + 86400),
-        PublicKey.default // no group
+        oddKey,
+        MARKET_SIDE_BREAK,
+        level,
+        windowStart,
+        windowEnd,
+        500 // fee_bps = 5%
       )
       .accounts({
         authority: authority.publicKey,
@@ -92,6 +92,7 @@ describe("signal_markets — deterministic settlement core", () => {
     const m = await program.account.market.fetch(marketPda);
     assert.equal(m.feeBps, 500);
     assert.equal(m.status, 0); // OPEN
+    assert.equal(m.side, MARKET_SIDE_BREAK);
   });
 
   it("takes deposits on both sides", async () => {
@@ -139,8 +140,9 @@ describe("signal_markets — deterministic settlement core", () => {
     assert.equal(m.totalNo.toNumber(), 100_000_000);
   });
 
-  // NOTE: resolve_market CPIs into the real TxLINE validator. For local tests,
-  // either (a) deploy a mock validator program at TXLINE_PROGRAM_ID that returns Ok,
-  // or (b) feature-gate the CPI. Then assert YES wins and alice claims stake + pool - fee.
-  it.skip("resolves via TxLINE proof and pays the winner (needs validator/mock)", async () => {});
+  // NOTE: resolve_market CPIs into TXLINE_PROGRAM_ID. For local tests, deploy
+  // mock_validator (accepts any proof) and point TXLINE_PROGRAM_ID at it before
+  // building, or feature-gate the CPI. Then assert YES wins and alice claims
+  // stake + pool - fee.
+  it.skip("resolves via a crossing proof and pays the winner (needs mock_validator deployed)", async () => {});
 });

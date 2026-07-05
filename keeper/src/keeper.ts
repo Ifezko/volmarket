@@ -1,20 +1,18 @@
 import type { Program } from "@coral-xyz/anchor";
 import { CONFIG, log } from "./config.js";
-import {
-  subscribeStream, getScoreProof, getOddsProof, type TxEvent, type ProofResult,
-} from "./txline.js";
-import {
-  loadMarkets, evaluatePredicate, inWindow,
-  MARKET_SCORE, RES_OPTIMISTIC, type WatchedMarket,
-} from "./markets.js";
+import { subscribeStream, getOddsProof, type TxEvent, type ProofResult } from "./txline.js";
+import { loadMarkets, crossingResolves, inWindow, type WatchedMarket } from "./markets.js";
 import { resolveMarket } from "./resolver.js";
 import { startMockFeed, mockProof } from "./mockFeed.js";
+
+// The program's post-window timeout branch settles the DEFAULT outcome (HOLD→YES, BREAK→NO)
+// without validating a proof — no anchored update is required to finalize it — so a trivial
+// placeholder is all resolve_market needs once now >= window_end.
+const TIMEOUT_PROOF: ProofResult = { value: 0, proofBytes: Buffer.alloc(0), accounts: [] };
 
 export async function runKeeper(program: Program) {
   let byFixture = await loadMarkets(program);
   const inFlight = new Set<string>(); // market pubkeys mid-resolution
-  // remember the last odds update per fixture so we can settle optimistic NO at the deadline
-  const lastOdds = new Map<number, { value: number; messageId: string; ts: number; minute: number }>();
 
   const handle = async (m: WatchedMarket, proof: ProofResult) => {
     const key = m.pubkey.toBase58();
@@ -27,73 +25,39 @@ export async function runKeeper(program: Program) {
     }
   };
 
+  // Every settlement rides the anchored odds line — internal stake never decides an outcome.
   const onEvent = async (e: TxEvent) => {
+    if (e.kind !== "odds" || e.value == null) return;
     const markets = byFixture.get(e.fixtureId);
     if (!markets?.length) return;
-    log.debug("event", e.kind, "fixture", e.fixtureId, "value", e.value);
+    const now = Math.floor(Date.now() / 1000);
+    log.debug("odds", "fixture", e.fixtureId, "odd", e.oddKey, "value", e.value);
 
-    if (e.kind === "odds" && e.value != null) {
-      const minute = (e.raw as any)?.minute ?? 0;
-      lastOdds.set(e.fixtureId, { value: e.value, messageId: e.messageId!, ts: e.ts!, minute });
-
-      for (const m of markets) {
-        if (m.marketType === MARKET_SCORE) continue;
-        if (e.statKey !== m.predicate.statKey) continue;
-        if (!inWindow(minute, m.predicate)) continue;
-        // a crossing that satisfies the predicate settles YES immediately
-        if (evaluatePredicate(e.value, m.predicate)) {
-          const proof = CONFIG.mock ? await mockProof(e.value) : await getOddsProof(e.messageId!, e.ts!);
-          await handle(m, proof);
-        }
-      }
-    }
-
-    if (e.kind === "score" && e.value != null) {
-      for (const m of markets) {
-        if (m.marketType !== MARKET_SCORE) continue;
-        if (e.statKey !== m.predicate.statKey) continue;
-        const proof = CONFIG.mock ? await mockProof(e.value) : await getScoreProof(e.fixtureId, m.predicate.statKey);
+    for (const m of markets) {
+      if (e.oddKey !== m.oddKey) continue;
+      if (!inWindow(now, m)) continue;
+      // BREAK: value>=level → YES; HOLD: value<level → NO. Submit the single deciding proof.
+      // m.oddKey is the outcome index into the odds record's parallel Pct[] arrays.
+      if (crossingResolves(m.side, e.value, m.level)) {
+        const proof = CONFIG.mock ? await mockProof(e.value) : await getOddsProof(e.messageId!, e.ts!, m.oddKey);
         await handle(m, proof);
-      }
-    }
-
-    if (e.kind === "status" && e.status === "ended") {
-      // settle deterministic score markets, and optimistic odds markets that never crossed (-> NO)
-      for (const m of markets) {
-        if (m.marketType === MARKET_SCORE) {
-          const proof = CONFIG.mock
-            ? await mockProof(m.predicate.value) // mock: trivially satisfy
-            : await getScoreProof(e.fixtureId, m.predicate.statKey);
-          await handle(m, proof);
-        } else if (m.resolutionMode === RES_OPTIMISTIC) {
-          const last = lastOdds.get(e.fixtureId);
-          if (!last) continue;
-          // submit the last odds update's proof; predicate fails -> NO
-          if (!evaluatePredicate(last.value, m.predicate)) {
-            const proof = CONFIG.mock ? await mockProof(last.value) : await getOddsProof(last.messageId, last.ts);
-            await handle(m, proof);
-          }
-        }
       }
     }
   };
 
-  // deadline sweeper: optimistic markets past deadline with no crossing -> settle NO
+  // Post-window sweeper: any still-open market whose window has closed settles to its default
+  // outcome (BREAK never broke → NO; HOLD never defeated → YES) via the program's timeout branch.
   const sweeper = setInterval(async () => {
     const now = Math.floor(Date.now() / 1000);
-    for (const [fixtureId, markets] of byFixture) {
+    for (const markets of byFixture.values()) {
       for (const m of markets) {
-        if (m.resolutionMode !== RES_OPTIMISTIC) continue;
-        if (now < m.deadline) continue;
-        const last = lastOdds.get(fixtureId);
-        if (!last || evaluatePredicate(last.value, m.predicate)) continue;
-        const proof = CONFIG.mock ? await mockProof(last.value) : await getOddsProof(last.messageId, last.ts);
-        await handle(m, proof);
+        if (now < m.windowEnd) continue;
+        await handle(m, TIMEOUT_PROOF);
       }
     }
   }, CONFIG.deadlineSweepMs);
 
-  // periodically refresh the market set (new markets created mid-tournament)
+  // periodically refresh the market set (new markets created mid-tournament, resolved ones drop out)
   const refresher = setInterval(async () => {
     byFixture = await loadMarkets(program);
   }, 60_000);

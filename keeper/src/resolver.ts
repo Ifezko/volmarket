@@ -6,9 +6,40 @@ import { CONFIG, log } from "./config.js";
 import { STATUS_RESOLVED } from "./markets.js";
 import type { ProofResult } from "./txline.js";
 
-export function buildProgram(): { program: Program; wallet: Wallet; connection: Connection } {
+/**
+ * Load the keeper signing key in two modes, in priority order:
+ *   (a) KEEPER_SECRET_KEY env var — a JSON byte array. Preferred on deployed hosts
+ *       (Railway/Fly/systemd), where you inject the secret rather than shipping a file.
+ *   (b) fall back to the keypair file at CONFIG.keeperKeypair (KEEPER_KEYPAIR).
+ * The key material itself is never logged — only which mode was used.
+ */
+function loadKeeperKeypair(): Keypair {
+  const inline = process.env.KEEPER_SECRET_KEY;
+  if (inline && inline.trim() !== "") {
+    let secret: unknown;
+    try {
+      secret = JSON.parse(inline);
+    } catch {
+      throw new Error("KEEPER_SECRET_KEY is set but is not valid JSON (expected a byte array)");
+    }
+    if (!Array.isArray(secret)) {
+      throw new Error("KEEPER_SECRET_KEY must be a JSON array of bytes");
+    }
+    log.info("keeper key loaded from KEEPER_SECRET_KEY env var");
+    return Keypair.fromSecretKey(Uint8Array.from(secret as number[]));
+  }
+  if (!CONFIG.keeperKeypair) {
+    throw new Error(
+      "No keeper key configured: set KEEPER_SECRET_KEY (deployed hosts) or KEEPER_KEYPAIR (a keypair file path)"
+    );
+  }
   const secret = JSON.parse(readFileSync(CONFIG.keeperKeypair, "utf8"));
-  const keeper = Keypair.fromSecretKey(Uint8Array.from(secret));
+  log.info(`keeper key loaded from file ${CONFIG.keeperKeypair}`);
+  return Keypair.fromSecretKey(Uint8Array.from(secret));
+}
+
+export function buildProgram(): { program: Program; wallet: Wallet; connection: Connection } {
+  const keeper = loadKeeperKeypair();
   const connection = new Connection(CONFIG.rpcUrl, "confirmed");
   const wallet = new Wallet(keeper);
   const provider = new AnchorProvider(connection, wallet, { commitment: "confirmed" });
@@ -30,9 +61,10 @@ export async function isUnresolved(program: Program, market: PublicKey): Promise
 }
 
 /**
- * Submit resolve_market. The program CPIs into TxLINE's validator with `proofBytes`
- * and the `accounts` from the proof (passed as remaining_accounts), then evaluates
- * the deterministic predicate over `value` to set the outcome.
+ * Submit resolve_market. Inside the window the program CPIs into TxLINE's validator with
+ * `proofBytes` and the `accounts` from the proof (passed as remaining_accounts), then applies
+ * the HOLD/BREAK predicate to `value` (BREAK→YES if value>=level; HOLD→NO if value<level).
+ * Past window_end it takes the timeout branch and settles the default outcome without a proof.
  */
 export async function resolveMarket(
   program: Program,
@@ -46,11 +78,13 @@ export async function resolveMarket(
   try {
     const sig = await program.methods
       .resolveMarket(new BN(proof.value), Buffer.from(proof.proofBytes))
+      // `as any`: the Program is built from a runtime-loaded IDL, so Anchor can't statically
+      // type the accounts map (it collapses to `never`). The names match ResolveMarket in lib.rs.
       .accounts({
-        keeper: program.provider.publicKey,
+        resolver: program.provider.publicKey,
         market,
         txlineProgram: CONFIG.txlineProgramId,
-      })
+      } as any)
       .remainingAccounts(
         proof.accounts.map((pubkey) => ({ pubkey, isSigner: false, isWritable: false }))
       )
