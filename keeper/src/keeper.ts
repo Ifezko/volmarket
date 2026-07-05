@@ -37,9 +37,16 @@ export async function runKeeper(program: Program) {
       if (e.oddKey !== m.oddKey) continue;
       if (!inWindow(now, m)) continue;
       // BREAK: value>=level → YES; HOLD: value<level → NO. Submit the single deciding proof.
-      // m.oddKey is the outcome index into the odds record's parallel Pct[] arrays.
+      // getOddsProof resolves the value by matching m.oddKey's outcome label against PriceNames[];
+      // if it can't (unmapped label / no match), it throws and we skip — never settle wrongly.
       if (crossingResolves(m.side, e.value, m.level)) {
-        const proof = CONFIG.mock ? await mockProof(e.value) : await getOddsProof(e.messageId!, e.ts!, m.oddKey);
+        let proof: ProofResult;
+        try {
+          proof = CONFIG.mock ? await mockProof(e.value) : await getOddsProof(e.messageId!, e.ts!, m.oddKey);
+        } catch (err) {
+          log.error("cannot build proof, skipping", m.pubkey.toBase58(), String(err));
+          continue;
+        }
         await handle(m, proof);
       }
     }

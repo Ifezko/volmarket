@@ -58,15 +58,51 @@ function pctArray(payload: any): unknown[] | null {
   return Array.isArray(pct) ? pct : null;
 }
 
+/** The PriceNames[] array from either payload shape, or null if absent / not an array. */
+function priceNamesArray(payload: any): unknown[] | null {
+  const rec = oddsRecord(payload);
+  const names = rec?.PriceNames ?? rec?.priceNames;
+  return Array.isArray(names) ? names : null;
+}
+
 /**
- * Settlement value for ONE outcome of an odds record: its demargined implied probability × 1000.
- * `outcomeIndex` is the market's oddKey used as the index into the parallel Pct[]/PriceNames[]
- * arrays (convention: oddKey = the outcome's array position). Returns NaN if that entry is
- * missing or unparseable — callers guard on it.
+ * Map a market's oddKey to the outcome LABEL exactly as it appears in a TxLINE odds record's
+ * PriceNames[]. We resolve by label (see resolveOutcomeValue), never a raw index, so a market
+ * always settles on the outcome it was created for regardless of PriceNames[] ordering.
+ *
+ * TODO(txline): fill in the real oddKey -> PriceNames label map once TxLINE confirms the exact
+ * PriceNames[] strings per market type. Expected shape (UNCONFIRMED — do not rely on these yet):
+ *   1X2 / Match result:      "1" (home win) / "X" (draw) / "2" (away win)
+ *   Over/Under (e.g. 2.5):   "Over" / "Under"        (possibly "O 2.5" / "U 2.5")
+ *   BTTS (both teams score): "Yes" / "No"
+ * Until this is filled, real-feed outcomes never match and are safely SKIPPED (logged) rather than
+ * settled — a wrong/missing mapping can never resolve a market. Mock mode bypasses this path.
  */
-function outcomeValue(payload: any, outcomeIndex: number): number {
+const ODDKEY_TO_LABEL: Record<number, string> = {
+  // TODO(txline): e.g. once PriceNames are confirmed — 0: "1", 1: "X", 2: "2", 3: "Over", 4: "Under", ...
+};
+
+function outcomeLabel(oddKey: number): string | null {
+  return ODDKEY_TO_LABEL[oddKey] ?? null;
+}
+
+/**
+ * Settlement value for a market's outcome, resolved BY LABEL:
+ *   oddKey -> outcome label -> its index in the record's PriceNames[] -> Pct[] at that index,
+ *   scaled × 1000 (demargined implied probability). Returns null — never a guessed value — if the
+ * label is unknown or absent from PriceNames[], so an incomplete/bad mapping skips settlement
+ * instead of resolving on the wrong outcome.
+ */
+function resolveOutcomeValue(payload: any, oddKey: number): number | null {
+  const label = outcomeLabel(oddKey);
+  if (label == null) return null;
+  const names = priceNamesArray(payload);
   const pct = pctArray(payload);
-  return pctToValue(pct?.[outcomeIndex]);
+  if (!names || !pct) return null;
+  const idx = names.findIndex((n) => String(n) === label);
+  if (idx < 0 || idx >= pct.length) return null;
+  const value = pctToValue(pct[idx]);
+  return Number.isFinite(value) ? value : null;
 }
 
 /**
@@ -126,15 +162,19 @@ function normaliseStreamEvent(raw: any): TxEvent | null {
       log.debug("skipping push/no-Pct market", "fixture", fixtureId, "odd", raw.oddKey ?? raw.marketKey ?? raw.statKey);
       return null;
     }
-    // oddKey identifies which outcome of the line this refers to, and doubles as the index into
-    // the parallel Pct[] array (convention: oddKey = the outcome's array position). Settle on that
-    // outcome's demargined implied probability × 1000.
+    // Resolve the value by matching the market's outcome label against PriceNames[] (never a raw
+    // index). No match -> refuse to settle: log and drop the event so a bad mapping can't resolve wrongly.
     const oddKey = Number(raw.oddKey ?? raw.marketKey ?? raw.statKey ?? 0);
+    const value = resolveOutcomeValue(raw, oddKey);
+    if (value == null) {
+      log.error("no PriceNames match for oddKey — skipping (won't settle)", "fixture", fixtureId, "oddKey", oddKey, "label", outcomeLabel(oddKey));
+      return null;
+    }
     return {
       kind: "odds",
       fixtureId,
       oddKey,
-      value: outcomeValue(raw, oddKey),
+      value,
       messageId: String(raw.MessageId ?? raw.messageId ?? raw.id),
       ts: Number(raw.Ts ?? raw.ts ?? raw.timestamp ?? Date.now()),
       raw,
@@ -173,30 +213,30 @@ export async function getScoreProof(fixtureId: number, statKey: number): Promise
 export async function getOddsProof(
   messageId: string,
   ts: number | string,
-  outcomeIndex: number
+  oddKey: number
 ): Promise<ProofResult> {
   const url = `${CONFIG.txlineBaseUrl}/api/odds/validation?messageId=${encodeURIComponent(messageId)}&ts=${encodeURIComponent(String(ts))}`;
   const res = await fetch(url, { headers: authHeaders() });
   if (!res.ok) throw new Error(`odds proof ${res.status} for ${messageId}@${ts}`);
-  return parseOddsValidation(await res.json(), outcomeIndex);
+  return parseOddsValidation(await res.json(), oddKey);
 }
 
 /**
  * Parse an OddsValidation response into the ProofResult resolve_market expects.
  * Forwards BOTH subTreeProof and mainTreeProof (two-stage) — see README seam #2.
  *
- * Settlement value comes from Pct[outcomeIndex] — the demargined implied PROBABILITY for the
- * outcome this market tracks, a 3-decimal percent string like "39.432" — NOT Prices[] (decimal-odds
- * × 1000, e.g. 2536 = 2.536). `outcomeIndex` is the market's oddKey (convention: oddKey = the
- * outcome's index into the parallel Pct[]/PriceNames[] arrays). pctToValue scales × 1000
- * ("39.432" -> 39432): probability × 1000, matching the market's level L so the comparison lines up.
+ * Settlement value is the demargined implied PROBABILITY for the outcome this market tracks,
+ * resolved BY LABEL: oddKey -> outcome label -> its index in PriceNames[] -> Pct[] there (a
+ * 3-decimal percent string like "39.432") — NOT Prices[] (decimal-odds × 1000, e.g. 2536 = 2.536).
+ * Scaled × 1000 ("39.432" -> 39432): probability × 1000, matching the market's level L.
  */
-function parseOddsValidation(json: any, outcomeIndex: number): ProofResult {
-  const value = outcomeValue(json, outcomeIndex);
-  if (!Number.isFinite(value)) {
-    // No usable Pct at this index — a push market or a bad oddKey. Fail loudly rather than
-    // submit a NaN value on-chain; markets should only ever be created on Pct-bearing odds.
-    throw new Error(`odds validation has no usable Pct[${outcomeIndex}] for ${json?.odds?.MessageId ?? "?"}`);
+function parseOddsValidation(json: any, oddKey: number): ProofResult {
+  const value = resolveOutcomeValue(json, oddKey);
+  if (value == null) {
+    // The market's outcome label didn't match any PriceNames[] entry (unknown/unfilled mapping,
+    // or a push market). Refuse to settle rather than resolve on the wrong outcome — the keeper
+    // catches this and skips. Never settle on a guessed index.
+    throw new Error(`no PriceNames match for oddKey ${oddKey} (label ${outcomeLabel(oddKey)}); refusing to settle`);
   }
   const subTree = json.subTreeProof ?? [];
   const mainTree = json.mainTreeProof ?? [];

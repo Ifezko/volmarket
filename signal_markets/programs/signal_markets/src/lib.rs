@@ -298,7 +298,7 @@ fn validate_with_txline(
     value: i64,
     proof: &[u8],
 ) -> Result<()> {
-    use anchor_lang::solana_program::instruction::{AccountMeta, Instruction};
+    use anchor_lang::solana_program::instruction::Instruction; // AccountMeta comes from prelude::*
     use anchor_lang::solana_program::program::invoke;
 
     let metas: Vec<AccountMeta> = proof_accounts
