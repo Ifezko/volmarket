@@ -9,7 +9,7 @@ const NETWORK_DEFAULTS = {
     rpcUrl: "https://api.devnet.solana.com",
     txlineBaseUrl: "https://oracle-dev.txodds.com",
     txlineProgramId: "6pW64gN1s2uqjHkn1unFeEjAwJkPGHoppGvS715wyP2J",
-    tokenMint: "GYdhNurtx2EgiTPRHVGuFWKHPycdpUqgedVkwEVUWVTC",
+    tokenMint: "4Zao8ocPhmMgq7PdsYWyxvqySMGx7xb9cMftPMkEokRG", // confirmed devnet settlement mint
   },
   mainnet: {
     rpcUrl: "https://api.mainnet-beta.solana.com",

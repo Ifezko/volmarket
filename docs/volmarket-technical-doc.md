@@ -19,28 +19,29 @@ Existing prediction markets settle "who won." Volmarket lets you predict the **s
 ## 3. Architecture
 
 ```
-Frontend (match board → odd selector → live signal → predict/combine/group)
-      │  deposit USDC                                  ▲ read on-chain state
+Frontend (match board → odd selector → live signal → deposit / claim)
+      │  deposit USDC / claim                          ▲ read on-chain state
       ▼                                                │
-signal_markets (Anchor program)  ── escrow PDA, predicate, pro-rata payout, fee/cut
-      ▲ resolve_market(value, proof)  ──CPI──▶ TxLINE validate (on-chain Merkle root)
+signal_markets (Anchor program, devnet)  ── escrow vault PDA · HOLD|BREAK markets · pro-rata payout minus fee_bps
+      ▲ resolve_market(value, proof)  ──CPI──▶ validator (mock_validator on devnet; real TxLINE validate = open seam)
       │
-keeper (off-chain service) ── watches TxLINE SSE, fetches Merkle proof, fires resolve_market
-      ▲
-TxLINE ── StablePrice odds + scores, each update anchored on Solana
+keeper (off-chain service) ── watches TxLINE odds, matches open markets (SuperOddsType + MarketParameters),
+      ▲                        reads the outcome's Pct[] (× 1000), fetches the Merkle proof, fires resolve_market
+      │
+TxLINE oracle (oracle-dev.txodds.com) ── StablePrice odds, each update anchored on Solana
 ```
 
 Four components, all built:
-- **`signal_markets`** — Anchor program. Escrow vault PDAs, market/predicate/position accounts, permissionless `resolve_market` that CPIs into TxLINE's validator, pro-rata `claim` with a group fee (the "cut"). Non-custodial throughout.
-- **`keeper`** — TypeScript service. Subscribes to the TxLINE stream, maps events to open markets (read from chain), fetches the Merkle proof for each settling datapoint, and submits `resolve_market`. This is the autonomous-operation piece.
-- **`mock_validator`** — a tiny native program that approves any proof, so the full loop runs end-to-end on devnet for the demo without the live feed.
+- **`signal_markets`** — Anchor program. Escrow vault PDA + `Market`/`Position` accounts, permissionless `resolve_market` that CPIs the validator, pro-rata `claim` minus `fee_bps` (routed to the market authority). Non-custodial throughout.
+- **`keeper`** — TypeScript service. Watches the TxLINE odds stream, matches updates to open markets by SuperOddsType + MarketParameters (read from chain), reads the settling outcome's `Pct[]`, fetches the Merkle proof, and submits `resolve_market`. This is the autonomous-operation piece.
+- **`mock_validator`** — a tiny native program that approves any proof, so the full loop runs end-to-end on devnet for the demo without the real validator CPI.
 - **Frontend** — the match board and per-odd signal terminal, with combine/group/naira flows and an AI analyst.
 
 ## 4. How the signal is calculated & verified (the differentiator)
 
 The signal is two layers, obtained and verified differently:
 
-**The line (implied probability)** comes from TxLINE's **StablePrice** feed — demargined consensus odds, so the percentage reads as a true probability. Each odds update is an `Odds` record (`FixtureId`, `MessageId`, `Ts`, `SuperOddsType`, `PriceNames[]`, `Prices[]`, `InRunning`). The implied probability for an outcome is its `Prices[]` entry. Every update is committed into a batch whose Merkle root is anchored on Solana.
+**The line (implied probability)** comes from TxLINE's **StablePrice** feed — demargined consensus odds, so the percentage reads as a true probability. Each odds update is an `Odds` record (`FixtureId`, `MessageId`, `Ts`, `SuperOddsType`, `MarketParameters`, `PriceNames[]`, `Prices[]`, `Pct[]`, `InRunning`). The implied probability for an outcome is its **`Pct[]`** entry — a 3-decimal percent string (e.g. `"39.432"`) parallel to `PriceNames[]`. That is what settles; on-chain we scale it to an integer as `round(Pct × 1000)` (so `"39.432"` → `39432`). It is **not** `Prices[]`, which is decimal-odds × 1000 (e.g. `2536` = 2.536). Confirmed outcome labels: 1X2 (`1X2_PARTICIPANT_RESULT`) `PriceNames = ["part1","draw","part2"]` = home/draw/away; Over/Under (`OVERUNDER_PARTICIPANT_GOALS`) `PriceNames = ["over","under"]`, keyed together with `MarketParameters` (the goal line). BTTS is not in the feed right now. Every update is committed into a batch whose Merkle root is anchored on Solana.
 
 **The volume (support/resistance)** comes from Volmarket's own escrow — aggregate stake-by-level, publicly-readable on-chain state. Critically, **volume only *informs*; it never *settles*.** It shapes the displayed profile and suggests where a level sits, but no outcome is ever decided by internal stake. This hard wall is what makes the market non-manipulable: manufacturing internal volume moves the picture, not the payout.
 
@@ -50,26 +51,26 @@ The signal is two layers, obtained and verified differently:
 
 **Verification:** the odds line is provable via `GET /api/odds/validation?messageId&ts`, which returns the `Odds` record plus a two-stage Merkle proof (`subTreeProof` + `mainTreeProof`); reconstruct the root and compare to the on-chain root through TxLINE's `validate` instruction. Because the profile is a pure function of public, anchored data, anyone recomputes it identically — that reproducibility is the verification, with no trusted oracle.
 
-> Full detail in `signals-spec.md`.
-
 ## 5. Settlement design
 
-A market is five things: **fixture, odd, side (HOLD / BREAK), level L, window [t₀ … t₀+W]**. L is snapped from the anchored StablePrice at t₀ (support = current − δ, resistance = current + δ; δ fixed per market type in v1, volatility-scaled later).
+A market is: **fixture, odd (SuperOddsType + MarketParameters + outcome), side (HOLD / BREAK), level L, window [t₀ … t₀+W]**. The odd identity keys on SuperOddsType **and** MarketParameters, so different Over/Under lines (1.5 vs 2.5) are distinct on-chain markets (`market_params` is part of the market PDA). L is snapped from the anchored StablePrice at t₀ (support = current − δ, resistance = current + δ; δ fixed per market type in v1, volatility-scaled later). L and the settling value share one scale: **demargined probability × 1000**, read from `Pct[]`.
 
 - **HOLD** wins if the odd's implied probability stays **≥ L** for the whole window.
 - **BREAK** wins if it reaches **≥ L** at any point in the window.
 
-**Lifecycle**
-1. `create_market(side, L, window, …)` — opens the market, inits the USDC vault PDA.
+**Lifecycle** (actual on-chain signatures)
+1. `create_market(fixture_id, odd_key, market_params, side, level, window_start, window_end, fee_bps)` — opens the market, inits the USDC vault PDA. `odd_key` selects the SuperOddsType + outcome; `market_params` carries the line (Over/Under goal line × 100; 0 for 1X2).
 2. `deposit(side, amount)` — stakes USDC into the vault; a `Position` is recorded.
-3. `resolve_market(proof)` — **permissionless**, single-proof settlement (below).
+3. `resolve_market(value, proof)` — **permissionless**, single-proof settlement (below). The keeper matches a feed update to the market by SuperOddsType + MarketParameters, reads the outcome's `Pct[]` (× 1000) as `value`, then submits it with the proof.
 4. `claim()` — winners take pro-rata payout from the vault, minus `fee_bps`. Non-custodial throughout.
 
 **Single-proof settlement (cheap + trustless).** You never prove "stayed above the whole window" — you submit *one* anchored odds update:
-- **BREAK** resolves the moment anyone submits the update where prob ≥ L (one Merkle proof → CPI into TxLINE `validate`). No such update by t₀+W ⇒ BREAK loses.
-- **HOLD** is the mirror, settled **optimistically**: anyone may submit the single update where prob dipped **below** L to defeat it. If none is submitted by challenge close ⇒ HOLD wins.
+- **BREAK** resolves the moment anyone submits the update where prob ≥ L (one Merkle proof → CPI into the validator). No such update by t₀+W ⇒ BREAK loses (window close is the timeout).
+- **HOLD** is the mirror, settled **optimistically**: anyone may submit the single update where prob dipped **below** L to defeat it. If none is submitted by challenge close (window end) ⇒ HOLD wins.
 
-Everything settles on the **anchored line**. There are no pure-volume markets — internal stake never decides an outcome. Score/stat-based markets (if offered) use the three-stage score proof.
+Everything settles on the **anchored line**. There are no pure-volume markets — internal stake never decides an outcome. The program is odds-only; score/stat markets are not implemented.
+
+**Working today on devnet:** the full `create → deposit → resolve → claim` cycle runs end-to-end with real transaction signatures. `resolve` executes via the keeper (`npm run mock`), which CPIs into the deployed `mock_validator` (approves any proof — demo stand-in). The one remaining seam is swapping that CPI for the real TxLINE `validate` call (see §9 / the repo README).
 
 **Manipulation resistance** (designed; parameters gated off for the devnet demo):
 - **Line, not volume, settles** — the spine. Faking internal volume wins nothing.
@@ -80,18 +81,20 @@ Everything settles on the **anchored line**. There are no pure-volume markets �
 
 ## 6. TxLINE endpoints used
 
+**API host:** `oracle-dev.txodds.com` (devnet) / `oracle.txodds.com` (mainnet) — the real host per the tx-on-chain repo, **not** `txline.txodds.com` (docs site) or `txline-dev.txodds.com` (a separate Swagger UI).
+
 | Purpose | Endpoint |
 |---|---|
 | Guest session JWT (30-day) | `POST /auth/guest/start` |
 | Activate API token | `POST /api/token/activate` |
-| Live odds — the signal line | `GET /api/odds/stream` (SSE) |
+| Live odds — the signal line | `GET /api/guest/odds/stream` (SSE) |
 | Latest odds per market line | snapshots-of-the-latest-odds-for-a-fixture |
-| **Odds Merkle proof — line settlement** | `GET /api/odds/validation?messageId&ts` → `OddsValidation { odds, summary, subTreeProof, mainTreeProof }` |
+| **Odds Merkle proof — line settlement** | `GET /api/odds/validation?messageId&ts` → `OddsValidation { odds, summary, subTreeProof, mainTreeProof }`; the outcome's demargined probability is `odds.Pct[]` (settle on this, × 1000) — not `odds.Prices[]` |
 | Live scores | `GET /api/scores/stream` (SSE) |
-| **Score three-stage proof — stat settlement** | scores three-stage validation |
+| **Score three-stage proof — stat settlement** | scores three-stage validation (not used — the program is odds-only) |
 | On-chain validation (CPI target) | TxLINE program (Program Addresses + devnet/mainnet IDL) |
 
-All data calls send `Authorization: Bearer {JWT}` and `X-Api-Token: {token}`.
+All data calls send `Authorization: Bearer {JWT}` and `X-Api-Token: {token}`. Real-time on devnet: TxLINE confirmed **Level 1 is not downgraded on devnet during the hackathon** (real-time, equivalent to mainnet Level 12), so sub-minute windows work on devnet Level 1 — a hackathon accommodation that likely won't persist afterward.
 
 ## 7. Business & technical highlights
 
@@ -106,7 +109,7 @@ All data calls send `Authorization: Bearer {JWT}` and `X-Api-Token: {token}`.
 - **Core functionality & data ingestion** — live TxLINE odds/scores drive the markets; keeper ingests the SSE stream.
 - **Autonomous operation** — the keeper resolves markets with no human in the loop; `resolve_market` is permissionless.
 - **Logic & architecture** — deterministic predicate, on-chain Merkle verification via CPI, clean account model.
-- **Production readiness** — non-custodial escrow, idempotent single-proof resolution, and an explicit manipulation-resistance design (line-settles / level-from-anchored-odds / depth gate / position caps / cadence floor); devnet-deployable today via the mock validator.
+- **Production readiness** — the full `create → deposit → resolve → claim` loop is **deployed and working on devnet today** (real tx signatures; `resolve` runs autonomously via the keeper, CPI'ing the mock validator). Non-custodial escrow, idempotent single-proof resolution, and an explicit manipulation-resistance design (line-settles / level-from-anchored-odds / depth gate / position caps / cadence floor). The one open seam is swapping the mock validator CPI for TxLINE's real `validate` call.
 
 ## 9. Feedback on the TxLINE API
 
@@ -120,7 +123,8 @@ All data calls send `Authorization: Bearer {JWT}` and `X-Api-Token: {token}`.
 **Where we hit friction**
 - **Odds vs scores proof asymmetry:** odds use a two-stage proof (`subTreeProof` + `mainTreeProof`) while scores use a three-stage proof. Reasonable, but the difference isn't obvious from the endpoint names and cost us a wrong assumption early — a one-line note on each proof page would help.
 - **`ts` requirement:** the odds validation endpoint needs both `messageId` *and* `ts`. Since `messageId` is described as unique, needing `ts` too was surprising; documenting *why* (batch lookup) would save a round trip.
-- **`Prices[]` scale:** the integer encoding/scale of `Prices` (basis points? implied-prob ×100?) isn't stated inline, so we had to infer it from a sample. A units note on the `Odds` schema would remove ambiguity.
+- **`Pct[]` vs `Prices[]` (resolved):** a record carries both `Prices[]` (decimal-odds × 1000) and `Pct[]` (demargined implied probability, a 3-decimal percent string). Settlement rides on `Pct[]`, but which field is the true probability — and its scale/units — isn't stated inline; we confirmed it from live payloads. A one-line units note on the `Odds` schema (`Pct` = demargined % with 3 decimals; `Prices` = decimal-odds × 1000) would remove all ambiguity.
+- **Push markets carry no `Pct[]`:** some market types (shared-outcome / quarter Asian handicaps like 2.25, some over/unders) have 'push' behaviour and omit `Pct[]`; we skip these as unsettleable. Flagging push behaviour on the schema would help.
 - **Free-tier 60s sampling:** the 60-second cadence is fine for most in-play signals but limits fine-grained "did it cross in this 10s window" markets; clarifying which markets are viable per tier would help product scoping.
-- **StablePrice market coverage:** demargined StablePrice is noted as currently focused on key soccer markets — an explicit per-market coverage list for the World Cup would let us decide which odds to expose as signals with confidence.
+- **StablePrice market coverage:** demargined StablePrice is currently focused on key soccer markets — confirmed live: **1X2** (`PriceNames ["part1","draw","part2"]`) and **Over/Under** (`["over","under"]`, keyed by `MarketParameters`) are served; **BTTS is not** in the feed right now. An explicit per-market coverage list for the World Cup would let us decide which odds to expose as signals with confidence.
 - **JWT/token lifecycle:** the 30-day JWT plus separate API token is clear once read, but a short "refresh before expiry / handle 401" recipe in the quickstart would be a nice ergonomic addition for long-running services like our keeper.

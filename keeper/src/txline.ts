@@ -207,7 +207,7 @@ export async function getScoreProof(fixtureId: number, statKey: number): Promise
 }
 
 /**
- * Odds-update Merkle proof. Confirmed shape (docs/signals-spec.md):
+ * Odds-update Merkle proof. Confirmed shape (see docs/volmarket-technical-doc.md §6):
  *   GET /api/odds/validation?messageId={id}&ts={ts}
  *   -> OddsValidation { odds, summary, subTreeProof, mainTreeProof }
  * Requires BOTH messageId and ts — messageId alone is not sufficient.
