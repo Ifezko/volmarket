@@ -288,6 +288,29 @@
     <div class="right"><span class="chip">Sort: Volume ▾</span></div>
   </div>
 
+  <style>
+    .devnet{border:1px solid #2a2f3a;border-radius:14px;padding:14px 16px;margin:0 0 14px;background:rgba(91,200,214,.05)}
+    .dvhead{display:flex;align-items:center;gap:8px;font-weight:600;font-size:14px;color:#e7ecf3}
+    .dvdot{width:8px;height:8px;border-radius:50%;background:#2fc079;box-shadow:0 0 8px #2fc079;flex:none}
+    .dvsub{font-weight:400;color:#8a93a5;font-size:12px}
+    .dvsub a{color:#5BC8D6;text-decoration:none}
+    .dvbody{margin-top:10px;font-size:13px;color:#8a93a5}
+    .dvcount{font-size:12px;color:#8a93a5;margin-bottom:8px}
+    .dvrow{display:grid;grid-template-columns:1.1fr 1.5fr .7fr 1.7fr 1fr;gap:10px;align-items:center;padding:9px 10px;border:1px solid #2a2f3a;border-radius:10px;margin-bottom:6px;text-decoration:none;color:#e7ecf3}
+    .dvrow:hover{background:rgba(255,255,255,.03)}
+    .dvfix{font-weight:600}
+    .dvodd,.dvlvl,.dvtot,.dvst{color:#8a93a5;font-size:12px}
+    .dvst b.won{color:#2fc079}.dvst b.lost{color:#f3596b}
+    .dverr{color:#f3596b}.dverr a,.dvempty code{color:#5BC8D6}
+    .simnote{font-size:12px;color:#8a93a5;margin:0 0 12px}
+    @media(max-width:640px){.dvrow{grid-template-columns:1fr 1fr}}
+  </style>
+  <div id="devnetPanel" class="devnet">
+    <div class="dvhead"><span class="dvdot"></span>Live on devnet<span class="dvsub">real <code>Market</code> accounts from the deployed program · <a id="dvProg" target="_blank" rel="noopener"></a></span></div>
+    <div id="dvBody" class="dvbody">Loading on-chain markets…</div>
+  </div>
+  <p class="simnote">↓ The match board below is a <b>simulated preview</b>. Named fixtures (Brazil–Argentina, …) come from TxLINE's live feed, which isn't wired yet — on-chain, markets are keyed by numeric fixture id (see the panel above).</p>
+
   <div class="grid" id="grid"></div>
 </div>
 
@@ -336,6 +359,7 @@
 </div>
 
 
+<script src="https://unpkg.com/@solana/web3.js@1.95.3/lib/index.iife.min.js"></script>
 <script>
 let balance=250;
 const FL={Brazil:'🇧🇷',Argentina:'🇦🇷',France:'🇫🇷',England:'🏴',Spain:'🇪🇸',Germany:'🇩🇪',Portugal:'🇵🇹',Netherlands:'🇳🇱',USA:'🇺🇸',Mexico:'🇲🇽',Croatia:'🇭🇷',Belgium:'🇧🇪',Italy:'🇮🇹',Uruguay:'🇺🇾',Japan:'🇯🇵',Senegal:'🇸🇳',Nigeria:'🇳🇬',Ghana:'🇬🇭',Morocco:'🇲🇦',Colombia:'🇨🇴',Draw:'⚖️'};
@@ -757,7 +781,51 @@ addEventListener('keydown',e=>{if(e.key==='Escape'){closeHow();closeGroupsView()
 function openHow(){document.getElementById('howSpark').innerHTML=spark('howto',62,72);document.getElementById('howModal').classList.add('show');}
 function closeHow(){document.getElementById('howModal').classList.remove('show');}
 addEventListener('resize',drawSignal);
+
+// ---- LIVE devnet reader: decode real Market accounts from the deployed program ----
+const DEVNET_PROGRAM='86hERt8cdRZUBpc1Ng8coX2jwLmWGUcyc9JNfspw39yr';
+const DEVNET_RPC='https://api.devnet.solana.com';
+const ODD_LABELS={0:'1X2 · Home',1:'1X2 · Draw',2:'1X2 · Away',3:'Over/Under · Over',4:'Over/Under · Under'};
+const SIDE_LBL={0:'HOLD',1:'BREAK'};
+const OUTCOME_LBL={0:'—',1:'YES',2:'NO'};
+function decodeMarket(data){
+  const dv=new DataView(data.buffer,data.byteOffset,data.byteLength);
+  const u64=o=>Number(dv.getBigUint64(o,true)), i64=o=>Number(dv.getBigInt64(o,true));
+  return {fixtureId:u64(8),oddKey:u64(16),marketParams:u64(24),side:dv.getUint8(32),level:i64(33),
+    windowStart:i64(41),windowEnd:i64(49),feeBps:dv.getUint16(153,true),status:dv.getUint8(155),
+    outcome:dv.getUint8(156),totalYes:u64(157),totalNo:u64(165)};
+}
+async function loadDevnetMarkets(){
+  const prog=document.getElementById('dvProg');
+  prog.textContent=DEVNET_PROGRAM.slice(0,4)+'…'+DEVNET_PROGRAM.slice(-4);
+  prog.href='https://explorer.solana.com/address/'+DEVNET_PROGRAM+'?cluster=devnet';
+  const body=document.getElementById('dvBody');
+  if(!window.solanaWeb3){body.innerHTML='<span class="dverr">web3.js failed to load — check your connection.</span>';return;}
+  try{
+    const conn=new solanaWeb3.Connection(DEVNET_RPC,'confirmed');
+    const accts=await conn.getProgramAccounts(new solanaWeb3.PublicKey(DEVNET_PROGRAM),{filters:[{dataSize:175}]});
+    if(!accts.length){body.innerHTML='<span class="dvempty">No markets on-chain yet — run <code>keeper/scripts/demo-setup.ts</code> to create one on devnet.</span>';return;}
+    const now=Math.floor(Date.now()/1000);
+    const rows=accts.map(({pubkey,account})=>{
+      const m=decodeMarket(account.data);
+      const line=m.marketParams?' '+(m.marketParams/100).toFixed(1):'';
+      const open=m.windowStart<=now&&now<m.windowEnd;
+      const st=m.status===1?`RESOLVED · <b class="${m.outcome===1?'won':'lost'}">${OUTCOME_LBL[m.outcome]}</b>`:(open?'OPEN · in window':'OPEN');
+      return `<a class="dvrow" href="https://explorer.solana.com/address/${pubkey.toBase58()}?cluster=devnet" target="_blank" rel="noopener" title="View market account on Solana Explorer">
+        <span class="dvfix">Fixture #${m.fixtureId}</span>
+        <span class="dvodd">${(ODD_LABELS[m.oddKey]||'odd '+m.oddKey)+line} · ${SIDE_LBL[m.side]||m.side}</span>
+        <span class="dvlvl">L ${(m.level/1000).toFixed(3)}%</span>
+        <span class="dvtot">YES ${(m.totalYes/1e6).toFixed(2)} · NO ${(m.totalNo/1e6).toFixed(2)} USDC</span>
+        <span class="dvst">${st}</span></a>`;
+    }).join('');
+    body.innerHTML=`<div class="dvcount">${accts.length} market${accts.length>1?'s':''} live on devnet · click a row to open it on the explorer</div>`+rows;
+  }catch(e){
+    body.innerHTML=`<span class="dverr">Couldn't read devnet: ${String(e&&e.message||e).slice(0,90)}. The public RPC sometimes rate-limits <code>getProgramAccounts</code> — retry, or open the <a href="https://explorer.solana.com/address/${DEVNET_PROGRAM}?cluster=devnet" target="_blank" rel="noopener">program on the explorer</a>.</span>`;
+  }
+}
+
 renderGrid();
+loadDevnetMarkets();
 </script>
 </body>
 </html>
