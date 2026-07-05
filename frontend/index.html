@@ -356,7 +356,10 @@ const matches=[
 function splitResult(prob){let draw=Math.round(Math.max(18,Math.min(30,30-Math.abs(prob-50)/3)));let H=Math.round(prob*(100-draw)/100);let A=100-draw-H;return[H,draw,A];}
 function liveTag(m){return m.status==='live'?`<span class="mlive"><span class="pdot"></span>${m.min}'</span>`:m.status==='ht'?`<span class="mlive" style="color:var(--amber)">HT</span>`:`<span class="msoon">${m.ko}</span>`;}
 
-// odds lines per match — each has its own volume signal
+// odds lines per match — each has its own volume signal.
+// Feature 1X2 (Match result) and Over/Under only. BTTS ("both teams score") is intentionally
+// omitted: TxLINE isn't serving its SuperOddsType in the feed right now, so we can't settle it.
+// Re-add the BTTS lines here (and in ODD_OUTCOMES in keeper/src/markets.ts) once the feed carries it.
 function oddsLines(m){
   const [H,D,A]=splitResult(m.prob);
   return [
@@ -365,8 +368,7 @@ function oddsLines(m){
     {grp:'Match result',key:'res-a',label:m.b,fl:FL[m.b],prob:A},
     {grp:'Goals',key:'ov25',label:'Over 2.5 goals',fl:'⚽',prob:48},
     {grp:'Goals',key:'un25',label:'Under 2.5 goals',fl:'🛡️',prob:52},
-    {grp:'Both teams score',key:'btts-y',label:'BTTS — Yes',fl:'🤝',prob:60},
-    {grp:'Both teams score',key:'btts-n',label:'BTTS — No',fl:'🚫',prob:40},
+    // BTTS removed — not available in the TxLINE feed at present.
   ];
 }
 
@@ -402,7 +404,7 @@ function renderGrid(){
       </div>
       ${spark(m.id+'-h',H)}
       <div class="sigline"><span class="lab">${m.a} win signal</span><span>S ${H-6}% · ${H}% · R ${H+7}%</span></div>
-      <div class="mfoot"><span>7 odds · live signals</span><span class="vol">$${m.vol} Vol.</span></div>
+      <div class="mfoot"><span>5 odds · live signals</span><span class="vol">$${m.vol} Vol.</span></div>
     </div>`;
   }).join('');
 }
@@ -465,7 +467,7 @@ function openMatch(id){
         <div class="t">${m.b}<span class="fl">${FL[m.b]}</span></div>
       </div>
     </div>
-    <div class="dsub">${m.comp} · $${m.vol} traded · ${live?'7 odds with live signals':'pre-match odds · signals at kickoff'}</div>
+    <div class="dsub">${m.comp} · $${m.vol} traded · ${live?'5 odds with live signals':'pre-match odds · signals at kickoff'}</div>
 
     ${middle}
 

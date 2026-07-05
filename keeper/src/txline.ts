@@ -2,6 +2,7 @@ import EventSource from "eventsource";
 import { PublicKey } from "@solana/web3.js";
 import { CONFIG, log } from "./config.js";
 import { authHeaders } from "./auth.js";
+import { oddOutcome } from "./markets.js";
 
 /**
  * Normalised proof the on-chain `resolve_market` needs:
@@ -21,12 +22,14 @@ export interface ProofResult {
 export interface TxEvent {
   kind: "score" | "odds" | "status";
   fixtureId: number;
-  oddKey?: number;      // which odd (SuperOddsType + PriceName) the datapoint refers to
-  value?: number;       // scaled integer — odds: implied probability × 1000 (see pctToValue); score: as-is
-  messageId?: string;   // for odds updates — needed (with ts) to fetch their proof
-  ts?: number;          // for odds updates — REQUIRED alongside messageId (see getOddsProof)
-  status?: string;      // e.g. "in_play" | "ended"
-  raw: unknown;
+  superOddsType?: string; // odds: the record's SuperOddsType (matched against a market's odd type)
+  marketParams?: number;  // odds: parsed MarketParameters — Over/Under line × 100, 0 if none
+  value?: number;         // score: the scaled datapoint. Odds values are resolved PER MARKET from
+                          // `raw` (a record carries all outcomes' PriceNames[]/Pct[]), not stored here.
+  messageId?: string;     // for odds updates — needed (with ts) to fetch their proof
+  ts?: number;            // for odds updates — REQUIRED alongside messageId (see getOddsProof)
+  status?: string;        // e.g. "in_play" | "ended"
+  raw: unknown;           // odds: the record with PriceNames[]/Pct[] for per-market resolution
 }
 
 /**
@@ -65,41 +68,47 @@ function priceNamesArray(payload: any): unknown[] | null {
   return Array.isArray(names) ? names : null;
 }
 
-/**
- * Map a market's oddKey to the outcome LABEL exactly as it appears in a TxLINE odds record's
- * PriceNames[]. We resolve by label (see resolveOutcomeValue), never a raw index, so a market
- * always settles on the outcome it was created for regardless of PriceNames[] ordering.
- *
- * TODO(txline): fill in the real oddKey -> PriceNames label map once TxLINE confirms the exact
- * PriceNames[] strings per market type. Expected shape (UNCONFIRMED — do not rely on these yet):
- *   1X2 / Match result:      "1" (home win) / "X" (draw) / "2" (away win)
- *   Over/Under (e.g. 2.5):   "Over" / "Under"        (possibly "O 2.5" / "U 2.5")
- *   BTTS (both teams score): "Yes" / "No"
- * Until this is filled, real-feed outcomes never match and are safely SKIPPED (logged) rather than
- * settled — a wrong/missing mapping can never resolve a market. Mock mode bypasses this path.
- */
-const ODDKEY_TO_LABEL: Record<number, string> = {
-  // TODO(txline): e.g. once PriceNames are confirmed — 0: "1", 1: "X", 2: "2", 3: "Over", 4: "Under", ...
-};
-
-function outcomeLabel(oddKey: number): string | null {
-  return ODDKEY_TO_LABEL[oddKey] ?? null;
+/** The record's SuperOddsType (e.g. "1X2_PARTICIPANT_RESULT"), or null. */
+export function superOddsType(payload: any): string | null {
+  const rec = oddsRecord(payload);
+  const s = rec?.SuperOddsType ?? rec?.superOddsType;
+  return s != null ? String(s) : null;
 }
 
 /**
- * Settlement value for a market's outcome, resolved BY LABEL:
- *   oddKey -> outcome label -> its index in the record's PriceNames[] -> Pct[] at that index,
- *   scaled × 1000 (demargined implied probability). Returns null — never a guessed value — if the
- * label is unknown or absent from PriceNames[], so an incomplete/bad mapping skips settlement
- * instead of resolving on the wrong outcome.
+ * Parse a TxLINE MarketParameters string into the integer the on-chain `market_params` uses:
+ * Over/Under's goal line × 100 ("line=1.5" -> 150). 1X2 and other line-less types carry no
+ * MarketParameters -> 0. So two Over/Under lines (1.5 vs 2.5) map to different markets — this is
+ * the value the keeper compares against a market's marketParams to confirm it's the same line.
  */
-function resolveOutcomeValue(payload: any, oddKey: number): number | null {
-  const label = outcomeLabel(oddKey);
-  if (label == null) return null;
+export function parseMarketParams(marketParameters: unknown): number {
+  if (marketParameters == null) return 0;
+  const s = String(marketParameters);
+  const m = s.match(/line\s*=\s*(-?\d+(?:\.\d+)?)/i) ?? s.match(/(-?\d+(?:\.\d+)?)/);
+  return m ? Math.round(parseFloat(m[1]) * 100) : 0;
+}
+
+/** The record's MarketParameters, already parsed to the on-chain integer form. */
+export function recordMarketParams(payload: any): number {
+  const rec = oddsRecord(payload);
+  return parseMarketParams(rec?.MarketParameters ?? rec?.marketParameters);
+}
+
+/**
+ * Settlement value for a market's outcome, resolved BY LABEL against the CONFIRMED PriceNames
+ * conventions (see ODD_OUTCOMES in markets.ts):
+ *   oddKey -> outcome label (e.g. "part1"/"draw"/"part2", "over"/"under")
+ *          -> its index in the record's PriceNames[] -> Pct[] at that index, × 1000.
+ * Returns null — never a guessed value — if the oddKey is unknown or its label is absent from
+ * PriceNames[], so a bad/missing mapping SKIPS settlement instead of resolving the wrong outcome.
+ */
+export function resolveOutcomeValue(payload: any, oddKey: number): number | null {
+  const oc = oddOutcome(oddKey);
+  if (!oc) return null;
   const names = priceNamesArray(payload);
   const pct = pctArray(payload);
   if (!names || !pct) return null;
-  const idx = names.findIndex((n) => String(n) === label);
+  const idx = names.findIndex((n) => String(n) === oc.label);
   if (idx < 0 || idx >= pct.length) return null;
   const value = pctToValue(pct[idx]);
   return Number.isFinite(value) ? value : null;
@@ -159,22 +168,17 @@ function normaliseStreamEvent(raw: any): TxEvent | null {
     // markets (shared outcomes — quarter Asian handicaps like 2.25, some over/unders) carry NO
     // Pct[] and can't be settled on a probability, so skip them — never create a Pct-less market.
     if (!hasPct(raw)) {
-      log.debug("skipping push/no-Pct market", "fixture", fixtureId, "odd", raw.oddKey ?? raw.marketKey ?? raw.statKey);
+      log.debug("skipping push/no-Pct market", "fixture", fixtureId, "superOddsType", superOddsType(raw));
       return null;
     }
-    // Resolve the value by matching the market's outcome label against PriceNames[] (never a raw
-    // index). No match -> refuse to settle: log and drop the event so a bad mapping can't resolve wrongly.
-    const oddKey = Number(raw.oddKey ?? raw.marketKey ?? raw.statKey ?? 0);
-    const value = resolveOutcomeValue(raw, oddKey);
-    if (value == null) {
-      log.error("no PriceNames match for oddKey — skipping (won't settle)", "fixture", fixtureId, "oddKey", oddKey, "label", outcomeLabel(oddKey));
-      return null;
-    }
+    // A record covers ALL outcomes of one (SuperOddsType, MarketParameters) line. We carry it
+    // whole; the keeper matches each market by SuperOddsType + MarketParameters and resolves that
+    // market's outcome value from PriceNames[]/Pct[] (see resolveOutcomeValue).
     return {
       kind: "odds",
       fixtureId,
-      oddKey,
-      value,
+      superOddsType: superOddsType(raw) ?? undefined,
+      marketParams: recordMarketParams(raw),
       messageId: String(raw.MessageId ?? raw.messageId ?? raw.id),
       ts: Number(raw.Ts ?? raw.ts ?? raw.timestamp ?? Date.now()),
       raw,
@@ -184,7 +188,6 @@ function normaliseStreamEvent(raw: any): TxEvent | null {
     return {
       kind: "score",
       fixtureId,
-      oddKey: Number(raw.oddKey ?? raw.statKey ?? 0),
       value: Number(raw.value ?? raw.score),
       raw,
     };
@@ -233,10 +236,11 @@ export async function getOddsProof(
 function parseOddsValidation(json: any, oddKey: number): ProofResult {
   const value = resolveOutcomeValue(json, oddKey);
   if (value == null) {
-    // The market's outcome label didn't match any PriceNames[] entry (unknown/unfilled mapping,
-    // or a push market). Refuse to settle rather than resolve on the wrong outcome — the keeper
-    // catches this and skips. Never settle on a guessed index.
-    throw new Error(`no PriceNames match for oddKey ${oddKey} (label ${outcomeLabel(oddKey)}); refusing to settle`);
+    // The market's outcome label didn't match any PriceNames[] entry (unknown oddKey, or a push
+    // market). Refuse to settle rather than resolve on the wrong outcome — the keeper catches this
+    // and skips. Never settle on a guessed index.
+    const oc = oddOutcome(oddKey);
+    throw new Error(`no PriceNames match for oddKey ${oddKey} (label ${oc?.label ?? "?"}); refusing to settle`);
   }
   const subTree = json.subTreeProof ?? [];
   const mainTree = json.mainTreeProof ?? [];

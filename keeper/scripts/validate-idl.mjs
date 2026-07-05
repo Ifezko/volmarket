@@ -18,12 +18,13 @@ console.log("✓ Program constructed from IDL; programId =", program.programId.t
 // 2) The account coder must know Market (keeper does program.account.market.fetch/.all).
 const marketSize = program.account.market.size;
 console.log("✓ Market account coder present; on-chain size =", marketSize, "bytes");
-// Sanity: 8 disc + (8+8+1+8+8+8) + 32*3 + 2 + 1 + 1 + 8 + 8 + 1 + 1 = 167 (= 8 + Market::INIT_SPACE)
-if (marketSize !== 167) throw new Error(`unexpected Market size ${marketSize}, expected 167`);
+// Sanity: 8 disc + (8+8+8+1+8+8+8) + 32*3 + 2 + 1 + 1 + 8 + 8 + 1 + 1 = 175 (= 8 + Market::INIT_SPACE,
+// now +8 for market_params).
+if (marketSize !== 175) throw new Error(`unexpected Market size ${marketSize}, expected 175`);
 
 // 3) Round-trip a Market account through the coder (encode → decode) to prove the layout.
 const sample = {
-  fixtureId: new BN(99001), oddKey: new BN(1), side: 1, level: new BN(6000),
+  fixtureId: new BN(99001), oddKey: new BN(1), marketParams: new BN(150), side: 1, level: new BN(6000),
   windowStart: new BN(1000), windowEnd: new BN(2000),
   usdcMint: PublicKey.default, vault: PublicKey.default, authority: PublicKey.default,
   feeBps: 500, status: 0, outcome: 0, totalYes: new BN(0), totalNo: new BN(0),
@@ -31,7 +32,7 @@ const sample = {
 };
 const encoded = await program.coder.accounts.encode("market", sample);
 const decoded = program.coder.accounts.decode("market", encoded);
-for (const k of ["fixtureId", "oddKey", "side", "level", "windowStart", "windowEnd", "status", "totalYes", "totalNo"]) {
+for (const k of ["fixtureId", "oddKey", "marketParams", "side", "level", "windowStart", "windowEnd", "status", "totalYes", "totalNo"]) {
   const a = decoded[k]?.toString?.() ?? String(decoded[k]);
   const b = sample[k]?.toString?.() ?? String(sample[k]);
   if (a !== b) throw new Error(`Market field ${k} round-trip mismatch: ${a} !== ${b}`);

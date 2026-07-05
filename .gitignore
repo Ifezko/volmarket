@@ -9,3 +9,4 @@ test-ledger/
 # Secrets & local artifacts — never commit
 *id.json
 keeper/signal_markets.idl.json
+keeper/.demo-state.json

@@ -1,14 +1,12 @@
 use anchor_lang::prelude::*;
 use anchor_spl::token::{self, Mint, Token, TokenAccount, Transfer};
 
-declare_id!("Fg6PaFpoGXkYsidMpWTK6W2BeZ7FEfcYkg476zPFsLnS");
+declare_id!("86hERt8cdRZUBpc1Ng8coX2jwLmWGUcyc9JNfspw39yr");
 
-// Placeholder sentinel (Solana's System Program id) so an un-swapped build fails loudly
-// instead of silently CPI-ing into something plausible-looking. Before deploying, point
-// this at the real TxLINE validator (see
-// https://txline-docs.txodds.com/documentation/programs/addresses) or, for a devnet demo,
-// at `mock_validator`'s deployed program id.
-pub const TXLINE_PROGRAM_ID: Pubkey = anchor_lang::solana_program::system_program::ID;
+// CPI target for proof validation. On devnet this points at our deployed `mock_validator`
+// (approves any proof — demo only). Swap for the real TxLINE validator before mainnet:
+// https://txline-docs.txodds.com/documentation/programs/addresses
+pub const TXLINE_PROGRAM_ID: Pubkey = anchor_lang::pubkey!("FPnwSSp2DXcNvJnxXWc2JXvU4MLNfrWDT6wBcU5Eptse");
 
 pub const BPS_DENOMINATOR: u64 = 10_000;
 
@@ -39,10 +37,18 @@ pub mod signal_markets {
     /// implied probability × 1000 (a 3-decimal percent as an integer, e.g. 39.432% -> 39432),
     /// so the crossing comparison is apples-to-apples. This program stays scale-agnostic — the
     /// keeper is responsible for supplying L and the resolving value on this shared scale.
+    ///
+    /// A market's identity is (fixture, odd, params, side, level, window_start). `odd_key`
+    /// selects the SuperOddsType + outcome (e.g. 1X2 home, Over/Under over); `market_params`
+    /// carries the SuperOddsType's parameters so different lines are distinct markets — for
+    /// Over/Under it's the goal line × 100 (1.5 -> 150, 2.5 -> 250); 0 when there is no line
+    /// (e.g. 1X2). The keeper matches a TxLINE odds record to a market by SuperOddsType AND
+    /// MarketParameters, so these must line up with what it derives from the feed.
     pub fn create_market(
         ctx: Context<CreateMarket>,
         fixture_id: u64,
         odd_key: u64,
+        market_params: u64,
         side: u8,
         level: i64,
         window_start: i64,
@@ -59,6 +65,7 @@ pub mod signal_markets {
         let m = &mut ctx.accounts.market;
         m.fixture_id = fixture_id;
         m.odd_key = odd_key;
+        m.market_params = market_params;
         m.side = side;
         m.level = level;
         m.window_start = window_start;
@@ -198,6 +205,7 @@ pub mod signal_markets {
         let bump = ctx.accounts.market.bump;
         let fixture_id = ctx.accounts.market.fixture_id;
         let odd_key = ctx.accounts.market.odd_key;
+        let market_params = ctx.accounts.market.market_params;
         let market_side = ctx.accounts.market.side;
         let level = ctx.accounts.market.level;
         let window_start = ctx.accounts.market.window_start;
@@ -232,6 +240,7 @@ pub mod signal_markets {
         // market PDA signs vault transfers
         let fid = fixture_id.to_le_bytes();
         let oid = odd_key.to_le_bytes();
+        let mp_b = market_params.to_le_bytes();
         let side_arr = [market_side];
         let level_b = level.to_le_bytes();
         let ws_b = window_start.to_le_bytes();
@@ -240,6 +249,7 @@ pub mod signal_markets {
             b"market".as_ref(),
             fid.as_ref(),
             oid.as_ref(),
+            mp_b.as_ref(),
             side_arr.as_ref(),
             level_b.as_ref(),
             ws_b.as_ref(),
@@ -339,7 +349,7 @@ fn validate_with_txline(
 // =========================== Accounts ===========================
 
 #[derive(Accounts)]
-#[instruction(fixture_id: u64, odd_key: u64, side: u8, level: i64, window_start: i64)]
+#[instruction(fixture_id: u64, odd_key: u64, market_params: u64, side: u8, level: i64, window_start: i64)]
 pub struct CreateMarket<'info> {
     #[account(mut)]
     pub authority: Signer<'info>,
@@ -352,6 +362,7 @@ pub struct CreateMarket<'info> {
             b"market",
             fixture_id.to_le_bytes().as_ref(),
             odd_key.to_le_bytes().as_ref(),
+            market_params.to_le_bytes().as_ref(),
             side.to_le_bytes().as_ref(),
             level.to_le_bytes().as_ref(),
             window_start.to_le_bytes().as_ref(),
@@ -389,6 +400,7 @@ pub struct Deposit<'info> {
             b"market",
             market.fixture_id.to_le_bytes().as_ref(),
             market.odd_key.to_le_bytes().as_ref(),
+            market.market_params.to_le_bytes().as_ref(),
             market.side.to_le_bytes().as_ref(),
             market.level.to_le_bytes().as_ref(),
             market.window_start.to_le_bytes().as_ref(),
@@ -432,6 +444,7 @@ pub struct ResolveMarket<'info> {
             b"market",
             market.fixture_id.to_le_bytes().as_ref(),
             market.odd_key.to_le_bytes().as_ref(),
+            market.market_params.to_le_bytes().as_ref(),
             market.side.to_le_bytes().as_ref(),
             market.level.to_le_bytes().as_ref(),
             market.window_start.to_le_bytes().as_ref(),
@@ -456,6 +469,7 @@ pub struct Claim<'info> {
             b"market",
             market.fixture_id.to_le_bytes().as_ref(),
             market.odd_key.to_le_bytes().as_ref(),
+            market.market_params.to_le_bytes().as_ref(),
             market.side.to_le_bytes().as_ref(),
             market.level.to_le_bytes().as_ref(),
             market.window_start.to_le_bytes().as_ref(),
@@ -501,6 +515,7 @@ pub struct Claim<'info> {
 pub struct Market {
     pub fixture_id: u64,
     pub odd_key: u64,
+    pub market_params: u64, // SuperOddsType params (Over/Under goal line × 100; 0 if none, e.g. 1X2)
     pub side: u8, // MARKET_SIDE_HOLD | MARKET_SIDE_BREAK
     pub level: i64,
     pub window_start: i64,

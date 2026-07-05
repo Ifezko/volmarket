@@ -23,7 +23,8 @@ describe("signal_markets — deterministic settlement core", () => {
 
   let usdcMint: PublicKey;
   const fixtureId = new anchor.BN(99001);
-  const oddKey = new anchor.BN(1); // e.g. hash of (SuperOddsType, PriceName)
+  const oddKey = new anchor.BN(0); // 0 = 1X2 home (part1); see ODD_OUTCOMES in keeper
+  const marketParams = new anchor.BN(0); // no line for 1X2 (Over/Under would use line × 100, e.g. 150)
   const level = new anchor.BN(60000); // L = implied probability × 1000 (60000 = 60.000%), from TxLINE's Pct[]
   const windowStart = new anchor.BN(Math.floor(Date.now() / 1000) - 60);
   const windowEnd = new anchor.BN(Math.floor(Date.now() / 1000) + 86400);
@@ -50,6 +51,7 @@ describe("signal_markets — deterministic settlement core", () => {
         Buffer.from("market"),
         fixtureId.toArrayLike(Buffer, "le", 8),
         oddKey.toArrayLike(Buffer, "le", 8),
+        marketParams.toArrayLike(Buffer, "le", 8),
         Buffer.from([MARKET_SIDE_BREAK]),
         level.toArrayLike(Buffer, "le", 8),
         windowStart.toArrayLike(Buffer, "le", 8),
@@ -72,6 +74,7 @@ describe("signal_markets — deterministic settlement core", () => {
       .createMarket(
         fixtureId,
         oddKey,
+        marketParams,
         MARKET_SIDE_BREAK,
         level,
         windowStart,

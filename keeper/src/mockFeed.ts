@@ -16,18 +16,31 @@ export function startMockFeed(fixtureId: number, onEvent: (e: TxEvent) => void):
     minute += 1;
     price = Math.max(1.4, Math.min(3.2, price + (Math.random() - 0.5) * 0.12));
     const messageId = `mock-${fixtureId}-${seq++}`;
-    // Emit on the SAME scale as the real feed: implied probability × 1000 (not odds × 1000).
-    // Implied prob% = (1 / decimalOdds) * 100, so value = round(100000 / price).
-    // e.g. odds 1.9 -> 52631 (52.631%); crosses a level of 60000 (60%) when odds dip below ~1.667.
-    const value = Math.round(100000 / price);
+    // Emit a realistic 1X2 record matching the confirmed TxLINE schema: SuperOddsType +
+    // PriceNames ["part1","draw","part2"] + Pct[] as 3-decimal percent strings. Home implied
+    // prob% = 100 / decimalOdds; split the remainder across draw/away. The keeper resolves each
+    // market's value from PriceNames/Pct just like the real feed (home crosses a level of 60000 =
+    // 60% when odds dip below ~1.667). No line for 1X2 -> MarketParameters empty (marketParams 0).
+    const homePct = 100 / price;
+    const drawPct = (100 - homePct) * 0.4;
+    const awayPct = 100 - homePct - drawPct;
     onEvent({
       kind: "odds",
       fixtureId,
-      oddKey: 0,
-      value,
+      superOddsType: "1X2_PARTICIPANT_RESULT",
+      marketParams: 0,
       messageId,
       ts: Math.floor(Date.now() / 1000),
-      raw: { minute, price },
+      raw: {
+        FixtureId: fixtureId,
+        MessageId: messageId,
+        SuperOddsType: "1X2_PARTICIPANT_RESULT",
+        MarketParameters: "",
+        PriceNames: ["part1", "draw", "part2"],
+        Pct: [homePct.toFixed(3), drawPct.toFixed(3), awayPct.toFixed(3)],
+        minute,
+        price,
+      },
     });
     if (minute >= 90) {
       clearInterval(id);

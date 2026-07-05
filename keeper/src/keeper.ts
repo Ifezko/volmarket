@@ -1,7 +1,7 @@
 import type { Program } from "@coral-xyz/anchor";
 import { CONFIG, log } from "./config.js";
-import { subscribeStream, getOddsProof, type TxEvent, type ProofResult } from "./txline.js";
-import { loadMarkets, crossingResolves, inWindow, type WatchedMarket } from "./markets.js";
+import { subscribeStream, getOddsProof, resolveOutcomeValue, type TxEvent, type ProofResult } from "./txline.js";
+import { loadMarkets, crossingResolves, inWindow, oddOutcome, type WatchedMarket } from "./markets.js";
 import { resolveMarket } from "./resolver.js";
 import { startMockFeed, mockProof } from "./mockFeed.js";
 
@@ -27,22 +27,34 @@ export async function runKeeper(program: Program) {
 
   // Every settlement rides the anchored odds line — internal stake never decides an outcome.
   const onEvent = async (e: TxEvent) => {
-    if (e.kind !== "odds" || e.value == null) return;
+    if (e.kind !== "odds") return;
     const markets = byFixture.get(e.fixtureId);
     if (!markets?.length) return;
     const now = Math.floor(Date.now() / 1000);
-    log.debug("odds", "fixture", e.fixtureId, "odd", e.oddKey, "value", e.value);
+    log.debug("odds", "fixture", e.fixtureId, "superOddsType", e.superOddsType, "params", e.marketParams);
 
     for (const m of markets) {
-      if (e.oddKey !== m.oddKey) continue;
+      // A market is keyed by SuperOddsType AND MarketParameters — match both, so e.g. Over/Under
+      // 1.5 and 2.5 are distinct and never cross-settle.
+      const oc = oddOutcome(m.oddKey);
+      if (!oc) continue;                             // odd type we don't expose
+      if (oc.superOddsType !== e.superOddsType) continue;
+      if (m.marketParams !== e.marketParams) continue;
+
+      // Safety rule: resolve this market's outcome by matching its label in PriceNames[]. No match
+      // -> do NOT settle: log and skip, so a bad/missing mapping can never resolve a market wrongly.
+      const value = resolveOutcomeValue(e.raw, m.oddKey);
+      if (value == null) {
+        log.error("no PriceNames match — skipping (won't settle)", m.pubkey.toBase58(), "oddKey", m.oddKey, "label", oc.label);
+        continue;
+      }
       if (!inWindow(now, m)) continue;
+
       // BREAK: value>=level → YES; HOLD: value<level → NO. Submit the single deciding proof.
-      // getOddsProof resolves the value by matching m.oddKey's outcome label against PriceNames[];
-      // if it can't (unmapped label / no match), it throws and we skip — never settle wrongly.
-      if (crossingResolves(m.side, e.value, m.level)) {
+      if (crossingResolves(m.side, value, m.level)) {
         let proof: ProofResult;
         try {
-          proof = CONFIG.mock ? await mockProof(e.value) : await getOddsProof(e.messageId!, e.ts!, m.oddKey);
+          proof = CONFIG.mock ? await mockProof(value) : await getOddsProof(e.messageId!, e.ts!, m.oddKey);
         } catch (err) {
           log.error("cannot build proof, skipping", m.pubkey.toBase58(), String(err));
           continue;

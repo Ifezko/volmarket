@@ -7,10 +7,39 @@ export const SIDE_HOLD = 0, SIDE_BREAK = 1;              // Market.side
 export const STATUS_OPEN = 0, STATUS_RESOLVED = 1;       // Market.status
 export const OUTCOME_UNSET = 0, OUTCOME_YES = 1, OUTCOME_NO = 2; // Market.outcome
 
+/**
+ * The odd outcomes we expose as signal markets — the FEATURED list — keyed by the on-chain
+ * market.odd_key. Confirmed against TxLINE live payloads: the keeper matches a market to a feed
+ * odds record by SuperOddsType AND MarketParameters, then reads Pct[] at the index whose
+ * PriceNames[] entry equals this outcome's `label`.
+ *
+ * Featured: 1X2 and Over/Under only. BTTS ("both teams score") is intentionally EXCLUDED — its
+ * SuperOddsType is not served by the TxLINE feed right now. Re-add it here (and unhide it in the
+ * frontend) once the feed carries it.
+ */
+export interface OddOutcome {
+  superOddsType: string; // TxLINE SuperOddsType
+  label: string;         // exact PriceNames[] string this outcome settles on
+  group: string;         // UI grouping
+}
+export const ODD_OUTCOMES: Record<number, OddOutcome> = {
+  0: { superOddsType: "1X2_PARTICIPANT_RESULT", label: "part1", group: "Match result" }, // home
+  1: { superOddsType: "1X2_PARTICIPANT_RESULT", label: "draw", group: "Match result" }, // draw
+  2: { superOddsType: "1X2_PARTICIPANT_RESULT", label: "part2", group: "Match result" }, // away
+  3: { superOddsType: "OVERUNDER_PARTICIPANT_GOALS", label: "over", group: "Over/Under" },
+  4: { superOddsType: "OVERUNDER_PARTICIPANT_GOALS", label: "under", group: "Over/Under" },
+  // BTTS ("both teams score") intentionally omitted — not in the TxLINE feed at present.
+};
+export function oddOutcome(oddKey: number): OddOutcome | null {
+  return ODD_OUTCOMES[oddKey] ?? null;
+}
+
 export interface WatchedMarket {
   pubkey: PublicKey;
   fixtureId: number;
-  oddKey: number;      // which odd (SuperOddsType + PriceName) this market tracks
+  oddKey: number;      // selects SuperOddsType + outcome (see ODD_OUTCOMES)
+  marketParams: number;// SuperOddsType params: Over/Under goal line × 100 (0 if none, e.g. 1X2).
+                       // Part of the market identity — different lines are different markets.
   side: number;        // SIDE_HOLD | SIDE_BREAK
   level: number;       // L: threshold in implied probability × 1000 (same scale as the settlement
                        // value — see pctToValue in txline.ts), snapped from StablePrice at open
@@ -30,6 +59,7 @@ export async function loadMarkets(program: Program): Promise<Map<number, Watched
       pubkey: publicKey,
       fixtureId: Number(account.fixtureId),
       oddKey: Number(account.oddKey),
+      marketParams: Number(account.marketParams),
       side: account.side,
       level: Number(account.level),
       windowStart: Number(account.windowStart),
