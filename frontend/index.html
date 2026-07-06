@@ -288,42 +288,6 @@
     <div class="right"><span class="chip">Sort: Volume ▾</span></div>
   </div>
 
-  <style>
-    .devnet{border:1px solid #2a2f3a;border-radius:14px;padding:14px 16px;margin:0 0 14px;background:rgba(91,200,214,.05)}
-    .dvhead{display:flex;align-items:center;gap:8px;font-weight:600;font-size:14px;color:#e7ecf3;flex-wrap:wrap}
-    .dvdot{width:8px;height:8px;border-radius:50%;background:#2fc079;box-shadow:0 0 8px #2fc079;flex:none}
-    .dvsub{font-weight:400;color:#8a93a5;font-size:12px}
-    .dvsub a{color:#5BC8D6;text-decoration:none}
-    .dvwallet{margin-left:auto;display:flex;gap:6px;align-items:center}
-    .dvamt{width:52px;background:#0d1017;border:1px solid #2a2f3a;color:#e7ecf3;border-radius:8px;padding:5px 7px;font-size:12px}
-    .dvbtn{background:#3b82f6;color:#fff;border:0;border-radius:8px;padding:6px 12px;font-size:12px;font-weight:600;cursor:pointer}
-    .dvbtn:hover{filter:brightness(1.08)}
-    .dvstatus{font-size:12px;color:#8a93a5;margin-top:8px}
-    .dvstatus a{color:#5BC8D6}.dvstatus code{background:#0d1017;border:1px solid #2a2f3a;border-radius:5px;padding:1px 5px;font-size:11px}
-    .dvbody{margin-top:10px;font-size:13px;color:#8a93a5}
-    .dvcount{font-size:12px;color:#8a93a5;margin-bottom:8px}
-    .dvrow{display:grid;grid-template-columns:1fr 1.3fr .55fr 1.5fr .8fr auto;gap:10px;align-items:center;padding:9px 10px;border:1px solid #2a2f3a;border-radius:10px;margin-bottom:6px;color:#e7ecf3}
-    .dvrow:hover{background:rgba(255,255,255,.03)}
-    .dvfix{font-weight:600}.dvfix a{color:#e7ecf3;text-decoration:none}.dvfix a:hover{color:#5BC8D6}
-    .dvodd,.dvlvl,.dvtot,.dvst{color:#8a93a5;font-size:12px}
-    .dvst b.won{color:#2fc079}.dvst b.lost{color:#f3596b}
-    .dvact{display:flex;gap:5px;justify-content:flex-end}
-    .dvgo{background:#0d1017;border:1px solid #2a2f3a;color:#e7ecf3;border-radius:7px;padding:4px 9px;font-size:11px;font-weight:600;cursor:pointer}
-    .dvgo.yes:hover{border-color:#2fc079;color:#2fc079}.dvgo.no:hover{border-color:#f3596b;color:#f3596b}
-    .dvgo.claim{border-color:#3b82f6;color:#9cc0ff}
-    .dverr{color:#f3596b}.dverr a,.dvempty code{color:#5BC8D6}
-    .simnote{font-size:12px;color:#8a93a5;margin:0 0 12px}
-    @media(max-width:640px){.dvrow{grid-template-columns:1fr 1fr}.dvwallet{margin-left:0}}
-  </style>
-  <div id="devnetPanel" class="devnet">
-    <div class="dvhead"><span class="dvdot"></span>Live on devnet<span class="dvsub">real <code>Market</code> accounts · <a id="dvProg" target="_blank" rel="noopener"></a></span>
-      <span class="dvwallet"><input id="dvAmt" class="dvamt" type="number" min="0.1" step="0.5" value="1" title="deposit amount (USDC)"><button id="dvConnect" class="dvbtn" onclick="connectWallet()">Connect wallet</button></span>
-    </div>
-    <div id="dvStatus" class="dvstatus">Connect a Solana wallet (set to <b>Devnet</b>) to deposit / claim on real markets.</div>
-    <div id="dvBody" class="dvbody">Loading on-chain markets…</div>
-  </div>
-  <p class="simnote">↓ The match board below is a <b>simulated preview</b>. Named fixtures (Brazil–Argentina, …) come from TxLINE's live feed, which isn't wired yet — on-chain, markets are keyed by numeric fixture id (see the live panel above, where you can trade for real on devnet).</p>
-
   <div class="grid" id="grid"></div>
 </div>
 
@@ -372,7 +336,6 @@
 </div>
 
 
-<script src="https://unpkg.com/@solana/web3.js@1.95.3/lib/index.iife.min.js"></script>
 <script>
 let balance=250;
 const FL={Brazil:'🇧🇷',Argentina:'🇦🇷',France:'🇫🇷',England:'🏴',Spain:'🇪🇸',Germany:'🇩🇪',Portugal:'🇵🇹',Netherlands:'🇳🇱',USA:'🇺🇸',Mexico:'🇲🇽',Croatia:'🇭🇷',Belgium:'🇧🇪',Italy:'🇮🇹',Uruguay:'🇺🇾',Japan:'🇯🇵',Senegal:'🇸🇳',Nigeria:'🇳🇬',Ghana:'🇬🇭',Morocco:'🇲🇦',Colombia:'🇨🇴',Draw:'⚖️'};
@@ -794,137 +757,7 @@ addEventListener('keydown',e=>{if(e.key==='Escape'){closeHow();closeGroupsView()
 function openHow(){document.getElementById('howSpark').innerHTML=spark('howto',62,72);document.getElementById('howModal').classList.add('show');}
 function closeHow(){document.getElementById('howModal').classList.remove('show');}
 addEventListener('resize',drawSignal);
-
-// ---- LIVE devnet: read + trade real Market accounts from the deployed program ----
-const DEVNET_PROGRAM='86hERt8cdRZUBpc1Ng8coX2jwLmWGUcyc9JNfspw39yr';
-const DEVNET_RPC='https://api.devnet.solana.com';
-const ODD_LABELS={0:'1X2 · Home',1:'1X2 · Draw',2:'1X2 · Away',3:'Over/Under · Over',4:'Over/Under · Under'};
-const SIDE_LBL={0:'HOLD',1:'BREAK'};
-const OUTCOME_LBL={0:'—',1:'YES',2:'NO'};
-const DEP_DISC=[242,35,198,137,82,225,242,182];   // sha256("global:deposit")[:8]
-const CLAIM_DISC=[62,198,214,193,213,159,108,210];// sha256("global:claim")[:8]
-let _conn=null, wallet=null, walletPk=null;
-const MKT={}; // market b58 -> {mint,vault,authority,status,outcome}
-const conn=()=>_conn||(_conn=new solanaWeb3.Connection(DEVNET_RPC,'confirmed'));
-const PK=s=>new solanaWeb3.PublicKey(s);
-const PROG=()=>PK(DEVNET_PROGRAM);
-const TOKEN_PROG=()=>PK('TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA');
-const ATA_PROG=()=>PK('ATokenGPvbdGVxr1b2hvZbsiqW5xWH25efTNsLJA8knL');
-const enc=s=>new TextEncoder().encode(s);
-const ataOf=(owner,mint)=>solanaWeb3.PublicKey.findProgramAddressSync([owner.toBuffer(),TOKEN_PROG().toBuffer(),mint.toBuffer()],ATA_PROG())[0];
-const posOf=(market,owner,side)=>solanaWeb3.PublicKey.findProgramAddressSync([enc('position'),market.toBuffer(),owner.toBuffer(),Uint8Array.of(side)],PROG())[0];
-const short=s=>s.slice(0,4)+'…'+s.slice(-4);
-const dvStatus=html=>{const el=document.getElementById('dvStatus');if(el)el.innerHTML=html;};
-
-function decodeMarket(data){
-  const dv=new DataView(data.buffer,data.byteOffset,data.byteLength);
-  const u64=o=>Number(dv.getBigUint64(o,true)), i64=o=>Number(dv.getBigInt64(o,true));
-  const pk=o=>new solanaWeb3.PublicKey(data.subarray(o,o+32)).toBase58();
-  return {fixtureId:u64(8),oddKey:u64(16),marketParams:u64(24),side:dv.getUint8(32),level:i64(33),
-    windowStart:i64(41),windowEnd:i64(49),usdcMint:pk(57),vault:pk(89),authority:pk(121),
-    feeBps:dv.getUint16(153,true),status:dv.getUint8(155),outcome:dv.getUint8(156),totalYes:u64(157),totalNo:u64(165)};
-}
-async function loadDevnetMarkets(){
-  const prog=document.getElementById('dvProg');
-  prog.textContent=short(DEVNET_PROGRAM); prog.href='https://explorer.solana.com/address/'+DEVNET_PROGRAM+'?cluster=devnet';
-  const body=document.getElementById('dvBody');
-  if(!window.solanaWeb3){body.innerHTML='<span class="dverr">web3.js failed to load — check your connection.</span>';return;}
-  try{
-    const accts=await conn().getProgramAccounts(PROG(),{filters:[{dataSize:175}]});
-    if(!accts.length){body.innerHTML='<span class="dvempty">No markets on-chain yet — run <code>keeper/scripts/seed-devnet.ts</code> to create some.</span>';return;}
-    const now=Math.floor(Date.now()/1000);
-    const rows=accts.map(({pubkey,account})=>{
-      const b58=pubkey.toBase58(), m=decodeMarket(account.data);
-      MKT[b58]={mint:m.usdcMint,vault:m.vault,authority:m.authority,status:m.status,outcome:m.outcome};
-      const line=m.marketParams?' '+(m.marketParams/100).toFixed(1):'';
-      const open=m.status===0&&m.windowStart<=now&&now<m.windowEnd;
-      const st=m.status===1?`RESOLVED · <b class="${m.outcome===1?'won':'lost'}">${OUTCOME_LBL[m.outcome]}</b>`:(open?'OPEN':'OPEN · closed');
-      let act='';
-      if(m.status===0) act=`<button class="dvgo yes" onclick="depositMkt('${b58}',1)">+YES</button><button class="dvgo no" onclick="depositMkt('${b58}',2)">+NO</button>`;
-      else if(m.status===1) act=`<button class="dvgo claim" onclick="claimMkt('${b58}')">Claim</button>`;
-      return `<div class="dvrow">
-        <span class="dvfix"><a href="https://explorer.solana.com/address/${b58}?cluster=devnet" target="_blank" rel="noopener" title="market account on explorer">Fixture #${m.fixtureId}</a></span>
-        <span class="dvodd">${(ODD_LABELS[m.oddKey]||'odd '+m.oddKey)+line} · ${SIDE_LBL[m.side]||m.side}</span>
-        <span class="dvlvl">L ${(m.level/1000).toFixed(1)}%</span>
-        <span class="dvtot">YES ${(m.totalYes/1e6).toFixed(2)} · NO ${(m.totalNo/1e6).toFixed(2)} USDC</span>
-        <span class="dvst">${st}</span>
-        <span class="dvact">${act}</span></div>`;
-    }).join('');
-    body.innerHTML=`<div class="dvcount">${accts.length} market${accts.length>1?'s':''} live on devnet</div>`+rows;
-    if(walletPk)refreshWalletStatus();
-  }catch(e){
-    body.innerHTML=`<span class="dverr">Couldn't read devnet: ${String(e&&e.message||e).slice(0,90)}. Public RPC may rate-limit <code>getProgramAccounts</code> — retry, or open the <a href="https://explorer.solana.com/address/${DEVNET_PROGRAM}?cluster=devnet" target="_blank" rel="noopener">program on the explorer</a>.</span>`;
-  }
-}
-async function connectWallet(){
-  const prov=(window.phantom&&window.phantom.solana)||window.solana;
-  if(!prov){dvStatus('No Solana wallet found — install <a href="https://phantom.app" target="_blank" rel="noopener">Phantom</a>, set it to <b>Devnet</b>, and reload.');return;}
-  try{
-    const r=await prov.connect();
-    wallet=prov; walletPk=PK(r.publicKey.toString());
-    document.getElementById('dvConnect').textContent=short(walletPk.toBase58());
-    await refreshWalletStatus();
-  }catch(e){dvStatus('Wallet connect cancelled.');}
-}
-async function refreshWalletStatus(){
-  if(!walletPk)return;
-  const c=conn(), addr=walletPk.toBase58();
-  let sol=0,usdc=0; try{sol=(await c.getBalance(walletPk))/1e9;}catch{}
-  const anyMint=Object.values(MKT).map(m=>m.mint).find(Boolean);
-  if(anyMint){try{const b=await c.getTokenAccountBalance(ataOf(walletPk,PK(anyMint)));usdc=Number(b.value.uiAmount||0);}catch{}}
-  let msg=`connected <b>${short(addr)}</b> · ${sol.toFixed(2)} SOL · ${usdc.toFixed(2)} test USDC`;
-  if(usdc<0.5)msg+=` — need test USDC? run <code>cd keeper &amp;&amp; npx tsx scripts/fund-wallet.ts ${addr}</code>`;
-  dvStatus(msg);
-}
-async function sendIx(ix,note){
-  dvStatus(note+' — approve in your wallet…');
-  const c=conn(), tx=new solanaWeb3.Transaction().add(ix);
-  tx.feePayer=walletPk; tx.recentBlockhash=(await c.getLatestBlockhash()).blockhash;
-  const res=await wallet.signAndSendTransaction(tx);
-  const sig=res.signature||res;
-  await c.confirmTransaction(sig,'confirmed');
-  return sig;
-}
-async function depositMkt(b58,side){
-  if(!walletPk)return connectWallet();
-  const m=MKT[b58]; if(!m)return;
-  const amt=Math.max(0.1,parseFloat(document.getElementById('dvAmt').value)||1), units=Math.round(amt*1e6);
-  const market=PK(b58),mint=PK(m.mint),vault=PK(m.vault);
-  const data=new Uint8Array(17); data.set(DEP_DISC,0); data[8]=side; new DataView(data.buffer).setBigUint64(9,BigInt(units),true);
-  const ix=new solanaWeb3.TransactionInstruction({programId:PROG(),data,keys:[
-    {pubkey:walletPk,isSigner:true,isWritable:true},
-    {pubkey:market,isSigner:false,isWritable:true},
-    {pubkey:posOf(market,walletPk,side),isSigner:false,isWritable:true},
-    {pubkey:vault,isSigner:false,isWritable:true},
-    {pubkey:ataOf(walletPk,mint),isSigner:false,isWritable:true},
-    {pubkey:TOKEN_PROG(),isSigner:false,isWritable:false},
-    {pubkey:solanaWeb3.SystemProgram.programId,isSigner:false,isWritable:false}]});
-  try{const sig=await sendIx(ix,`depositing ${amt} USDC on ${side===1?'YES':'NO'}`);
-    dvStatus(`✓ deposited ${amt} USDC on ${side===1?'YES':'NO'} · <a href="https://explorer.solana.com/tx/${sig}?cluster=devnet" target="_blank" rel="noopener">view tx</a>`);
-    loadDevnetMarkets();
-  }catch(e){const s=String(e&&e.message||e);dvStatus(/insufficient|custom program error: 0x1\b|Attempt to debit/i.test(s)?`deposit failed — not enough test USDC. Run the fund-wallet command above, then retry.`:`deposit failed: ${s.slice(0,110)}`);}
-}
-async function claimMkt(b58){
-  if(!walletPk)return connectWallet();
-  const m=MKT[b58]; if(!m)return;
-  if(m.status!==1){dvStatus('market not resolved yet');return;}
-  const side=m.outcome,market=PK(b58),mint=PK(m.mint),vault=PK(m.vault),authority=PK(m.authority);
-  const ix=new solanaWeb3.TransactionInstruction({programId:PROG(),data:new Uint8Array(CLAIM_DISC),keys:[
-    {pubkey:walletPk,isSigner:true,isWritable:true},
-    {pubkey:market,isSigner:false,isWritable:false},
-    {pubkey:posOf(market,walletPk,side),isSigner:false,isWritable:true},
-    {pubkey:vault,isSigner:false,isWritable:true},
-    {pubkey:ataOf(walletPk,mint),isSigner:false,isWritable:true},
-    {pubkey:ataOf(authority,mint),isSigner:false,isWritable:true},
-    {pubkey:TOKEN_PROG(),isSigner:false,isWritable:false}]});
-  try{const sig=await sendIx(ix,'claiming payout');
-    dvStatus(`✓ claimed · <a href="https://explorer.solana.com/tx/${sig}?cluster=devnet" target="_blank" rel="noopener">view tx</a>`);
-    loadDevnetMarkets();
-  }catch(e){const s=String(e&&e.message||e);dvStatus(/AccountNotInitialized|could not find|0xbc4|seeds constraint/i.test(s)?`nothing to claim here — you can only claim a <b>winning</b> position you deposited into (${OUTCOME_LBL[m.outcome]} won).`:`claim failed: ${s.slice(0,110)}`);}
-}
-
 renderGrid();
-loadDevnetMarkets();
 </script>
 </body>
 </html>
