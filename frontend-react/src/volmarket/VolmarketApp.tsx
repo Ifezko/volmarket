@@ -11,6 +11,7 @@ import { SettleModal } from './SettleModal'
 import { HowModal } from './HowModal'
 import { GroupsView } from './GroupsView'
 import { GroupCreatePanel } from './GroupCreatePanel'
+import { DepositPanel } from './DepositPanel'
 import { initialGroups, type Group } from './groups'
 
 export interface ActivePrediction {
@@ -83,6 +84,7 @@ export function VolmarketApp({
   const [requestedGroups, setRequestedGroups] = useState<Set<number>>(new Set())
   const [groupsViewOpen, setGroupsViewOpen] = useState(false)
   const [creatingGroup, setCreatingGroup] = useState<{ seedCode?: string; stage: 'form' | 'created' } | null>(null)
+  const [depositOpen, setDepositOpen] = useState(false)
 
   const curMatch = curMatchId ? matches.find((m) => m.id === curMatchId) ?? null : null
 
@@ -273,6 +275,15 @@ export function VolmarketApp({
   // drawer, pre-seeded with a ticket's share code when reached via "Make this a group".
   function openGroupCreate(seedCode?: string) {
     setCreatingGroup({ seedCode, stage: 'form' })
+    setDepositOpen(false)
+    setSlipOpen(true)
+  }
+
+  // Ported from openDeposit() — reuses the slip drawer's override slot, same as group
+  // creation.
+  function openDeposit() {
+    setDepositOpen(true)
+    setCreatingGroup(null)
     setSlipOpen(true)
   }
 
@@ -294,9 +305,10 @@ export function VolmarketApp({
         walletAddress={walletAddress}
         activeTab="product"
         onLogoClick={closeMatch}
-        onOpenDeposit={() => {}}
+        onOpenDeposit={openDeposit}
         onOpenSlip={() => {
           setCreatingGroup(null)
+          setDepositOpen(false)
           setSlipOpen(true)
         }}
         onOpenGroupsView={() => setGroupsViewOpen(true)}
@@ -340,10 +352,13 @@ export function VolmarketApp({
                   />
                 ),
               }
-            : null
+            : depositOpen
+              ? { title: 'Deposit', body: <DepositPanel onContinue={() => setSlipOpen(false)} /> }
+              : null
         }
         onOpen={() => {
           setCreatingGroup(null)
+          setDepositOpen(false)
           setSlipOpen(true)
         }}
         onClose={() => setSlipOpen(false)}
