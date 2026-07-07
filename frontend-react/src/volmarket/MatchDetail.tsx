@@ -1,6 +1,6 @@
 import { FL, oddsLines, type Match, type OddLine } from './data'
 import { Sparkline } from './Sparkline'
-import { SignalPanel } from './SignalPanel'
+import { SignalChart, type PredictMeta, type PredictionLine } from './SignalChart'
 
 // Ported from openMatch() in frontend/index.html: the .detail overlay — score header,
 // grouped odds selector (live only), the .sig volume-signal panel, the all-odds list,
@@ -13,6 +13,9 @@ export function MatchDetail({
   onSelectOdd,
   onToggleFollow,
   onOpenHow,
+  predictionLines,
+  isSelected,
+  onAdd,
 }: {
   match: Match
   activeKey: string | null
@@ -21,6 +24,9 @@ export function MatchDetail({
   onSelectOdd: (key: string, scroll?: boolean) => void
   onToggleFollow: (id: string) => void
   onOpenHow: () => void
+  predictionLines: PredictionLine[]
+  isSelected: (id: string) => boolean
+  onAdd: (id: string, label: string, prob: number, meta: PredictMeta) => void
 }) {
   const live = match.status === 'live' || match.status === 'ht'
   const curOdds: OddLine[] = oddsLines(match)
@@ -115,7 +121,19 @@ export function MatchDetail({
                   ))}
               </div>
             ))}
-            <SignalPanel title={activeOdd ? `${activeOdd.label} — ${activeOdd.prob}%` : ''} onOpenHow={onOpenHow} />
+            {activeOdd && (
+              <SignalChart
+                title={`${activeOdd.label} — ${activeOdd.prob}%`}
+                onOpenHow={onOpenHow}
+                matchId={match.id}
+                oddKey={activeOdd.key}
+                oddLabel={activeOdd.label}
+                prob={activeOdd.prob}
+                predictionLines={predictionLines}
+                isSelected={isSelected}
+                onAdd={onAdd}
+              />
+            )}
           </>
         ) : match.status === 'soon' ? (
           <div className="prematch">
