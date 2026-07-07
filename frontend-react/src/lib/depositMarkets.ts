@@ -37,6 +37,29 @@ export interface PendingPick {
 
 type PrivySignTransaction = ConstructorParameters<typeof PrivyAnchorWallet>[1]
 
+// A fresh embedded wallet holds 0 SOL, but placing a prediction creates several rent-
+// exempt accounts (mint + per-pick market + vault + position), so it needs some SOL to
+// pay for them. On devnet we top it up with a best-effort airdrop when it's low — this is
+// the "fund your account" step, done automatically for the demo. Airdrop rate limits mean
+// this can fail; we swallow that (the user may have funded manually) and let the real
+// transaction surface any genuine insufficient-funds error.
+export async function ensureDevnetSol(connection: Connection, owner: PublicKey, minLamports = 100_000_000): Promise<void> {
+  let balance = 0
+  try {
+    balance = await connection.getBalance(owner, 'confirmed')
+  } catch {
+    return
+  }
+  if (balance >= minLamports) return
+  try {
+    const sig = await connection.requestAirdrop(owner, 1_000_000_000) // 1 SOL
+    const latest = await connection.getLatestBlockhash()
+    await connection.confirmTransaction({ signature: sig, ...latest }, 'confirmed')
+  } catch {
+    // rate-limited or unavailable — proceed; the tx will report a real error if truly unfunded
+  }
+}
+
 async function placeBatch(
   connection: Connection,
   wallet: ConnectedStandardSolanaWallet,
@@ -155,6 +178,8 @@ export async function placeRealPredictions(
   picks: PendingPick[],
 ): Promise<{ signatures: string[] }> {
   if (!picks.length) throw new Error('no picks to place')
+
+  await ensureDevnetSol(connection, new PublicKey(wallet.address))
 
   const signatures: string[] = []
   for (let i = 0; i < picks.length; i += MAX_PICKS_PER_TX) {

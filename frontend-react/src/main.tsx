@@ -13,6 +13,13 @@ createRoot(document.getElementById('root')!).render(
         // v3 dropped the SDK-level solana.cluster / solanaClusters config: devnet vs
         // mainnet-beta for embedded wallets is set in the Privy dashboard, not here.
         embeddedWallets: {
+          // Sign transactions WITHOUT popping Privy's per-transaction confirmation UI.
+          // Two reasons: (1) the product model is "fund your account once, then predict
+          // freely" — a signing prompt on every bet defeats that; (2) that confirmation
+          // modal was the blank screen users hit right after logging in to place a
+          // prediction. With this off, useSignTransaction signs silently inside the
+          // embedded-wallet iframe and we submit the tx ourselves.
+          showWalletUIs: false,
           solana: { createOnLogin: 'users-without-wallets' },
         },
       }}
