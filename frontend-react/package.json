@@ -10,7 +10,11 @@
     "preview": "vite preview"
   },
   "dependencies": {
-    "@privy-io/react-auth": "^2.25.0",
+    "@privy-io/react-auth": "^3.33.1",
+    "@solana-program/memo": "^0.11.2",
+    "@solana-program/system": "^0.12.2",
+    "@solana-program/token": "^0.14.0",
+    "@solana/kit": "^6.10.0",
     "react": "^19.2.7",
     "react-dom": "^19.2.7"
   },

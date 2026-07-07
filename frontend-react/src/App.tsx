@@ -1,4 +1,5 @@
-import { usePrivy, useSolanaWallets } from '@privy-io/react-auth'
+import { usePrivy } from '@privy-io/react-auth'
+import { useWallets as useSolanaWallets } from '@privy-io/react-auth/solana'
 
 function App() {
   const { ready, authenticated, user, login } = usePrivy()

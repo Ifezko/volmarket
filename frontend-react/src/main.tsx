@@ -10,7 +10,8 @@ createRoot(document.getElementById('root')!).render(
       appId={import.meta.env.VITE_PRIVY_APP_ID}
       config={{
         loginMethods: ['email', 'google', 'passkey', 'wallet'],
-        solanaClusters: [{ name: 'devnet' }],
+        // v3 dropped the SDK-level solana.cluster / solanaClusters config: devnet vs
+        // mainnet-beta for embedded wallets is set in the Privy dashboard, not here.
         embeddedWallets: {
           solana: { createOnLogin: 'users-without-wallets' },
         },
