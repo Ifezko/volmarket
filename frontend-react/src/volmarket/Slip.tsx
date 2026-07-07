@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useState, type ReactNode } from 'react'
 
 export interface SlipItem {
   id: string
@@ -23,6 +23,7 @@ export function Slip({
   slip,
   stake,
   ticket,
+  override,
   onOpen,
   onClose,
   onRemove,
@@ -37,6 +38,9 @@ export function Slip({
   slip: SlipItem[]
   stake: number
   ticket: Ticket | null
+  // The original swaps #slipTitle/#slipBody for group-creation and deposit forms
+  // (ticket==='group'|'dep'); this is that same swap, done as a prop instead.
+  override: { title: string; body: ReactNode } | null
   onOpen: () => void
   onClose: () => void
   onRemove: (id: string) => void
@@ -49,7 +53,13 @@ export function Slip({
 }) {
   const [codeInput, setCodeInput] = useState('')
   const combo = slip.reduce((a, s) => a * s.mult, 1)
-  const title = ticket ? 'Prediction placed' : slip.length > 1 ? `Combo · ${slip.length} signals` : 'Combo slip'
+  const title = override
+    ? override.title
+    : ticket
+      ? 'Prediction placed'
+      : slip.length > 1
+        ? `Combo · ${slip.length} signals`
+        : 'Combo slip'
 
   function submitPaste() {
     const v = codeInput.trim().toUpperCase()
@@ -88,7 +98,9 @@ export function Slip({
           </button>
         </div>
         <div className="grow">
-          {ticket ? (
+          {override ? (
+            override.body
+          ) : ticket ? (
             <>
               {ticket.sel.map((s) => (
                 <div className="selrow" key={s.id}>

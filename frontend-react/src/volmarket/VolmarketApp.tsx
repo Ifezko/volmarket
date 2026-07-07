@@ -9,6 +9,9 @@ import { WINDOWS, WSECS, type PredictMeta, type PredictionLine } from './SignalC
 import { Slip, type SlipItem, type Ticket } from './Slip'
 import { SettleModal } from './SettleModal'
 import { HowModal } from './HowModal'
+import { GroupsView } from './GroupsView'
+import { GroupCreatePanel } from './GroupCreatePanel'
+import { initialGroups, type Group } from './groups'
 
 export interface ActivePrediction {
   matchKey: string
@@ -76,6 +79,10 @@ export function VolmarketApp({
   const [settleShown, setSettleShown] = useState<ActivePrediction | null>(null)
   const [settleQueueLen, setSettleQueueLen] = useState(0)
   const [howOpen, setHowOpen] = useState(false)
+  const [groups, setGroups] = useState<Group[]>(initialGroups)
+  const [requestedGroups, setRequestedGroups] = useState<Set<number>>(new Set())
+  const [groupsViewOpen, setGroupsViewOpen] = useState(false)
+  const [creatingGroup, setCreatingGroup] = useState<{ seedCode?: string; stage: 'form' | 'created' } | null>(null)
 
   const curMatch = curMatchId ? matches.find((m) => m.id === curMatchId) ?? null : null
 
@@ -92,8 +99,8 @@ export function VolmarketApp({
   liveProbRef.current = liveProb
 
   useEffect(() => {
-    document.body.classList.toggle('lock', curMatch !== null)
-  }, [curMatch])
+    document.body.classList.toggle('lock', curMatch !== null || groupsViewOpen)
+  }, [curMatch, groupsViewOpen])
 
   useEffect(() => {
     setLiveProb(null)
@@ -105,6 +112,7 @@ export function VolmarketApp({
     function onKeyDown(e: KeyboardEvent) {
       if (e.key === 'Escape') {
         setHowOpen(false)
+        setGroupsViewOpen(false)
         setSlipOpen(false)
         setCurMatchId(null)
       }
@@ -261,6 +269,24 @@ export function VolmarketApp({
     setTicket(null)
   }
 
+  // Ported from openGroups()/createGroup() — opens the group-creation form in the slip
+  // drawer, pre-seeded with a ticket's share code when reached via "Make this a group".
+  function openGroupCreate(seedCode?: string) {
+    setCreatingGroup({ seedCode, stage: 'form' })
+    setSlipOpen(true)
+  }
+
+  function createGroup(group: { name: string; visibility: 'Public' | 'Private'; joinMode: 'link' | 'invite' }) {
+    setGroups((prev) => [
+      { name: group.name, members: 1, preds: 0, pnl: 0, wr: 0, roster: group.joinMode === 'link', visibility: group.visibility },
+      ...prev,
+    ])
+  }
+
+  function requestJoinGroup(idx: number) {
+    setRequestedGroups((prev) => new Set(prev).add(idx))
+  }
+
   return (
     <>
       <Nav
@@ -269,8 +295,11 @@ export function VolmarketApp({
         activeTab="product"
         onLogoClick={closeMatch}
         onOpenDeposit={() => {}}
-        onOpenSlip={() => setSlipOpen(true)}
-        onOpenGroupsView={() => {}}
+        onOpenSlip={() => {
+          setCreatingGroup(null)
+          setSlipOpen(true)
+        }}
+        onOpenGroupsView={() => setGroupsViewOpen(true)}
         onOpenDevnet={onOpenDevnet}
       />
       <Board onOpenMatch={openMatch} onOpenHow={() => setHowOpen(true)} />
@@ -297,13 +326,32 @@ export function VolmarketApp({
         slip={slip}
         stake={stake}
         ticket={ticket}
-        onOpen={() => setSlipOpen(true)}
+        override={
+          creatingGroup
+            ? {
+                title: creatingGroup.stage === 'created' ? 'Group created' : 'Create a group',
+                body: (
+                  <GroupCreatePanel
+                    seedCode={creatingGroup.seedCode}
+                    onCreate={createGroup}
+                    onCopyCode={copyCode}
+                    onDone={() => setSlipOpen(false)}
+                    onStageChange={(stage) => setCreatingGroup((prev) => (prev ? { ...prev, stage } : prev))}
+                  />
+                ),
+              }
+            : null
+        }
+        onOpen={() => {
+          setCreatingGroup(null)
+          setSlipOpen(true)
+        }}
         onClose={() => setSlipOpen(false)}
         onRemove={removeFromSlip}
         onSetStake={setStake}
         onPlace={place}
         onCopyCode={copyCode}
-        onMakeGroup={() => {}}
+        onMakeGroup={(code) => openGroupCreate(code)}
         onNewSlip={() => setTicket(null)}
         onPasteCode={pasteCode}
       />
@@ -311,6 +359,15 @@ export function VolmarketApp({
       <SettleModal pred={settleShown} hasNext={settleQueueLen > 0} onClose={closeSettle} />
 
       <HowModal open={howOpen} onClose={() => setHowOpen(false)} />
+
+      <GroupsView
+        open={groupsViewOpen}
+        groups={groups}
+        requested={requestedGroups}
+        onClose={() => setGroupsViewOpen(false)}
+        onCreateGroup={() => openGroupCreate()}
+        onRequestJoin={requestJoinGroup}
+      />
     </>
   )
 }
