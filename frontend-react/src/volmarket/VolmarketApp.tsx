@@ -1,24 +1,60 @@
 import { useEffect, useMemo, useState } from 'react'
 import './volmarket.css'
-import { matches } from './data'
+import { matches, rng } from './data'
 import { Nav } from './Nav'
 import { Board } from './Board'
 import { Footer } from './Footer'
 import { MatchDetail } from './MatchDetail'
-import type { PredictMeta, PredictionLine } from './SignalChart'
+import { WINDOWS, WSECS, type PredictMeta, type PredictionLine } from './SignalChart'
+import { Slip, type SlipItem, type Ticket } from './Slip'
 
-interface SlipItem {
-  id: string
+export interface ActivePrediction {
+  matchKey: string
+  level: number
+  side: 'hold' | 'break'
   label: string
+  winLabel: string
+  stake: number
   mult: number
+  endsAt: number
+  settled: boolean
+  win?: boolean
+}
+
+function genCode(): string {
+  const s = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789'
+  const p = (n: number) => Array.from({ length: n }, () => s[Math.floor(Math.random() * s.length)]).join('')
+  return `${p(2)}${Math.floor(Math.random() * 9)}-${p(3)}-${p(3)}`
+}
+
+// paste a friend's code -> loads a mock prediction into the slip, ported from pasteCode()
+function pasteCodePool(code: string): SlipItem[] {
+  const r = rng(code)
+  const pool = [
+    'Brazil v Argentina · Brazil: holds 58%+ within 2m',
+    'Brazil v Argentina · Over 2.5 goals — Yes',
+    'Spain v Germany · Spain: breaks 75% within 5m',
+    'France v England · Draw — Yes',
+    'Nigeria v Ghana · Nigeria: holds 60%+ within 1m',
+    'Italy v Uruguay · BTTS — Yes',
+  ]
+  const n = 1 + Math.floor(r() * 3)
+  const used = new Set<number>()
+  const items: SlipItem[] = []
+  for (let k = 0; k < n; k++) {
+    let i = Math.floor(r() * pool.length)
+    while (used.has(i)) i = (i + 1) % pool.length
+    used.add(i)
+    items.push({ id: code + '-' + i, label: pool[i], mult: +(1.4 + r() * 2.6).toFixed(2) })
+  }
+  return items
 }
 
 // Top-level composition for the ported Volmarket product UI (see frontend/index.html).
-// Built up one screen at a time — board/nav/footer (slice5a), match detail (slice5b),
-// and the canvas signal chart + predict buttons (slice5c) are wired in. The combo slip
-// UI, settlement, how-it-works, and groups follow in later commits; for now `add()`
-// only tracks which picks are pending (drives the .sel highlight + chart lines) with
-// no drawer to place them from yet.
+// Built up one screen at a time — board/nav/footer (5a), match detail (5b), the canvas
+// signal chart + predict buttons (5c), and now the combo slip drawer (5d): fab/scrim,
+// add/remove, stake, place(), the placed-ticket view, and code paste. Settlement,
+// how-it-works, groups, and deposit follow in later commits.
 export function VolmarketApp({
   walletAddress,
   onOpenDevnet,
@@ -31,6 +67,10 @@ export function VolmarketApp({
   const [followed, setFollowed] = useState<Set<string>>(new Set())
   const [slip, setSlip] = useState<SlipItem[]>([])
   const [predMeta, setPredMeta] = useState<Record<string, PredictMeta>>({})
+  const [slipOpen, setSlipOpen] = useState(false)
+  const [stake, setStake] = useState(25)
+  const [ticket, setTicket] = useState<Ticket | null>(null)
+  const [activePreds, setActivePreds] = useState<ActivePrediction[]>([])
 
   const curMatch = curMatchId ? matches.find((m) => m.id === curMatchId) ?? null : null
 
@@ -69,14 +109,19 @@ export function VolmarketApp({
   }
 
   // Ported from add() in the original — toggles a pick in/out of the slip and records
-  // its match/side/level so drawSignal (and, later, place()) can find it again.
+  // its match/side/level so drawSignal and place() can find it again.
   function addPrediction(id: string, label: string, prob: number, meta: PredictMeta) {
+    if (ticket) setTicket(null)
     setPredMeta((prev) => ({ ...prev, [id]: meta }))
     setSlip((prev) => {
       if (prev.some((s) => s.id === id)) return prev.filter((s) => s.id !== id)
       const mult = 100 / Math.max(1, prob)
       return [...prev, { id, label, mult }]
     })
+  }
+
+  function removeFromSlip(id: string) {
+    setSlip((prev) => prev.filter((s) => s.id !== id))
   }
 
   function isSelected(id: string) {
@@ -86,11 +131,52 @@ export function VolmarketApp({
   const predictionLines = useMemo<PredictionLine[]>(() => {
     if (!curMatch || !activeKey) return []
     const mk = `${curMatch.id}-${activeKey}`
-    return slip.flatMap((s) => {
+    const lines: PredictionLine[] = []
+    slip.forEach((s) => {
       const m = predMeta[s.id]
-      return m && m.mk === mk ? [{ level: m.level, side: m.side }] : []
+      if (m && m.mk === mk) lines.push({ level: m.level, side: m.side })
     })
-  }, [slip, predMeta, curMatch, activeKey])
+    activePreds.forEach((p) => {
+      if (p.matchKey === mk && !p.settled) lines.push({ level: p.level, side: p.side })
+    })
+    return lines
+  }, [slip, predMeta, activePreds, curMatch, activeKey])
+
+  function place() {
+    if (!slip.length) return
+    const combo = slip.reduce((a, s) => a * s.mult, 1)
+    const perStake = +(stake / slip.length).toFixed(2)
+    const now = Date.now()
+    const scheduled: ActivePrediction[] = []
+    slip.forEach((s) => {
+      const m = predMeta[s.id]
+      if (!m) return
+      const secs = WSECS[m.windowIdx] ?? 300
+      scheduled.push({
+        matchKey: m.mk,
+        level: m.level,
+        side: m.side,
+        label: s.label,
+        winLabel: WINDOWS[m.windowIdx] ?? '',
+        stake: perStake,
+        mult: s.mult,
+        endsAt: now + secs * 1000,
+        settled: false,
+      })
+    })
+    setActivePreds((prev) => [...prev, ...scheduled])
+    setTicket({ code: genCode(), sel: slip, stake, mult: combo })
+    setSlip([])
+  }
+
+  function copyCode(code: string) {
+    navigator.clipboard?.writeText(code).catch(() => {})
+  }
+
+  function pasteCode(code: string) {
+    setSlip(pasteCodePool(code))
+    setTicket(null)
+  }
 
   return (
     <>
@@ -100,7 +186,7 @@ export function VolmarketApp({
         activeTab="product"
         onLogoClick={closeMatch}
         onOpenDeposit={() => {}}
-        onOpenSlip={() => {}}
+        onOpenSlip={() => setSlipOpen(true)}
         onOpenGroupsView={() => {}}
         onOpenDevnet={onOpenDevnet}
       />
@@ -121,6 +207,22 @@ export function VolmarketApp({
           onAdd={addPrediction}
         />
       )}
+
+      <Slip
+        open={slipOpen}
+        slip={slip}
+        stake={stake}
+        ticket={ticket}
+        onOpen={() => setSlipOpen(true)}
+        onClose={() => setSlipOpen(false)}
+        onRemove={removeFromSlip}
+        onSetStake={setStake}
+        onPlace={place}
+        onCopyCode={copyCode}
+        onMakeGroup={() => {}}
+        onNewSlip={() => setTicket(null)}
+        onPasteCode={pasteCode}
+      />
     </>
   )
 }
