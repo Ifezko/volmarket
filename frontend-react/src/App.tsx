@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { Connection } from '@solana/web3.js'
 import { usePrivy } from '@privy-io/react-auth'
 import {
@@ -6,6 +6,7 @@ import {
   useWallets as useSolanaWallets,
 } from '@privy-io/react-auth/solana'
 import { runDevnetProof } from './lib/devnetProof'
+import { fetchMarkets, type MarketView } from './lib/markets'
 
 const RPC_URL = import.meta.env.VITE_RPC_URL ?? 'https://api.devnet.solana.com'
 
@@ -14,6 +15,46 @@ type ProofState =
   | { status: 'running' }
   | { status: 'done'; signature: string; market: string; usdcMint: string }
   | { status: 'error'; message: string }
+
+type MarketsState =
+  | { status: 'loading' }
+  | { status: 'done'; markets: MarketView[] }
+  | { status: 'error'; message: string }
+
+function MarketsList() {
+  const [markets, setMarkets] = useState<MarketsState>({ status: 'loading' })
+
+  useEffect(() => {
+    let cancelled = false
+    fetchMarkets(new Connection(RPC_URL, 'confirmed'))
+      .then((result) => {
+        if (!cancelled) setMarkets({ status: 'done', markets: result })
+      })
+      .catch((err) => {
+        if (!cancelled) {
+          setMarkets({ status: 'error', message: err instanceof Error ? err.message : String(err) })
+        }
+      })
+    return () => {
+      cancelled = true
+    }
+  }, [])
+
+  if (markets.status === 'loading') return <p>Loading devnet markets…</p>
+  if (markets.status === 'error') return <p>Error loading markets: {markets.message}</p>
+  if (markets.markets.length === 0) return <p>No markets found on devnet.</p>
+
+  return (
+    <ul>
+      {markets.markets.map((m) => (
+        <li key={m.address}>
+          fixture {m.fixtureId} / odd {m.oddKey} / side {m.side} / level {m.level} — YES{' '}
+          {m.totalYes} / NO {m.totalNo} USDC — {m.status} ({m.outcome})
+        </li>
+      ))}
+    </ul>
+  )
+}
 
 function App() {
   const { ready, authenticated, user, login } = usePrivy()
@@ -31,6 +72,8 @@ function App() {
         <button type="button" onClick={login}>
           Log in
         </button>
+        <h2>Devnet markets</h2>
+        <MarketsList />
       </main>
     )
   }
@@ -80,6 +123,9 @@ function App() {
           {proof.status === 'error' && <p>Error: {proof.message}</p>}
         </>
       )}
+
+      <h2>Devnet markets</h2>
+      <MarketsList />
     </main>
   )
 }
