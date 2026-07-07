@@ -1,9 +1,8 @@
 import { FL } from './data'
 import { Sparkline } from './Sparkline'
 import { SignalChart, type PredictionLine } from './SignalChart'
-import { RealPredictPanel } from './RealPredictPanel'
+import { PredictBuilder, type RealPredictMeta } from './PredictBuilder'
 import type { LiveFixture } from './liveFixtures'
-import type { RealMarket } from '../lib/onchainMarkets'
 
 // Ported from openMatch() in frontend/index.html: the .detail overlay — score header,
 // grouped odds selector (live only), the .sig volume-signal panel, the all-odds list,
@@ -18,9 +17,8 @@ export function MatchDetail({
   onToggleFollow,
   onOpenHow,
   predictionLines,
-  authenticated,
-  onLogin,
-  onDeposit,
+  isSelected,
+  onAdd,
   onLiveProb,
 }: {
   match: LiveFixture
@@ -31,9 +29,8 @@ export function MatchDetail({
   onToggleFollow: (id: string) => void
   onOpenHow: () => void
   predictionLines: PredictionLine[]
-  authenticated: boolean
-  onLogin: () => void
-  onDeposit: (market: RealMarket, amountUsdc: number) => Promise<string>
+  isSelected: (id: string) => boolean
+  onAdd: (id: string, label: string, prob: number, meta: RealPredictMeta) => void
   onLiveProb: (prob: number) => void
 }) {
   const live = match.status === 'live'
@@ -120,11 +117,11 @@ export function MatchDetail({
                   matchId={match.id}
                   oddKey={activeOdd.key}
                   prob={activeOdd.prob}
-                  windowSecs={activeOdd.markets[0] ? activeOdd.markets[0].windowEnd - activeOdd.markets[0].windowStart : 300}
+                  windowSecs={300}
                   predictionLines={predictionLines}
                   onLiveProb={onLiveProb}
                 />
-                <RealPredictPanel key={activeOdd.key} odd={activeOdd} authenticated={authenticated} onLogin={onLogin} onDeposit={onDeposit} />
+                <PredictBuilder key={activeOdd.key} odd={activeOdd} fixtureId={match.fixtureId} isSelected={isSelected} onAdd={onAdd} />
               </>
             )}
           </>

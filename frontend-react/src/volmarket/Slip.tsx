@@ -24,6 +24,8 @@ export function Slip({
   stake,
   ticket,
   override,
+  placing,
+  placeError,
   onOpen,
   onClose,
   onRemove,
@@ -41,6 +43,8 @@ export function Slip({
   // The original swaps #slipTitle/#slipBody for group-creation and deposit forms
   // (ticket==='group'|'dep'); this is that same swap, done as a prop instead.
   override: { title: string; body: ReactNode } | null
+  placing: boolean
+  placeError: string | null
   onOpen: () => void
   onClose: () => void
   onRemove: (id: string) => void
@@ -162,8 +166,13 @@ export function Slip({
                   To win <b style={{ color: 'var(--green)' }}>{(stake * combo).toFixed(2)}</b>
                 </span>
               </div>
-              <button className="btn btn-blue" style={{ width: '100%' }} onClick={onPlace}>
-                Place prediction · {stake} USDC
+              {placeError && (
+                <div className="empty" style={{ color: 'var(--red)', padding: '8px 0' }}>
+                  {placeError}
+                </div>
+              )}
+              <button className="btn btn-blue" style={{ width: '100%' }} onClick={onPlace} disabled={placing}>
+                {placing ? 'Placing…' : `Place prediction · ${stake} USDC`}
               </button>
               {codePaste}
             </>

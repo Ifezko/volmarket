@@ -8,14 +8,22 @@ const ODD_LABELS: Record<number, { grp: string; base: string }> = {
   3: { grp: 'Over/Under', base: 'over' },
   4: { grp: 'Over/Under', base: 'under' },
 }
+// The canonical odd set every fixture offers — matches the original mock's oddsLines()
+// (1X2 + Over/Under; BTTS omitted, see keeper/src/markets.ts ODD_OUTCOMES). Users can
+// predict hold/break on any of these, not just whichever side happens to already have a
+// real market — placing a prediction creates the market on demand (see depositMarkets.ts).
+const CANONICAL_ODD_KEYS = [0, 1, 2, 3, 4]
+const DEFAULT_OU_LINE = 250 // 2.5 goals, ×100 — the default line shown before a real market picks one
 
 export interface LiveOdd {
   key: string
   oddKey: number
+  marketParams: number
   grp: string
   label: string
   fl: string
-  /** the level (%) of the primary market, used to seed the chart — see SignalChart */
+  /** reference probability (%) for this odd — a real market's level if one exists, else a
+   *  stable pseudo-value seeded from the fixture+odd, same idea as the sparkline seeding */
   prob: number
   markets: RealMarket[]
 }
@@ -46,6 +54,11 @@ function pseudoTeams(fixtureId: number): { comp: string; a: string; b: string } 
   return { comp: `World Cup · Group ${group}`, a: countries[ai], b: countries[bi] }
 }
 
+function pseudoProb(fixtureId: number, oddKey: number): number {
+  const r = rng(`prob-${fixtureId}-${oddKey}`)
+  return Math.round(30 + r() * 40) // 30-70%, a plausible mid-range default
+}
+
 function oddLabel(oddKey: number, marketParams: number, a: string, b: string): { grp: string; label: string; fl: string } {
   const spec = ODD_LABELS[oddKey]
   if (!spec) return { grp: 'Other', label: `Odd ${oddKey}`, fl: '❓' }
@@ -65,7 +78,12 @@ function oddLabel(oddKey: number, marketParams: number, a: string, b: string): {
   }
 }
 
-/** Groups the flat list of real on-chain Market accounts into board-shaped fixtures. */
+/**
+ * Groups the flat list of real on-chain Market accounts into board-shaped fixtures. Every
+ * known fixture always offers the full canonical odd set (both teams, draw, over/under) —
+ * real markets attach to whichever odds already have one, the rest get a placeholder
+ * reference probability so they're still selectable and predictable.
+ */
 export function buildLiveFixtures(markets: RealMarket[]): LiveFixture[] {
   const byFixture = new Map<number, RealMarket[]>()
   for (const m of markets) {
@@ -87,13 +105,14 @@ export function buildLiveFixtures(markets: RealMarket[]): LiveFixture[] {
       byOdd.set(m.oddKey, arr)
     }
 
-    const odds: LiveOdd[] = [...byOdd.entries()]
-      .sort(([x], [y]) => x - y)
-      .map(([oddKey, oddMarkets]) => {
-        const primary = oddMarkets[0]
-        const { grp, label, fl } = oddLabel(oddKey, primary.marketParams, a, b)
-        return { key: String(oddKey), oddKey, grp, label, fl, prob: primary.level, markets: oddMarkets }
-      })
+    const odds: LiveOdd[] = CANONICAL_ODD_KEYS.map((oddKey) => {
+      const oddMarkets = byOdd.get(oddKey) ?? []
+      const primary = oddMarkets[0]
+      const marketParams = primary ? primary.marketParams : oddKey >= 3 ? DEFAULT_OU_LINE : 0
+      const { grp, label, fl } = oddLabel(oddKey, marketParams, a, b)
+      const prob = primary ? primary.level : pseudoProb(fixtureId, oddKey)
+      return { key: String(oddKey), oddKey, marketParams, grp, label, fl, prob, markets: oddMarkets }
+    })
 
     const openMarkets = fixtureMarkets.filter((m) => m.status === 'open')
     const liveNow = openMarkets.some((m) => m.windowStart <= now && now < m.windowEnd)

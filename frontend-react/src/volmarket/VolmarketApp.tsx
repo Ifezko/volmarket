@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useEffect, useMemo, useState } from 'react'
 import { Connection } from '@solana/web3.js'
 import { usePrivy } from '@privy-io/react-auth'
 import { useSignTransaction, useWallets as useSolanaWallets } from '@privy-io/react-auth/solana'
@@ -14,9 +14,11 @@ import { GroupsView } from './GroupsView'
 import { GroupCreatePanel } from './GroupCreatePanel'
 import { DepositPanel } from './DepositPanel'
 import { initialGroups, type Group } from './groups'
-import { fetchRealMarkets, type RealMarket } from '../lib/onchainMarkets'
-import { placeRealDeposits } from '../lib/depositMarkets'
+import { fetchRealMarkets } from '../lib/onchainMarkets'
+import { placeRealPredictions, type PendingPick } from '../lib/depositMarkets'
 import { buildLiveFixtures, type LiveFixture } from './liveFixtures'
+import type { PredictionLine } from './SignalChart'
+import type { RealPredictMeta } from './PredictBuilder'
 
 const RPC_URL = import.meta.env.VITE_RPC_URL ?? 'https://api.devnet.solana.com'
 
@@ -27,7 +29,7 @@ function genCode(): string {
 }
 
 // paste a friend's code -> loads a mock prediction into the slip, ported from pasteCode()
-// (this demo path never was wired to real settlement — see place() below)
+// (this demo path has no real on-chain meta — placing it just produces a ticket, no tx)
 function pasteCodePool(code: string): SlipItem[] {
   const r = rng(code)
   const pool = [
@@ -51,13 +53,11 @@ function pasteCodePool(code: string): SlipItem[] {
 }
 
 // Top-level composition for the ported Volmarket product UI (see frontend/index.html).
-// The board/detail now trade REAL on-chain Market accounts (fetchRealMarkets, grouped by
-// liveFixtures.ts) instead of the mock array, and predicting deposits real devnet USDC via
-// a Privy-signed transaction (RealPredictPanel -> placeRealDeposits) — Privy login is only
-// prompted at that point, not as a gate on the whole app (see App.tsx). The combo-slip
-// share-code demo (paste a friend's code) is unrelated to real trading and still works as
-// pure UI fidelity; nothing populates it from real predictions anymore, since each real
-// deposit is its own immediate signed transaction, not a batched slip.
+// The board/detail trade REAL on-chain Market accounts (fetchRealMarkets, grouped by
+// liveFixtures.ts). Predicting is free — pick a window and holds/breaks, add it to the
+// slip, no wallet needed (see PredictBuilder.tsx) — Privy only asks you to log in when
+// you hit "Place prediction", which then creates whatever markets don't exist yet and
+// deposits real devnet USDC on all of them in one signed transaction.
 export function VolmarketApp({ onOpenDevnet }: { onOpenDevnet: () => void }) {
   const { authenticated, login } = usePrivy()
   const { wallets } = useSolanaWallets()
@@ -69,9 +69,12 @@ export function VolmarketApp({ onOpenDevnet }: { onOpenDevnet: () => void }) {
   const [activeKey, setActiveKey] = useState<string | null>(null)
   const [followed, setFollowed] = useState<Set<string>>(new Set())
   const [slip, setSlip] = useState<SlipItem[]>([])
+  const [predMeta, setPredMeta] = useState<Record<string, RealPredictMeta>>({})
   const [slipOpen, setSlipOpen] = useState(false)
   const [stake, setStake] = useState(25)
   const [ticket, setTicket] = useState<Ticket | null>(null)
+  const [placing, setPlacing] = useState(false)
+  const [placeError, setPlaceError] = useState<string | null>(null)
   const [howOpen, setHowOpen] = useState(false)
   const [groups, setGroups] = useState<Group[]>(initialGroups)
   const [requestedGroups, setRequestedGroups] = useState<Set<number>>(new Set())
@@ -147,16 +150,36 @@ export function VolmarketApp({ onOpenDevnet }: { onOpenDevnet: () => void }) {
     })
   }
 
-  // Ported from place() in the original, minus settlement scheduling — a real prediction
-  // settles on-chain (the keeper resolves it), not against a mult-implied coin flip, so
-  // there's nothing to schedule here anymore. This still produces a shareable ticket code
-  // for the paste-a-friend's-code demo path.
-  function place() {
-    if (!slip.length) return
-    const combo = slip.reduce((a, s) => a * s.mult, 1)
-    setTicket({ code: genCode(), sel: slip, stake, mult: combo })
-    setSlip([])
+  // Ported from add() in the original — toggles a pick in/out of the slip and records
+  // its fixture/odd/side/level/window so place() can find it again. No wallet touched.
+  function addPrediction(id: string, label: string, prob: number, meta: RealPredictMeta) {
+    if (ticket) setTicket(null)
+    setPlaceError(null)
+    setPredMeta((prev) => ({ ...prev, [id]: meta }))
+    setSlip((prev) => {
+      if (prev.some((s) => s.id === id)) return prev.filter((s) => s.id !== id)
+      const mult = 100 / Math.max(1, prob)
+      return [...prev, { id, label, mult }]
+    })
   }
+
+  function isSelected(id: string) {
+    return slip.some((s) => s.id === id)
+  }
+
+  // "Your call" lines for the currently-viewed odd, drawn from pending slip picks.
+  const predictionLines = useMemo<PredictionLine[]>(() => {
+    if (!curMatch || !activeKey) return []
+    const oddKey = Number(activeKey)
+    const lines: PredictionLine[] = []
+    slip.forEach((s) => {
+      const m = predMeta[s.id]
+      if (m && m.fixtureId === curMatch.fixtureId && m.oddKey === oddKey) {
+        lines.push({ level: m.levelRaw / 1000, side: m.side })
+      }
+    })
+    return lines
+  }, [slip, predMeta, curMatch, activeKey])
 
   function removeFromSlip(id: string) {
     setSlip((prev) => prev.filter((s) => s.id !== id))
@@ -171,16 +194,44 @@ export function VolmarketApp({ onOpenDevnet }: { onOpenDevnet: () => void }) {
     setTicket(null)
   }
 
-  // Real deposit — builds and sends one signed devnet transaction via Privy, then
-  // refreshes the board so totals/status reflect the new stake immediately.
-  async function handleDeposit(market: RealMarket, amountUsdc: number): Promise<string> {
-    if (!solanaWallet) throw new Error('no embedded wallet — log in first')
-    const connection = new Connection(RPC_URL, 'confirmed')
-    const { signature } = await placeRealDeposits(connection, solanaWallet, signTransaction, [
-      { market, side: 'yes', amountUsdc },
-    ])
-    await refreshMarkets()
-    return signature
+  // Ported from place() in the original. Real picks (from PredictBuilder) create whatever
+  // markets don't exist yet and deposit on them, all in one Privy-signed transaction —
+  // login is only asked for here, at the moment of placing. Pasted demo picks (no real
+  // meta) just produce a shareable ticket, same as the original mock.
+  async function place() {
+    if (!slip.length) return
+    const combo = slip.reduce((a, s) => a * s.mult, 1)
+    const perStake = +(stake / slip.length).toFixed(2)
+    const picks: PendingPick[] = slip.flatMap((s) => {
+      const m = predMeta[s.id]
+      return m ? [{ ...m, amountUsdc: perStake }] : []
+    })
+
+    if (picks.length) {
+      if (!authenticated) {
+        login()
+        return
+      }
+      if (!solanaWallet) {
+        setPlaceError('Wallet not ready yet — try again in a moment.')
+        return
+      }
+      setPlacing(true)
+      setPlaceError(null)
+      try {
+        const connection = new Connection(RPC_URL, 'confirmed')
+        await placeRealPredictions(connection, solanaWallet, signTransaction, picks)
+        await refreshMarkets()
+      } catch (err) {
+        setPlaceError(err instanceof Error ? err.message : String(err))
+        setPlacing(false)
+        return
+      }
+      setPlacing(false)
+    }
+
+    setTicket({ code: genCode(), sel: slip, stake, mult: combo })
+    setSlip([])
   }
 
   // Ported from openGroups()/createGroup() — opens the group-creation form in the slip
@@ -238,10 +289,9 @@ export function VolmarketApp({ onOpenDevnet }: { onOpenDevnet: () => void }) {
           onSelectOdd={selectOdd}
           onToggleFollow={toggleFollow}
           onOpenHow={() => setHowOpen(true)}
-          predictionLines={[]}
-          authenticated={authenticated}
-          onLogin={login}
-          onDeposit={handleDeposit}
+          predictionLines={predictionLines}
+          isSelected={isSelected}
+          onAdd={addPrediction}
           onLiveProb={() => {}}
         />
       )}
@@ -251,6 +301,8 @@ export function VolmarketApp({ onOpenDevnet }: { onOpenDevnet: () => void }) {
         slip={slip}
         stake={stake}
         ticket={ticket}
+        placing={placing}
+        placeError={placeError}
         override={
           creatingGroup
             ? {
