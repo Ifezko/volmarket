@@ -8,6 +8,7 @@ import { MatchDetail } from './MatchDetail'
 import { WINDOWS, WSECS, type PredictMeta, type PredictionLine } from './SignalChart'
 import { Slip, type SlipItem, type Ticket } from './Slip'
 import { SettleModal } from './SettleModal'
+import { HowModal } from './HowModal'
 
 export interface ActivePrediction {
   matchKey: string
@@ -74,6 +75,7 @@ export function VolmarketApp({
   const [liveProb, setLiveProb] = useState<number | null>(null)
   const [settleShown, setSettleShown] = useState<ActivePrediction | null>(null)
   const [settleQueueLen, setSettleQueueLen] = useState(0)
+  const [howOpen, setHowOpen] = useState(false)
 
   const curMatch = curMatchId ? matches.find((m) => m.id === curMatchId) ?? null : null
 
@@ -96,6 +98,24 @@ export function VolmarketApp({
   useEffect(() => {
     setLiveProb(null)
   }, [curMatchId, activeKey])
+
+  // Ported from the global keydown handler in the original: Escape closes any open
+  // overlay, "/" focuses search (unless already typing in an input).
+  useEffect(() => {
+    function onKeyDown(e: KeyboardEvent) {
+      if (e.key === 'Escape') {
+        setHowOpen(false)
+        setSlipOpen(false)
+        setCurMatchId(null)
+      }
+      if (e.key === '/' && (document.activeElement as HTMLElement | null)?.tagName !== 'INPUT') {
+        e.preventDefault()
+        document.getElementById('search')?.focus()
+      }
+    }
+    addEventListener('keydown', onKeyDown)
+    return () => removeEventListener('keydown', onKeyDown)
+  }, [])
 
   function pumpSettle() {
     if (settleShownRef.current) return
@@ -253,7 +273,7 @@ export function VolmarketApp({
         onOpenGroupsView={() => {}}
         onOpenDevnet={onOpenDevnet}
       />
-      <Board onOpenMatch={openMatch} onOpenHow={() => {}} />
+      <Board onOpenMatch={openMatch} onOpenHow={() => setHowOpen(true)} />
       <Footer />
 
       {curMatch && (
@@ -264,7 +284,7 @@ export function VolmarketApp({
           onClose={closeMatch}
           onSelectOdd={selectOdd}
           onToggleFollow={toggleFollow}
-          onOpenHow={() => {}}
+          onOpenHow={() => setHowOpen(true)}
           predictionLines={predictionLines}
           isSelected={isSelected}
           onAdd={addPrediction}
@@ -289,6 +309,8 @@ export function VolmarketApp({
       />
 
       <SettleModal pred={settleShown} hasNext={settleQueueLen > 0} onClose={closeSettle} />
+
+      <HowModal open={howOpen} onClose={() => setHowOpen(false)} />
     </>
   )
 }
