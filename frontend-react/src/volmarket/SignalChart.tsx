@@ -42,6 +42,7 @@ export function SignalChart({
   predictionLines,
   isSelected,
   onAdd,
+  onLiveProb,
 }: {
   title: string
   onOpenHow: () => void
@@ -52,6 +53,7 @@ export function SignalChart({
   predictionLines: PredictionLine[]
   isSelected: (id: string) => boolean
   onAdd: (id: string, label: string, prob: number, meta: PredictMeta) => void
+  onLiveProb?: (prob: number) => void
 }) {
   const canvasRef = useRef<HTMLCanvasElement>(null)
   const sigRef = useRef<Sig | null>(null)
@@ -189,6 +191,7 @@ export function SignalChart({
       s: sup ? i2p(sig, sup.i).toFixed(0) + '%' : '—',
       r: res ? i2p(sig, res.i).toFixed(0) + '%' : '—',
     })
+    onLiveProb?.(sig.prob)
 
     // x time axis — reads the selected window
     const wsecs = WSECS[activeWin] || 300
@@ -202,7 +205,7 @@ export function SignalChart({
     ctx.textAlign = 'right'
     ctx.fillText('now', plotR, h - 3)
     ctx.textAlign = 'left'
-  }, [activeWin, i2p, nodes, predictionLines])
+  }, [activeWin, i2p, nodes, predictionLines, onLiveProb])
 
   const stepSig = useCallback(() => {
     const sig = sigRef.current

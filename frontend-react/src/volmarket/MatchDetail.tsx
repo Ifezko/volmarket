@@ -16,6 +16,7 @@ export function MatchDetail({
   predictionLines,
   isSelected,
   onAdd,
+  onLiveProb,
 }: {
   match: Match
   activeKey: string | null
@@ -27,6 +28,7 @@ export function MatchDetail({
   predictionLines: PredictionLine[]
   isSelected: (id: string) => boolean
   onAdd: (id: string, label: string, prob: number, meta: PredictMeta) => void
+  onLiveProb: (prob: number) => void
 }) {
   const live = match.status === 'live' || match.status === 'ht'
   const curOdds: OddLine[] = oddsLines(match)
@@ -132,6 +134,7 @@ export function MatchDetail({
                 predictionLines={predictionLines}
                 isSelected={isSelected}
                 onAdd={onAdd}
+                onLiveProb={onLiveProb}
               />
             )}
           </>

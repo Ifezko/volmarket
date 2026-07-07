@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import './volmarket.css'
 import { matches, rng } from './data'
 import { Nav } from './Nav'
@@ -7,6 +7,7 @@ import { Footer } from './Footer'
 import { MatchDetail } from './MatchDetail'
 import { WINDOWS, WSECS, type PredictMeta, type PredictionLine } from './SignalChart'
 import { Slip, type SlipItem, type Ticket } from './Slip'
+import { SettleModal } from './SettleModal'
 
 export interface ActivePrediction {
   matchKey: string
@@ -52,9 +53,8 @@ function pasteCodePool(code: string): SlipItem[] {
 
 // Top-level composition for the ported Volmarket product UI (see frontend/index.html).
 // Built up one screen at a time — board/nav/footer (5a), match detail (5b), the canvas
-// signal chart + predict buttons (5c), and now the combo slip drawer (5d): fab/scrim,
-// add/remove, stake, place(), the placed-ticket view, and code paste. Settlement,
-// how-it-works, groups, and deposit follow in later commits.
+// signal chart + predict buttons (5c), the combo slip drawer (5d), and now end-of-window
+// settlement (5e). How-it-works, groups, and deposit follow in later commits.
 export function VolmarketApp({
   walletAddress,
   onOpenDevnet,
@@ -71,12 +71,73 @@ export function VolmarketApp({
   const [stake, setStake] = useState(25)
   const [ticket, setTicket] = useState<Ticket | null>(null)
   const [activePreds, setActivePreds] = useState<ActivePrediction[]>([])
+  const [liveProb, setLiveProb] = useState<number | null>(null)
+  const [settleShown, setSettleShown] = useState<ActivePrediction | null>(null)
+  const [settleQueueLen, setSettleQueueLen] = useState(0)
 
   const curMatch = curMatchId ? matches.find((m) => m.id === curMatchId) ?? null : null
+
+  const activePredsRef = useRef(activePreds)
+  activePredsRef.current = activePreds
+  const settleQueueRef = useRef<ActivePrediction[]>([])
+  const settleShownRef = useRef(settleShown)
+  settleShownRef.current = settleShown
+  const curMatchRef = useRef(curMatch)
+  curMatchRef.current = curMatch
+  const activeKeyRef = useRef(activeKey)
+  activeKeyRef.current = activeKey
+  const liveProbRef = useRef(liveProb)
+  liveProbRef.current = liveProb
 
   useEffect(() => {
     document.body.classList.toggle('lock', curMatch !== null)
   }, [curMatch])
+
+  useEffect(() => {
+    setLiveProb(null)
+  }, [curMatchId, activeKey])
+
+  function pumpSettle() {
+    if (settleShownRef.current) return
+    const next = settleQueueRef.current.shift()
+    setSettleQueueLen(settleQueueRef.current.length)
+    if (next) setSettleShown(next)
+  }
+
+  // Ported from the setInterval(...,600) end-of-window settlement checker in the
+  // original: sweeps activePreds for anything past its endsAt, decides win/lose (using
+  // the live chart probability if that odd is on screen, otherwise a mult-implied coin
+  // flip), and queues the result for the settlement popup.
+  useEffect(() => {
+    const t = setInterval(() => {
+      const now = Date.now()
+      let changed = false
+      const updated = activePredsRef.current.map((p) => {
+        if (p.settled || now < p.endsAt) return p
+        changed = true
+        const cm = curMatchRef.current
+        const ak = activeKeyRef.current
+        const lp = liveProbRef.current
+        const onScreen = cm !== null && ak !== null && lp !== null && p.matchKey === `${cm.id}-${ak}`
+        const win = onScreen ? (lp as number) >= p.level : Math.random() * 100 < 100 / p.mult
+        const settledPred: ActivePrediction = { ...p, settled: true, win }
+        settleQueueRef.current.push(settledPred)
+        return settledPred
+      })
+      if (changed) {
+        activePredsRef.current = updated
+        setActivePreds(updated)
+        setSettleQueueLen(settleQueueRef.current.length)
+        pumpSettle()
+      }
+    }, 600)
+    return () => clearInterval(t)
+  }, [])
+
+  function closeSettle() {
+    setSettleShown(null)
+    setTimeout(pumpSettle, 180)
+  }
 
   function openMatch(id: string) {
     const m = matches.find((x) => x.id === id)
@@ -164,7 +225,9 @@ export function VolmarketApp({
         settled: false,
       })
     })
-    setActivePreds((prev) => [...prev, ...scheduled])
+    const updated = [...activePredsRef.current, ...scheduled]
+    activePredsRef.current = updated
+    setActivePreds(updated)
     setTicket({ code: genCode(), sel: slip, stake, mult: combo })
     setSlip([])
   }
@@ -205,6 +268,7 @@ export function VolmarketApp({
           predictionLines={predictionLines}
           isSelected={isSelected}
           onAdd={addPrediction}
+          onLiveProb={setLiveProb}
         />
       )}
 
@@ -223,6 +287,8 @@ export function VolmarketApp({
         onNewSlip={() => setTicket(null)}
         onPasteCode={pasteCode}
       />
+
+      <SettleModal pred={settleShown} hasNext={settleQueueLen > 0} onClose={closeSettle} />
     </>
   )
 }
