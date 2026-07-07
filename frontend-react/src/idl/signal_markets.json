@@ -1,0 +1,677 @@
+{
+  "address": "86hERt8cdRZUBpc1Ng8coX2jwLmWGUcyc9JNfspw39yr",
+  "metadata": {
+    "name": "signal_markets",
+    "version": "0.1.0",
+    "spec": "0.1.0",
+    "description": "Non-custodial signal-prediction settlement engine (TxODDS World Cup)"
+  },
+  "instructions": [
+    {
+      "name": "claim",
+      "docs": [
+        "Winner claims pro-rata payout from the vault. The fee_bps \"cut\" is taken on",
+        "winnings only and routes to the market authority. Non-custodial throughout."
+      ],
+      "discriminator": [
+        62,
+        198,
+        214,
+        193,
+        213,
+        159,
+        108,
+        210
+      ],
+      "accounts": [
+        {
+          "name": "user",
+          "writable": true,
+          "signer": true
+        },
+        {
+          "name": "market",
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  109,
+                  97,
+                  114,
+                  107,
+                  101,
+                  116
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "market.fixture_id",
+                "account": "Market"
+              },
+              {
+                "kind": "account",
+                "path": "market.odd_key",
+                "account": "Market"
+              },
+              {
+                "kind": "account",
+                "path": "market.market_params",
+                "account": "Market"
+              },
+              {
+                "kind": "account",
+                "path": "market.side",
+                "account": "Market"
+              },
+              {
+                "kind": "account",
+                "path": "market.level",
+                "account": "Market"
+              },
+              {
+                "kind": "account",
+                "path": "market.window_start",
+                "account": "Market"
+              }
+            ]
+          }
+        },
+        {
+          "name": "position",
+          "writable": true
+        },
+        {
+          "name": "vault",
+          "writable": true
+        },
+        {
+          "name": "user_token",
+          "writable": true
+        },
+        {
+          "name": "fee_token",
+          "writable": true
+        },
+        {
+          "name": "token_program",
+          "address": "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA"
+        }
+      ],
+      "args": []
+    },
+    {
+      "name": "create_market",
+      "docs": [
+        "Opens a market over a single TxLINE-settleable odd and inits its USDC vault PDA.",
+        "`level` is the L snapped from TxLINE's anchored StablePrice at market open",
+        "(support = current - delta for a HOLD market, resistance = current + delta for BREAK).",
+        "L is on the same scale as the values submitted to `resolve_market`: TxLINE's demargined",
+        "implied probability × 1000 (a 3-decimal percent as an integer, e.g. 39.432% -> 39432),",
+        "so the crossing comparison is apples-to-apples. This program stays scale-agnostic — the",
+        "keeper is responsible for supplying L and the resolving value on this shared scale.",
+        "",
+        "A market's identity is (fixture, odd, params, side, level, window_start). `odd_key`",
+        "selects the SuperOddsType + outcome (e.g. 1X2 home, Over/Under over); `market_params`",
+        "carries the SuperOddsType's parameters so different lines are distinct markets — for",
+        "Over/Under it's the goal line × 100 (1.5 -> 150, 2.5 -> 250); 0 when there is no line",
+        "(e.g. 1X2). The keeper matches a TxLINE odds record to a market by SuperOddsType AND",
+        "MarketParameters, so these must line up with what it derives from the feed."
+      ],
+      "discriminator": [
+        103,
+        226,
+        97,
+        235,
+        200,
+        188,
+        251,
+        254
+      ],
+      "accounts": [
+        {
+          "name": "authority",
+          "writable": true,
+          "signer": true
+        },
+        {
+          "name": "market",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  109,
+                  97,
+                  114,
+                  107,
+                  101,
+                  116
+                ]
+              },
+              {
+                "kind": "arg",
+                "path": "fixture_id"
+              },
+              {
+                "kind": "arg",
+                "path": "odd_key"
+              },
+              {
+                "kind": "arg",
+                "path": "market_params"
+              },
+              {
+                "kind": "arg",
+                "path": "side"
+              },
+              {
+                "kind": "arg",
+                "path": "level"
+              },
+              {
+                "kind": "arg",
+                "path": "window_start"
+              }
+            ]
+          }
+        },
+        {
+          "name": "usdc_mint"
+        },
+        {
+          "name": "vault",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  118,
+                  97,
+                  117,
+                  108,
+                  116
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "market"
+              }
+            ]
+          }
+        },
+        {
+          "name": "token_program",
+          "address": "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA"
+        },
+        {
+          "name": "system_program",
+          "address": "11111111111111111111111111111111"
+        },
+        {
+          "name": "rent",
+          "address": "SysvarRent111111111111111111111111111111111"
+        }
+      ],
+      "args": [
+        {
+          "name": "fixture_id",
+          "type": "u64"
+        },
+        {
+          "name": "odd_key",
+          "type": "u64"
+        },
+        {
+          "name": "market_params",
+          "type": "u64"
+        },
+        {
+          "name": "side",
+          "type": "u8"
+        },
+        {
+          "name": "level",
+          "type": "i64"
+        },
+        {
+          "name": "window_start",
+          "type": "i64"
+        },
+        {
+          "name": "window_end",
+          "type": "i64"
+        },
+        {
+          "name": "fee_bps",
+          "type": "u16"
+        }
+      ]
+    },
+    {
+      "name": "deposit",
+      "docs": [
+        "Stakes USDC into the vault on YES (the market's declared HOLD/BREAK predicate",
+        "comes true) or NO (it doesn't). Volume only informs the displayed profile —",
+        "it never settles the market."
+      ],
+      "discriminator": [
+        242,
+        35,
+        198,
+        137,
+        82,
+        225,
+        242,
+        182
+      ],
+      "accounts": [
+        {
+          "name": "user",
+          "writable": true,
+          "signer": true
+        },
+        {
+          "name": "market",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  109,
+                  97,
+                  114,
+                  107,
+                  101,
+                  116
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "market.fixture_id",
+                "account": "Market"
+              },
+              {
+                "kind": "account",
+                "path": "market.odd_key",
+                "account": "Market"
+              },
+              {
+                "kind": "account",
+                "path": "market.market_params",
+                "account": "Market"
+              },
+              {
+                "kind": "account",
+                "path": "market.side",
+                "account": "Market"
+              },
+              {
+                "kind": "account",
+                "path": "market.level",
+                "account": "Market"
+              },
+              {
+                "kind": "account",
+                "path": "market.window_start",
+                "account": "Market"
+              }
+            ]
+          }
+        },
+        {
+          "name": "position",
+          "writable": true
+        },
+        {
+          "name": "vault",
+          "writable": true
+        },
+        {
+          "name": "user_token",
+          "writable": true
+        },
+        {
+          "name": "token_program",
+          "address": "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA"
+        },
+        {
+          "name": "system_program",
+          "address": "11111111111111111111111111111111"
+        }
+      ],
+      "args": [
+        {
+          "name": "side",
+          "type": "u8"
+        },
+        {
+          "name": "amount",
+          "type": "u64"
+        }
+      ]
+    },
+    {
+      "name": "resolve_market",
+      "docs": [
+        "Permissionless single-proof settlement.",
+        "",
+        "BREAK resolves the moment anyone submits the update where value >= L (one proof,",
+        "CPI'd through TxLINE's validator). HOLD is the mirror, settled optimistically: it",
+        "wins by default, and anyone may defeat it early by submitting the update where",
+        "value dipped below L. If the window closes with BREAK unproven or HOLD undefeated,",
+        "the default outcome wins outright — window_end doubles as HOLD's challenge close."
+      ],
+      "discriminator": [
+        155,
+        23,
+        80,
+        173,
+        46,
+        74,
+        23,
+        239
+      ],
+      "accounts": [
+        {
+          "name": "resolver",
+          "docs": [
+            "Permissionless: anyone may submit a resolving proof. Only pays the tx fee."
+          ],
+          "signer": true
+        },
+        {
+          "name": "market",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  109,
+                  97,
+                  114,
+                  107,
+                  101,
+                  116
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "market.fixture_id",
+                "account": "Market"
+              },
+              {
+                "kind": "account",
+                "path": "market.odd_key",
+                "account": "Market"
+              },
+              {
+                "kind": "account",
+                "path": "market.market_params",
+                "account": "Market"
+              },
+              {
+                "kind": "account",
+                "path": "market.side",
+                "account": "Market"
+              },
+              {
+                "kind": "account",
+                "path": "market.level",
+                "account": "Market"
+              },
+              {
+                "kind": "account",
+                "path": "market.window_start",
+                "account": "Market"
+              }
+            ]
+          }
+        },
+        {
+          "name": "txline_program",
+          "address": "FPnwSSp2DXcNvJnxXWc2JXvU4MLNfrWDT6wBcU5Eptse"
+        }
+      ],
+      "args": [
+        {
+          "name": "value",
+          "type": "i64"
+        },
+        {
+          "name": "proof",
+          "type": "bytes"
+        }
+      ]
+    }
+  ],
+  "accounts": [
+    {
+      "name": "Market",
+      "discriminator": [
+        219,
+        190,
+        213,
+        55,
+        0,
+        227,
+        198,
+        154
+      ]
+    },
+    {
+      "name": "Position",
+      "discriminator": [
+        170,
+        188,
+        143,
+        228,
+        122,
+        64,
+        247,
+        208
+      ]
+    }
+  ],
+  "errors": [
+    {
+      "code": 6000,
+      "name": "InvalidFee",
+      "msg": "fee_bps exceeds 10000"
+    },
+    {
+      "code": 6001,
+      "name": "InvalidSide",
+      "msg": "side must be YES (1) or NO (2)"
+    },
+    {
+      "code": 6002,
+      "name": "InvalidMarketSide",
+      "msg": "market side must be HOLD (0) or BREAK (1)"
+    },
+    {
+      "code": 6003,
+      "name": "ZeroAmount",
+      "msg": "amount must be greater than zero"
+    },
+    {
+      "code": 6004,
+      "name": "MarketNotOpen",
+      "msg": "market is not open for deposits"
+    },
+    {
+      "code": 6005,
+      "name": "InvalidWindow",
+      "msg": "window_end must be after window_start"
+    },
+    {
+      "code": 6006,
+      "name": "WrongMint",
+      "msg": "token account mint does not match the market USDC mint"
+    },
+    {
+      "code": 6007,
+      "name": "Overflow",
+      "msg": "arithmetic overflow"
+    },
+    {
+      "code": 6008,
+      "name": "AlreadyResolved",
+      "msg": "market already resolved"
+    },
+    {
+      "code": 6009,
+      "name": "WindowNotStarted",
+      "msg": "window has not started yet"
+    },
+    {
+      "code": 6010,
+      "name": "ProofDoesNotResolve",
+      "msg": "proof does not resolve this market yet (no crossing / no defeat)"
+    },
+    {
+      "code": 6011,
+      "name": "ValidationFailed",
+      "msg": "TxLINE proof validation failed"
+    },
+    {
+      "code": 6012,
+      "name": "NotResolved",
+      "msg": "market is not resolved yet"
+    },
+    {
+      "code": 6013,
+      "name": "Unauthorized",
+      "msg": "signer not authorized for this account"
+    },
+    {
+      "code": 6014,
+      "name": "AlreadyClaimed",
+      "msg": "position already claimed"
+    },
+    {
+      "code": 6015,
+      "name": "LosingPosition",
+      "msg": "position is on the losing side"
+    },
+    {
+      "code": 6016,
+      "name": "NoWinningStake",
+      "msg": "no stake on the winning side"
+    }
+  ],
+  "types": [
+    {
+      "name": "Market",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "fixture_id",
+            "type": "u64"
+          },
+          {
+            "name": "odd_key",
+            "type": "u64"
+          },
+          {
+            "name": "market_params",
+            "type": "u64"
+          },
+          {
+            "name": "side",
+            "type": "u8"
+          },
+          {
+            "name": "level",
+            "type": "i64"
+          },
+          {
+            "name": "window_start",
+            "type": "i64"
+          },
+          {
+            "name": "window_end",
+            "type": "i64"
+          },
+          {
+            "name": "usdc_mint",
+            "type": "pubkey"
+          },
+          {
+            "name": "vault",
+            "type": "pubkey"
+          },
+          {
+            "name": "authority",
+            "type": "pubkey"
+          },
+          {
+            "name": "fee_bps",
+            "type": "u16"
+          },
+          {
+            "name": "status",
+            "type": "u8"
+          },
+          {
+            "name": "outcome",
+            "type": "u8"
+          },
+          {
+            "name": "total_yes",
+            "type": "u64"
+          },
+          {
+            "name": "total_no",
+            "type": "u64"
+          },
+          {
+            "name": "bump",
+            "type": "u8"
+          },
+          {
+            "name": "vault_bump",
+            "type": "u8"
+          }
+        ]
+      }
+    },
+    {
+      "name": "Position",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "market",
+            "type": "pubkey"
+          },
+          {
+            "name": "owner",
+            "type": "pubkey"
+          },
+          {
+            "name": "side",
+            "type": "u8"
+          },
+          {
+            "name": "amount",
+            "type": "u64"
+          },
+          {
+            "name": "claimed",
+            "type": "bool"
+          },
+          {
+            "name": "bump",
+            "type": "u8"
+          }
+        ]
+      }
+    }
+  ]
+}
