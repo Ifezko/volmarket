@@ -1,8 +1,17 @@
-import { matches } from './data'
 import { MatchCard } from './MatchCard'
+import type { LiveFixture } from './liveFixtures'
 
 // Ported verbatim from the .intro/.legend/.filters/.grid markup in frontend/index.html.
-export function Board({ onOpenMatch, onOpenHow }: { onOpenMatch: (id: string) => void; onOpenHow: () => void }) {
+// `fixtures` are real on-chain fixtures now (see liveFixtures.ts), not the mock array.
+export function Board({
+  fixtures,
+  onOpenMatch,
+  onOpenHow,
+}: {
+  fixtures: LiveFixture[]
+  onOpenMatch: (id: string) => void
+  onOpenHow: () => void
+}) {
   return (
     <div className="wrap">
       <div className="intro">
@@ -40,9 +49,11 @@ export function Board({ onOpenMatch, onOpenHow }: { onOpenMatch: (id: string) =>
       </div>
 
       <div className="grid" id="grid">
-        {matches.map((m) => (
-          <MatchCard key={m.id} m={m} onOpen={onOpenMatch} />
-        ))}
+        {fixtures.length === 0 ? (
+          <p className="empty">No real markets on devnet yet — seed some with keeper/scripts/seed-devnet.ts.</p>
+        ) : (
+          fixtures.map((m) => <MatchCard key={m.id} m={m} onOpen={onOpenMatch} />)
+        )}
       </div>
     </div>
   )

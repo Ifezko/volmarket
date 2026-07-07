@@ -1,16 +1,16 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 
 // Ported verbatim (same math, same canvas calls) from the signal-sim section of
-// frontend/index.html: startSim/stepSig/drawSignal plus the window selector and
-// Holds/Breaks predict buttons that feed off the same selection. Re-expressed with
-// useRef/useEffect instead of module-level globals + setInterval on `document`, but
-// the drawing math and simulation step are untouched — no charting library, no rewrite.
+// frontend/index.html: startSim/stepSig/drawSignal. Re-expressed with useRef/useEffect
+// instead of module-level globals + setInterval on `document`, but the drawing math and
+// simulation step are untouched — no charting library, no rewrite. This is still a
+// simulated tape, same as the original (there's no live TxLINE feed wired into the
+// browser) — but it's now seeded from a real on-chain market's level, and "your call"
+// lines are real deposited positions instead of pending slip picks. The window selector
+// and Holds/Breaks buttons that used to live here moved to RealPredictPanel, since a real
+// market's window is fixed at creation, not a UI choice.
 
-const WINDOWS = ['5s', '15s', '25s', '30s', '1m', '2m', '3m', '5m', '15m', '30m', '1h']
-const WSECS = [5, 15, 25, 30, 60, 120, 180, 300, 900, 1800, 3600]
 const BUCKETS = 34
-const holdProb = (i: number) => Math.max(22, Math.min(84, Math.round(80 - i * 4.4)))
-const breakProb = (i: number) => Math.max(12, Math.min(80, Math.round(16 + i * 4.4)))
 
 interface Sig {
   prob: number
@@ -20,16 +20,9 @@ interface Sig {
   vol: number[]
 }
 
-interface PredictionLine {
+export interface PredictionLine {
   level: number
   side: 'hold' | 'break'
-}
-
-interface PredictMeta {
-  mk: string
-  side: 'hold' | 'break'
-  level: number
-  windowIdx: number
 }
 
 export function SignalChart({
@@ -37,28 +30,23 @@ export function SignalChart({
   onOpenHow,
   matchId,
   oddKey,
-  oddLabel,
   prob,
+  windowSecs,
   predictionLines,
-  isSelected,
-  onAdd,
   onLiveProb,
 }: {
   title: string
   onOpenHow: () => void
   matchId: string
   oddKey: string
-  oddLabel: string
   prob: number
+  windowSecs: number
   predictionLines: PredictionLine[]
-  isSelected: (id: string) => boolean
-  onAdd: (id: string, label: string, prob: number, meta: PredictMeta) => void
   onLiveProb?: (prob: number) => void
 }) {
   const canvasRef = useRef<HTMLCanvasElement>(null)
   const sigRef = useRef<Sig | null>(null)
   const timerRef = useRef<ReturnType<typeof setInterval> | null>(null)
-  const [activeWin, setActiveWin] = useState(7) // default 5m
   const [pills, setPills] = useState({ r: '—', l: '—', s: '—' })
 
   const i2p = useCallback((sig: Sig, i: number) => sig.pmin + (i / (BUCKETS - 1)) * (sig.pmax - sig.pmin), [])
@@ -158,7 +146,7 @@ export function SignalChart({
     })
     ctx.globalAlpha = 1
 
-    // prediction lines on this odd — pending picks + placed (active) predictions
+    // prediction lines on this odd — the wallet's real deposited positions
     const seen = new Set<string>()
     predictionLines.forEach((ln) => {
       const tag = ln.side + ':' + ln.level
@@ -193,8 +181,8 @@ export function SignalChart({
     })
     onLiveProb?.(sig.prob)
 
-    // x time axis — reads the selected window
-    const wsecs = WSECS[activeWin] || 300
+    // x time axis — reads the market's real window duration
+    const wsecs = windowSecs || 300
     const ft = (s: number) => (s < 60 ? s + 's' : s % 3600 === 0 ? s / 3600 + 'h' : s % 60 === 0 ? s / 60 + 'm' : (s / 60).toFixed(1) + 'm')
     ctx.fillStyle = '#5a6573'
     ctx.font = '9px "JetBrains Mono"'
@@ -205,7 +193,7 @@ export function SignalChart({
     ctx.textAlign = 'right'
     ctx.fillText('now', plotR, h - 3)
     ctx.textAlign = 'left'
-  }, [activeWin, i2p, nodes, predictionLines, onLiveProb])
+  }, [i2p, nodes, predictionLines, onLiveProb, windowSecs])
 
   const stepSig = useCallback(() => {
     const sig = sigRef.current
@@ -252,7 +240,6 @@ export function SignalChart({
     v[idx(p + 7)] += 58
     v[idx(p)] += 38
     sigRef.current = { prob: p, pmin, pmax, hist: Array.from({ length: 56 }, () => p), vol: v }
-    setActiveWin(7)
     drawSignal()
 
     const reduce = matchMedia && matchMedia('(prefers-reduced-motion: reduce)').matches
@@ -268,7 +255,7 @@ export function SignalChart({
     }
     // Intentionally re-runs only when the selected odd changes (matchId/oddKey/prob) —
     // this mirrors startSim(prob) in the original, which restarts on a new odd, not on
-    // window/predictionLines changes (those just redraw via the effect below).
+    // every redraw-triggering prop change (those just redraw via the effect below).
   }, [matchId, oddKey, prob])
 
   useEffect(() => {
@@ -279,17 +266,6 @@ export function SignalChart({
     addEventListener('resize', drawSignal)
     return () => removeEventListener('resize', drawSignal)
   }, [drawSignal])
-
-  const b = `${matchId}-${oddKey}`
-  const wi = activeWin
-  const wl = WINDOWS[wi]
-  const pb = Math.max(8, Math.min(92, prob))
-  const sup = Math.round(pb - 6)
-  const res = Math.round(pb + 7)
-  const hp = holdProb(wi)
-  const bpv = breakProb(wi)
-  const holdId = `${b}-hold-${wi}`
-  const breakId = `${b}-break-${wi}`
 
   return (
     <div className="sig">
@@ -321,55 +297,6 @@ export function SignalChart({
           </div>
         </div>
       </div>
-      <div>
-        <p className="predlbl">Predict the signal · tap to add</p>
-        <div className="winrow">
-          <span className="winlbl">Window</span>
-          <div className="wchips">
-            {WINDOWS.map((w, i) => (
-              <span key={w}>
-                {(i === 4 || i === 10) && <span className="wdiv"></span>}
-                <button className={`wchip${i === wi ? ' on' : ''}`} onClick={() => setActiveWin(i)}>
-                  {w}
-                </button>
-              </span>
-            ))}
-          </div>
-        </div>
-        <div className="sigact">
-          <button
-            className={`sigbtn sup${isSelected(holdId) ? ' sel' : ''}`}
-            onClick={() =>
-              onAdd(holdId, `${matchId} · ${oddLabel}: holds ${sup}%+ within ${wl}`, hp, {
-                mk: b,
-                side: 'hold',
-                level: sup,
-                windowIdx: wi,
-              })
-            }
-          >
-            Holds {sup}%+
-            <small>within {wl}</small>
-          </button>
-          <button
-            className={`sigbtn res${isSelected(breakId) ? ' sel' : ''}`}
-            onClick={() =>
-              onAdd(breakId, `${matchId} · ${oddLabel}: breaks ${res}% within ${wl}`, bpv, {
-                mk: b,
-                side: 'break',
-                level: res,
-                windowIdx: wi,
-              })
-            }
-          >
-            Breaks {res}%
-            <small>within {wl}</small>
-          </button>
-        </div>
-      </div>
     </div>
   )
 }
-
-export { WINDOWS, WSECS }
-export type { PredictionLine, PredictMeta }

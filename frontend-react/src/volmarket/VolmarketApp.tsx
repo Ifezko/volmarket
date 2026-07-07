@@ -1,31 +1,24 @@
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { useCallback, useEffect, useState } from 'react'
+import { Connection } from '@solana/web3.js'
+import { usePrivy } from '@privy-io/react-auth'
+import { useSignTransaction, useWallets as useSolanaWallets } from '@privy-io/react-auth/solana'
 import './volmarket.css'
-import { matches, rng } from './data'
+import { rng } from './data'
 import { Nav } from './Nav'
 import { Board } from './Board'
 import { Footer } from './Footer'
 import { MatchDetail } from './MatchDetail'
-import { WINDOWS, WSECS, type PredictMeta, type PredictionLine } from './SignalChart'
 import { Slip, type SlipItem, type Ticket } from './Slip'
-import { SettleModal } from './SettleModal'
 import { HowModal } from './HowModal'
 import { GroupsView } from './GroupsView'
 import { GroupCreatePanel } from './GroupCreatePanel'
 import { DepositPanel } from './DepositPanel'
 import { initialGroups, type Group } from './groups'
+import { fetchRealMarkets, type RealMarket } from '../lib/onchainMarkets'
+import { placeRealDeposits } from '../lib/depositMarkets'
+import { buildLiveFixtures, type LiveFixture } from './liveFixtures'
 
-export interface ActivePrediction {
-  matchKey: string
-  level: number
-  side: 'hold' | 'break'
-  label: string
-  winLabel: string
-  stake: number
-  mult: number
-  endsAt: number
-  settled: boolean
-  win?: boolean
-}
+const RPC_URL = import.meta.env.VITE_RPC_URL ?? 'https://api.devnet.solana.com'
 
 function genCode(): string {
   const s = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789'
@@ -34,6 +27,7 @@ function genCode(): string {
 }
 
 // paste a friend's code -> loads a mock prediction into the slip, ported from pasteCode()
+// (this demo path never was wired to real settlement — see place() below)
 function pasteCodePool(code: string): SlipItem[] {
   const r = rng(code)
   const pool = [
@@ -57,28 +51,27 @@ function pasteCodePool(code: string): SlipItem[] {
 }
 
 // Top-level composition for the ported Volmarket product UI (see frontend/index.html).
-// Built up one screen at a time — board/nav/footer (5a), match detail (5b), the canvas
-// signal chart + predict buttons (5c), the combo slip drawer (5d), and now end-of-window
-// settlement (5e). How-it-works, groups, and deposit follow in later commits.
-export function VolmarketApp({
-  walletAddress,
-  onOpenDevnet,
-}: {
-  walletAddress: string | undefined
-  onOpenDevnet: () => void
-}) {
+// The board/detail now trade REAL on-chain Market accounts (fetchRealMarkets, grouped by
+// liveFixtures.ts) instead of the mock array, and predicting deposits real devnet USDC via
+// a Privy-signed transaction (RealPredictPanel -> placeRealDeposits) — Privy login is only
+// prompted at that point, not as a gate on the whole app (see App.tsx). The combo-slip
+// share-code demo (paste a friend's code) is unrelated to real trading and still works as
+// pure UI fidelity; nothing populates it from real predictions anymore, since each real
+// deposit is its own immediate signed transaction, not a batched slip.
+export function VolmarketApp({ onOpenDevnet }: { onOpenDevnet: () => void }) {
+  const { authenticated, login } = usePrivy()
+  const { wallets } = useSolanaWallets()
+  const { signTransaction } = useSignTransaction()
+  const solanaWallet = wallets[0]
+
+  const [fixtures, setFixtures] = useState<LiveFixture[]>([])
   const [curMatchId, setCurMatchId] = useState<string | null>(null)
   const [activeKey, setActiveKey] = useState<string | null>(null)
   const [followed, setFollowed] = useState<Set<string>>(new Set())
   const [slip, setSlip] = useState<SlipItem[]>([])
-  const [predMeta, setPredMeta] = useState<Record<string, PredictMeta>>({})
   const [slipOpen, setSlipOpen] = useState(false)
   const [stake, setStake] = useState(25)
   const [ticket, setTicket] = useState<Ticket | null>(null)
-  const [activePreds, setActivePreds] = useState<ActivePrediction[]>([])
-  const [liveProb, setLiveProb] = useState<number | null>(null)
-  const [settleShown, setSettleShown] = useState<ActivePrediction | null>(null)
-  const [settleQueueLen, setSettleQueueLen] = useState(0)
   const [howOpen, setHowOpen] = useState(false)
   const [groups, setGroups] = useState<Group[]>(initialGroups)
   const [requestedGroups, setRequestedGroups] = useState<Set<number>>(new Set())
@@ -86,27 +79,25 @@ export function VolmarketApp({
   const [creatingGroup, setCreatingGroup] = useState<{ seedCode?: string; stage: 'form' | 'created' } | null>(null)
   const [depositOpen, setDepositOpen] = useState(false)
 
-  const curMatch = curMatchId ? matches.find((m) => m.id === curMatchId) ?? null : null
+  const curMatch = curMatchId ? fixtures.find((m) => m.id === curMatchId) ?? null : null
 
-  const activePredsRef = useRef(activePreds)
-  activePredsRef.current = activePreds
-  const settleQueueRef = useRef<ActivePrediction[]>([])
-  const settleShownRef = useRef(settleShown)
-  settleShownRef.current = settleShown
-  const curMatchRef = useRef(curMatch)
-  curMatchRef.current = curMatch
-  const activeKeyRef = useRef(activeKey)
-  activeKeyRef.current = activeKey
-  const liveProbRef = useRef(liveProb)
-  liveProbRef.current = liveProb
+  const refreshMarkets = useCallback(async () => {
+    try {
+      const connection = new Connection(RPC_URL, 'confirmed')
+      const real = await fetchRealMarkets(connection)
+      setFixtures(buildLiveFixtures(real))
+    } catch (err) {
+      console.error('failed to fetch real markets', err)
+    }
+  }, [])
+
+  useEffect(() => {
+    refreshMarkets()
+  }, [refreshMarkets])
 
   useEffect(() => {
     document.body.classList.toggle('lock', curMatch !== null || groupsViewOpen)
   }, [curMatch, groupsViewOpen])
-
-  useEffect(() => {
-    setLiveProb(null)
-  }, [curMatchId, activeKey])
 
   // Ported from the global keydown handler in the original: Escape closes any open
   // overlay, "/" focuses search (unless already typing in an input).
@@ -127,54 +118,11 @@ export function VolmarketApp({
     return () => removeEventListener('keydown', onKeyDown)
   }, [])
 
-  function pumpSettle() {
-    if (settleShownRef.current) return
-    const next = settleQueueRef.current.shift()
-    setSettleQueueLen(settleQueueRef.current.length)
-    if (next) setSettleShown(next)
-  }
-
-  // Ported from the setInterval(...,600) end-of-window settlement checker in the
-  // original: sweeps activePreds for anything past its endsAt, decides win/lose (using
-  // the live chart probability if that odd is on screen, otherwise a mult-implied coin
-  // flip), and queues the result for the settlement popup.
-  useEffect(() => {
-    const t = setInterval(() => {
-      const now = Date.now()
-      let changed = false
-      const updated = activePredsRef.current.map((p) => {
-        if (p.settled || now < p.endsAt) return p
-        changed = true
-        const cm = curMatchRef.current
-        const ak = activeKeyRef.current
-        const lp = liveProbRef.current
-        const onScreen = cm !== null && ak !== null && lp !== null && p.matchKey === `${cm.id}-${ak}`
-        const win = onScreen ? (lp as number) >= p.level : Math.random() * 100 < 100 / p.mult
-        const settledPred: ActivePrediction = { ...p, settled: true, win }
-        settleQueueRef.current.push(settledPred)
-        return settledPred
-      })
-      if (changed) {
-        activePredsRef.current = updated
-        setActivePreds(updated)
-        setSettleQueueLen(settleQueueRef.current.length)
-        pumpSettle()
-      }
-    }, 600)
-    return () => clearInterval(t)
-  }, [])
-
-  function closeSettle() {
-    setSettleShown(null)
-    setTimeout(pumpSettle, 180)
-  }
-
   function openMatch(id: string) {
-    const m = matches.find((x) => x.id === id)
+    const m = fixtures.find((x) => x.id === id)
     if (!m) return
     setCurMatchId(id)
-    const live = m.status === 'live' || m.status === 'ht'
-    setActiveKey(live ? 'res-h' : null)
+    setActiveKey(m.status === 'live' ? (m.odds[0]?.key ?? null) : null)
     window.scrollTo(0, 0)
   }
 
@@ -199,67 +147,19 @@ export function VolmarketApp({
     })
   }
 
-  // Ported from add() in the original — toggles a pick in/out of the slip and records
-  // its match/side/level so drawSignal and place() can find it again.
-  function addPrediction(id: string, label: string, prob: number, meta: PredictMeta) {
-    if (ticket) setTicket(null)
-    setPredMeta((prev) => ({ ...prev, [id]: meta }))
-    setSlip((prev) => {
-      if (prev.some((s) => s.id === id)) return prev.filter((s) => s.id !== id)
-      const mult = 100 / Math.max(1, prob)
-      return [...prev, { id, label, mult }]
-    })
+  // Ported from place() in the original, minus settlement scheduling — a real prediction
+  // settles on-chain (the keeper resolves it), not against a mult-implied coin flip, so
+  // there's nothing to schedule here anymore. This still produces a shareable ticket code
+  // for the paste-a-friend's-code demo path.
+  function place() {
+    if (!slip.length) return
+    const combo = slip.reduce((a, s) => a * s.mult, 1)
+    setTicket({ code: genCode(), sel: slip, stake, mult: combo })
+    setSlip([])
   }
 
   function removeFromSlip(id: string) {
     setSlip((prev) => prev.filter((s) => s.id !== id))
-  }
-
-  function isSelected(id: string) {
-    return slip.some((s) => s.id === id)
-  }
-
-  const predictionLines = useMemo<PredictionLine[]>(() => {
-    if (!curMatch || !activeKey) return []
-    const mk = `${curMatch.id}-${activeKey}`
-    const lines: PredictionLine[] = []
-    slip.forEach((s) => {
-      const m = predMeta[s.id]
-      if (m && m.mk === mk) lines.push({ level: m.level, side: m.side })
-    })
-    activePreds.forEach((p) => {
-      if (p.matchKey === mk && !p.settled) lines.push({ level: p.level, side: p.side })
-    })
-    return lines
-  }, [slip, predMeta, activePreds, curMatch, activeKey])
-
-  function place() {
-    if (!slip.length) return
-    const combo = slip.reduce((a, s) => a * s.mult, 1)
-    const perStake = +(stake / slip.length).toFixed(2)
-    const now = Date.now()
-    const scheduled: ActivePrediction[] = []
-    slip.forEach((s) => {
-      const m = predMeta[s.id]
-      if (!m) return
-      const secs = WSECS[m.windowIdx] ?? 300
-      scheduled.push({
-        matchKey: m.mk,
-        level: m.level,
-        side: m.side,
-        label: s.label,
-        winLabel: WINDOWS[m.windowIdx] ?? '',
-        stake: perStake,
-        mult: s.mult,
-        endsAt: now + secs * 1000,
-        settled: false,
-      })
-    })
-    const updated = [...activePredsRef.current, ...scheduled]
-    activePredsRef.current = updated
-    setActivePreds(updated)
-    setTicket({ code: genCode(), sel: slip, stake, mult: combo })
-    setSlip([])
   }
 
   function copyCode(code: string) {
@@ -269,6 +169,18 @@ export function VolmarketApp({
   function pasteCode(code: string) {
     setSlip(pasteCodePool(code))
     setTicket(null)
+  }
+
+  // Real deposit — builds and sends one signed devnet transaction via Privy, then
+  // refreshes the board so totals/status reflect the new stake immediately.
+  async function handleDeposit(market: RealMarket, amountUsdc: number): Promise<string> {
+    if (!solanaWallet) throw new Error('no embedded wallet — log in first')
+    const connection = new Connection(RPC_URL, 'confirmed')
+    const { signature } = await placeRealDeposits(connection, solanaWallet, signTransaction, [
+      { market, side: 'yes', amountUsdc },
+    ])
+    await refreshMarkets()
+    return signature
   }
 
   // Ported from openGroups()/createGroup() — opens the group-creation form in the slip
@@ -302,7 +214,7 @@ export function VolmarketApp({
     <>
       <Nav
         comboCount={slip.length}
-        walletAddress={walletAddress}
+        walletAddress={solanaWallet?.address}
         activeTab="product"
         onLogoClick={closeMatch}
         onOpenDeposit={openDeposit}
@@ -314,7 +226,7 @@ export function VolmarketApp({
         onOpenGroupsView={() => setGroupsViewOpen(true)}
         onOpenDevnet={onOpenDevnet}
       />
-      <Board onOpenMatch={openMatch} onOpenHow={() => setHowOpen(true)} />
+      <Board fixtures={fixtures} onOpenMatch={openMatch} onOpenHow={() => setHowOpen(true)} />
       <Footer />
 
       {curMatch && (
@@ -326,10 +238,11 @@ export function VolmarketApp({
           onSelectOdd={selectOdd}
           onToggleFollow={toggleFollow}
           onOpenHow={() => setHowOpen(true)}
-          predictionLines={predictionLines}
-          isSelected={isSelected}
-          onAdd={addPrediction}
-          onLiveProb={setLiveProb}
+          predictionLines={[]}
+          authenticated={authenticated}
+          onLogin={login}
+          onDeposit={handleDeposit}
+          onLiveProb={() => {}}
         />
       )}
 
@@ -370,8 +283,6 @@ export function VolmarketApp({
         onNewSlip={() => setTicket(null)}
         onPasteCode={pasteCode}
       />
-
-      <SettleModal pred={settleShown} hasNext={settleQueueLen > 0} onClose={closeSettle} />
 
       <HowModal open={howOpen} onClose={() => setHowOpen(false)} />
 

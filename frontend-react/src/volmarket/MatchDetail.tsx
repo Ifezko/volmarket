@@ -1,10 +1,14 @@
-import { FL, oddsLines, type Match, type OddLine } from './data'
+import { FL } from './data'
 import { Sparkline } from './Sparkline'
-import { SignalChart, type PredictMeta, type PredictionLine } from './SignalChart'
+import { SignalChart, type PredictionLine } from './SignalChart'
+import { RealPredictPanel } from './RealPredictPanel'
+import type { LiveFixture } from './liveFixtures'
+import type { RealMarket } from '../lib/onchainMarkets'
 
 // Ported from openMatch() in frontend/index.html: the .detail overlay — score header,
 // grouped odds selector (live only), the .sig volume-signal panel, the all-odds list,
-// and the pre-match "markets open at kickoff" state.
+// and the pre-match "markets open at kickoff" state. `match` is now a real on-chain
+// fixture (grouped Market accounts, see liveFixtures.ts) instead of the mock array.
 export function MatchDetail({
   match,
   activeKey,
@@ -14,11 +18,12 @@ export function MatchDetail({
   onToggleFollow,
   onOpenHow,
   predictionLines,
-  isSelected,
-  onAdd,
+  authenticated,
+  onLogin,
+  onDeposit,
   onLiveProb,
 }: {
-  match: Match
+  match: LiveFixture
   activeKey: string | null
   isFollowed: boolean
   onClose: () => void
@@ -26,50 +31,33 @@ export function MatchDetail({
   onToggleFollow: (id: string) => void
   onOpenHow: () => void
   predictionLines: PredictionLine[]
-  isSelected: (id: string) => boolean
-  onAdd: (id: string, label: string, prob: number, meta: PredictMeta) => void
+  authenticated: boolean
+  onLogin: () => void
+  onDeposit: (market: RealMarket, amountUsdc: number) => Promise<string>
   onLiveProb: (prob: number) => void
 }) {
-  const live = match.status === 'live' || match.status === 'ht'
-  const curOdds: OddLine[] = oddsLines(match)
+  const live = match.status === 'live'
+  const curOdds = match.odds
   const activeOdd = curOdds.find((o) => o.key === activeKey)
+  const totalVol = curOdds.reduce((sum, o) => sum + o.markets.reduce((s, m) => s + m.totalYes + m.totalNo, 0), 0)
 
-  let minTag
-  switch (match.status) {
-    case 'live':
-      minTag = (
-        <span className="min">
-          <span className="pdot"></span>
-          {match.min}'
-        </span>
-      )
-      break
-    case 'ht':
-      minTag = (
-        <span className="min" style={{ color: 'var(--amber)' }}>
-          Half time
-        </span>
-      )
-      break
-    case 'soon':
-      minTag = (
-        <span className="min" style={{ color: 'var(--dim)' }}>
-          Kickoff {match.ko}
-        </span>
-      )
-      break
-  }
-
-  const mid =
-    match.status === 'soon' ? (
-      <span className="sc" style={{ color: 'var(--dim)' }}>
-        {match.ko}
+  const minTag =
+    match.status === 'live' ? (
+      <span className="min">
+        <span className="pdot"></span>
+        Live
+      </span>
+    ) : match.status === 'soon' ? (
+      <span className="min" style={{ color: 'var(--dim)' }}>
+        Opens {match.ko}
       </span>
     ) : (
-      <span className="sc">
-        {match.score[0]}–{match.score[1]}
+      <span className="min" style={{ color: 'var(--dim)' }}>
+        Resolved
       </span>
     )
+
+  const mid = <span className="sc">{match.status.toUpperCase()}</span>
 
   const groups = [...new Set(curOdds.map((o) => o.grp))]
 
@@ -99,7 +87,8 @@ export function MatchDetail({
           </div>
         </div>
         <div className="dsub">
-          {match.comp} · ${match.vol} traded · {live ? '5 odds with live signals' : 'pre-match odds · signals at kickoff'}
+          {match.comp} · ${totalVol.toFixed(2)} staked on-chain ·{' '}
+          {live ? `${curOdds.length} real market${curOdds.length === 1 ? '' : 's'}` : 'pre-match odds · signals at kickoff'}
         </div>
 
         {live ? (
@@ -118,24 +107,25 @@ export function MatchDetail({
                     >
                       <span className="fl">{o.fl}</span>
                       {o.label}
-                      <span className="op">{o.prob}%</span>
+                      <span className="op">{o.prob.toFixed(1)}%</span>
                     </div>
                   ))}
               </div>
             ))}
             {activeOdd && (
-              <SignalChart
-                title={`${activeOdd.label} — ${activeOdd.prob}%`}
-                onOpenHow={onOpenHow}
-                matchId={match.id}
-                oddKey={activeOdd.key}
-                oddLabel={activeOdd.label}
-                prob={activeOdd.prob}
-                predictionLines={predictionLines}
-                isSelected={isSelected}
-                onAdd={onAdd}
-                onLiveProb={onLiveProb}
-              />
+              <>
+                <SignalChart
+                  title={`${activeOdd.label} — ${activeOdd.prob.toFixed(1)}%`}
+                  onOpenHow={onOpenHow}
+                  matchId={match.id}
+                  oddKey={activeOdd.key}
+                  prob={activeOdd.prob}
+                  windowSecs={activeOdd.markets[0] ? activeOdd.markets[0].windowEnd - activeOdd.markets[0].windowStart : 300}
+                  predictionLines={predictionLines}
+                  onLiveProb={onLiveProb}
+                />
+                <RealPredictPanel key={activeOdd.key} odd={activeOdd} authenticated={authenticated} onLogin={onLogin} onDeposit={onDeposit} />
+              </>
             )}
           </>
         ) : match.status === 'soon' ? (
@@ -144,8 +134,8 @@ export function MatchDetail({
               <span className="pmclock">⏱</span> Markets open at kickoff
             </div>
             <p className="pmsub">
-              Odds are live now, but volume signals need the match in play — there's no movement to trade before
-              kickoff. Follow this match and its hold/break markets open the moment it starts, {match.ko}.
+              These markets aren't in their trading window yet. Follow this match and its hold/break markets open
+              at {match.ko}.
             </p>
             <button
               className={`btn ${isFollowed ? 'btn-ghost' : 'btn-blue'}`}
@@ -155,7 +145,12 @@ export function MatchDetail({
               {isFollowed ? '✓ Following — alerts at kickoff' : '🔔 Follow match'}
             </button>
           </div>
-        ) : null}
+        ) : (
+          <div className="prematch">
+            <div className="pmk">Markets resolved</div>
+            <p className="pmsub">Every market on this fixture has closed. Check the all-odds list below for outcomes.</p>
+          </div>
+        )}
 
         <p className="allh">
           All odds · {match.a} v {match.b}
@@ -170,13 +165,13 @@ export function MatchDetail({
                 {o.label}
                 <small>{o.grp}</small>
               </div>
-              <span className="pc">{o.prob}%</span>
+              <span className="pc">{o.prob.toFixed(0)}%</span>
               {live ? (
                 <button className="sg" onClick={() => onSelectOdd(o.key, true)}>
                   Signal →
                 </button>
               ) : (
-                <span className="sgsoon">Opens at KO</span>
+                <span className="sgsoon">{match.status === 'soon' ? 'Opens at KO' : 'Resolved'}</span>
               )}
             </div>
           ))}

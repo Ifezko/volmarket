@@ -1,22 +1,18 @@
 import { useState } from 'react'
 import { usePrivy } from '@privy-io/react-auth'
-import { useWallets as useSolanaWallets } from '@privy-io/react-auth/solana'
 import { DevnetProof } from './DevnetProof'
 import { VolmarketApp } from './volmarket/VolmarketApp'
 
 // The real product (frontend/index.html) has no login wall at all — it's fully open.
-// Privy auth is only needed for the "Devnet" screen (real on-chain signing), so it's
-// prompted there, not as a gate in front of the whole app.
+// Privy auth is only needed for the "Devnet" screen and for real predictions (both
+// prompted where they happen, inside VolmarketApp), not as a gate in front of the app.
 function App() {
   const { ready, authenticated, user, login } = usePrivy()
-  const { wallets } = useSolanaWallets()
   const [tab, setTab] = useState<'product' | 'devnet'>('product')
 
   if (!ready) {
     return null
   }
-
-  const solanaWallet = wallets[0]
 
   if (tab === 'devnet') {
     return (
@@ -38,7 +34,7 @@ function App() {
     )
   }
 
-  return <VolmarketApp walletAddress={solanaWallet?.address} onOpenDevnet={() => setTab('devnet')} />
+  return <VolmarketApp onOpenDevnet={() => setTab('devnet')} />
 }
 
 export default App
