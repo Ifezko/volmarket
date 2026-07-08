@@ -424,15 +424,18 @@ export function VolmarketApp() {
       try {
         const connection = new Connection(RPC_URL, 'confirmed')
         await placeRealPredictions(connection, solanaWallet, signTransaction, picks)
-        await refreshMarkets()
-        await refreshUsdc()
-        await refreshActivePositions()
       } catch (err) {
         setPlaceError(err instanceof Error ? err.message : String(err))
         setPlacing(false)
         return
       }
       setPlacing(false)
+      // The prediction is confirmed on-chain — show success now. Refresh the board / balance /
+      // positions in the background rather than making the user wait on three more round-trips
+      // (refreshActivePositions can even kick off resolve/claim txs of its own).
+      void refreshMarkets()
+      void refreshUsdc()
+      void refreshActivePositions()
     }
 
     setTicket({ code: genCode(), sel: slip, stake, mult: combo })
