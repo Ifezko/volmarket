@@ -6,7 +6,6 @@ import {
 } from '@solana/spl-token'
 import type { ConnectedStandardSolanaWallet } from '@privy-io/react-auth/solana'
 import { PrivyAnchorWallet } from './privyAnchorWallet'
-import { SIGNAL_MARKETS_PROGRAM_ID } from './onchainMarkets'
 
 type PrivySignTransaction = ConstructorParameters<typeof PrivyAnchorWallet>[1]
 
@@ -56,13 +55,11 @@ export interface FundingEvent {
   amountUsdc: number
 }
 
-// Deposit/withdrawal history for the wallet's canonical-USDC account, newest first — the money-in/
-// money-out half of the profile's History (predictions are the other half). We scan the USDC ATA's
-// signatures, then classify each by the ATA's USDC balance delta: a credit is a deposit (treasury
-// mint), a debit is a withdrawal. Predictions ALSO move USDC on this account (place debits into a
-// market vault, claim credits back), so we drop any transaction that touches the signal_markets
-// program — those already appear as predictions and would otherwise double-count as deposits/
-// withdrawals. Only loaded when the History tab opens, so the per-tx parse cost is paid rarely.
+// Money-in/money-out history for the wallet's canonical-USDC account, newest first — the funding
+// half of the profile's History (predictions are the other half). We scan the USDC ATA's
+// signatures and classify each by the ATA's USDC balance delta: a credit shows as a deposit, a
+// debit as a withdrawal. Only loaded when the History tab opens, so the per-tx parse cost is paid
+// rarely.
 export async function fetchFundingHistory(
   connection: Connection,
   owner: PublicKey,
@@ -79,20 +76,10 @@ export async function fetchFundingHistory(
 
   const ownerStr = owner.toBase58()
   const mintStr = USDC_MINT.toBase58()
-  const programStr = SIGNAL_MARKETS_PROGRAM_ID.toBase58()
 
   const events: FundingEvent[] = []
   parsed.forEach((tx, i) => {
     if (!tx || tx.meta?.err) return
-
-    // skip prediction placements/claims (they run through the signal_markets program) — those are
-    // shown as predictions, not deposits/withdrawals.
-    const touchesProgram =
-      tx.transaction.message.instructions.some((ix) => ix.programId.toBase58() === programStr) ||
-      (tx.meta?.innerInstructions ?? []).some((inner) =>
-        inner.instructions.some((ix) => ix.programId.toBase58() === programStr),
-      )
-    if (touchesProgram) return
 
     const pre = tx.meta?.preTokenBalances?.find((b) => b.mint === mintStr && b.owner === ownerStr)
     const post = tx.meta?.postTokenBalances?.find((b) => b.mint === mintStr && b.owner === ownerStr)

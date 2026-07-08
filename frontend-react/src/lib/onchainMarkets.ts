@@ -48,10 +48,6 @@ export function getReadonlyProgram(connection: Connection): Program {
   return new Program(idl as Idl, provider)
 }
 
-// The on-chain program address (from the IDL). Used to tell prediction-related USDC movements
-// (place/claim, which touch this program) apart from plain treasury deposits/withdrawals.
-export const SIGNAL_MARKETS_PROGRAM_ID = new PublicKey((idl as Idl).address)
-
 // getProgramAccounts (what account.all() uses) is heavy and the public devnet RPC frequently
 // rate-limits it (HTTP 429), which would otherwise blank the board. Alchemy's devnet RPC is far
 // more tolerant of it, so we fall back to it (then to the public endpoint) when the primary
