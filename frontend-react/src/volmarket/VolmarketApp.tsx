@@ -21,7 +21,7 @@ import { fetchRealMarkets, makeConnection } from '../lib/onchainMarkets'
 import { placeRealPredictions, type PendingPick } from '../lib/depositMarkets'
 import { claimPositions, fetchWalletState, type ClaimablePosition, type ActivePosition } from '../lib/claimMarkets'
 import { resolveMarkets } from '../lib/resolveMarkets'
-import { fundWallet, fetchUsdcBalance, withdrawUsdc, fetchTxHistory } from '../lib/funds'
+import { fundWallet, fetchUsdcBalance, withdrawUsdc } from '../lib/funds'
 import { buildLiveFixtures, applyBoardView, type LiveFixture, type BoardFilter, type BoardSort } from './liveFixtures'
 import type { PredictionLine } from './SignalChart'
 import type { RealPredictMeta } from './PredictBuilder'
@@ -610,11 +610,7 @@ export function VolmarketApp() {
                           setSlipOpen(false)
                           setProfileOpen(false)
                         }}
-                        loadHistory={async () => {
-                          if (!solanaWallet) return []
-                          const connection = makeConnection()
-                          return fetchTxHistory(connection, new PublicKey(solanaWallet.address))
-                        }}
+                        positions={activePositions}
                       />
                     ),
                   }

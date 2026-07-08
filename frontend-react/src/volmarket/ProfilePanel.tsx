@@ -1,5 +1,6 @@
-import { useEffect, useState } from 'react'
-import type { TxHistoryItem } from '../lib/funds'
+import { useState } from 'react'
+import type { ActivePosition } from '../lib/claimMarkets'
+import { describeMarket } from './liveFixtures'
 
 // Rendered in the Slip drawer's `override` slot (same pattern as Deposit). Two views via a
 // segmented control: "Account" (wallet address + withdraw) and "History" (recent on-chain
@@ -12,7 +13,7 @@ export function ProfilePanel({
   onCopyAddress,
   onWithdraw,
   onLogout,
-  loadHistory,
+  positions,
 }: {
   walletAddress: string | undefined
   balance: number
@@ -20,7 +21,7 @@ export function ProfilePanel({
   onCopyAddress: (address: string) => void
   onWithdraw: (destination: string, amount: number) => Promise<void>
   onLogout: () => Promise<void>
-  loadHistory: () => Promise<TxHistoryItem[]>
+  positions: ActivePosition[]
 }) {
   const [view, setView] = useState<'account' | 'history'>('account')
   const [destination, setDestination] = useState('')
@@ -31,23 +32,8 @@ export function ProfilePanel({
   const [copied, setCopied] = useState(false)
   const [loggingOut, setLoggingOut] = useState(false)
 
-  const [history, setHistory] = useState<TxHistoryItem[] | null>(null)
-  const [historyError, setHistoryError] = useState<string | null>(null)
-
   const amt = Number(amount)
   const canWithdraw = !busy && destination.trim() !== '' && amt > 0 && amt <= balance
-
-  // load history the first time the History tab is opened (and on manual refresh)
-  useEffect(() => {
-    if (view !== 'history' || history !== null) return
-    let cancelled = false
-    loadHistory()
-      .then((items) => !cancelled && setHistory(items))
-      .catch((err) => !cancelled && setHistoryError(err instanceof Error ? err.message : String(err)))
-    return () => {
-      cancelled = true
-    }
-  }, [view, history, loadHistory])
 
   function copy() {
     if (!walletAddress) return
@@ -65,7 +51,6 @@ export function ProfilePanel({
       setDone(amt)
       setAmount('')
       setDestination('')
-      setHistory(null) // force a refresh next time History is opened
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err))
     } finally {
@@ -188,50 +173,53 @@ export function ProfilePanel({
           </div>
         </>
       ) : (
-        <HistoryList history={history} error={historyError} />
+        <HistoryList positions={positions} />
       )}
     </>
   )
 }
 
-function HistoryList({ history, error }: { history: TxHistoryItem[] | null; error: string | null }) {
-  if (error) {
-    return (
-      <div className="s" style={{ color: 'var(--red)' }}>
-        Couldn't load history: {error}
-      </div>
-    )
+// History = the wallet's predictions, newest first. Each row shows the human-readable
+// prediction (teams · market: holds/breaks N%), how it settled, and the amount at stake —
+// green +payout for wins, red −stake for losses, dim for still-open. Sourced from the same
+// position scan the board/chart already poll (no extra RPC), so it stays live.
+function HistoryList({ positions }: { positions: ActivePosition[] }) {
+  if (positions.length === 0) {
+    return <div className="empty">No predictions yet — pick a window and place one to get started.</div>
   }
-  if (history === null) {
-    return <div className="empty">Loading transactions…</div>
-  }
-  if (history.length === 0) {
-    return <div className="empty">No transactions yet — deposit and place a prediction to get started.</div>
-  }
+  const sorted = [...positions].sort((a, b) => b.windowEnd - a.windowEnd)
+
   return (
     <div style={{ display: 'grid', gap: 8 }}>
-      {history.map((tx) => (
-        <a
-          key={tx.signature}
-          className="selrow"
-          href={`https://explorer.solana.com/tx/${tx.signature}?cluster=devnet`}
-          target="_blank"
-          rel="noreferrer"
-          style={{ textDecoration: 'none' }}
-        >
-          <div>
-            <div className="l mono" style={{ fontSize: 12 }}>
-              {tx.signature.slice(0, 8)}…{tx.signature.slice(-8)}
+      {sorted.map((p) => {
+        const won = p.status === 'won'
+        const lost = p.status === 'lost'
+        const statusColor = won ? 'var(--green)' : lost ? 'var(--red)' : 'var(--dim)'
+        const statusText = won ? 'WON' : lost ? 'LOST' : 'PENDING'
+        const amount = won
+          ? `+${p.stakeUsdc.toFixed(2)}`
+          : lost
+            ? `−${p.stakeUsdc.toFixed(2)}`
+            : `${p.stakeUsdc.toFixed(2)}`
+
+        return (
+          <div className="selrow" key={p.position.toBase58()} style={{ alignItems: 'flex-start' }}>
+            <div style={{ minWidth: 0 }}>
+              <div className="l" style={{ fontSize: 13, lineHeight: 1.35 }}>
+                {describeMarket(p.fixtureId, p.oddKey, p.marketParams, p.side, p.level)}
+              </div>
+              <div className="s" style={{ color: 'var(--dim)', marginTop: 2 }}>
+                <span style={{ color: statusColor, fontWeight: 600 }}>{statusText}</span>
+                {' · '}
+                {new Date(p.windowEnd * 1000).toLocaleString()}
+              </div>
             </div>
-            <div className="s" style={{ color: 'var(--dim)' }}>
-              {tx.blockTime ? new Date(tx.blockTime * 1000).toLocaleString() : 'pending'}
-            </div>
+            <span className="s mono" style={{ color: statusColor, whiteSpace: 'nowrap', fontWeight: 700, marginLeft: 8 }}>
+              {amount}
+            </span>
           </div>
-          <span className="s mono" style={{ color: tx.err ? 'var(--red)' : 'var(--green)', whiteSpace: 'nowrap' }}>
-            {tx.err ? 'failed' : 'success'} ↗
-          </span>
-        </a>
-      ))}
+        )
+      })}
     </div>
   )
 }
