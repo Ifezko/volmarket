@@ -1,4 +1,11 @@
-import { Connection, PublicKey, SystemProgram, SYSVAR_RENT_PUBKEY, Transaction } from '@solana/web3.js'
+import {
+  Connection,
+  PublicKey,
+  SendTransactionError,
+  SystemProgram,
+  SYSVAR_RENT_PUBKEY,
+  Transaction,
+} from '@solana/web3.js'
 import {
   TOKEN_PROGRAM_ID,
   createAssociatedTokenAccountIdempotentInstruction,
@@ -8,7 +15,7 @@ import { BN } from '@coral-xyz/anchor'
 import type { ConnectedStandardSolanaWallet } from '@privy-io/react-auth/solana'
 import { getReadonlyProgram } from './onchainMarkets'
 import { PrivyAnchorWallet } from './privyAnchorWallet'
-import { USDC_MINT } from './funds'
+import { USDC_MINT, topUpGas } from './funds'
 
 const SIDE_HOLD = 0
 const SIDE_BREAK = 1
@@ -33,6 +40,25 @@ export interface PendingPick {
 }
 
 type PrivySignTransaction = ConstructorParameters<typeof PrivyAnchorWallet>[1]
+
+// web3.js hides the useful part of a failed send behind SendTransactionError.getLogs(). Pull the
+// program logs into the thrown message so the UI shows *why* it failed instead of the bare
+// "simulation failed … Logs: []. Catch the SendTransactionError and call getLogs()".
+async function explainSendError(err: unknown, connection: Connection): Promise<Error> {
+  if (err instanceof SendTransactionError) {
+    let logs = err.logs ?? null
+    if (!logs || logs.length === 0) {
+      try {
+        logs = await err.getLogs(connection)
+      } catch {
+        /* logs unavailable — fall back to the bare message */
+      }
+    }
+    const detail = logs && logs.length ? `\n${logs.join('\n')}` : ''
+    return new Error(`${err.message}${detail}`)
+  }
+  return err instanceof Error ? err : new Error(String(err))
+}
 
 // A fresh embedded wallet holds 0 SOL, but placing a prediction creates several rent-
 // exempt accounts (mint + per-pick market + vault + position), so it needs some SOL to
@@ -157,9 +183,13 @@ async function placeBatch(
   tx.recentBlockhash = blockhash
 
   const signedTx = await anchorWallet.signTransaction(tx)
-  const signature = await connection.sendRawTransaction(signedTx.serialize())
-  await connection.confirmTransaction({ signature, blockhash, lastValidBlockHeight }, 'confirmed')
-  return signature
+  try {
+    const signature = await connection.sendRawTransaction(signedTx.serialize())
+    await connection.confirmTransaction({ signature, blockhash, lastValidBlockHeight }, 'confirmed')
+    return signature
+  } catch (err) {
+    throw await explainSendError(err, connection)
+  }
 }
 
 /**
@@ -180,7 +210,15 @@ export async function placeRealPredictions(
 ): Promise<{ signatures: string[] }> {
   if (!picks.length) throw new Error('no picks to place')
 
-  await ensureDevnetSol(connection, new PublicKey(wallet.address))
+  // Placing creates several rent-exempt accounts + pays fees, so the wallet needs SOL. Prefer the
+  // treasury top-up (reliable for external wallets like Solflare too); fall back to the devnet
+  // airdrop only if the treasury endpoint is unreachable. Without this an unfunded external wallet
+  // fails simulation with "Attempt to debit an account but found no record of a prior credit".
+  try {
+    await topUpGas(wallet.address)
+  } catch {
+    await ensureDevnetSol(connection, new PublicKey(wallet.address))
+  }
 
   const signatures: string[] = []
   for (let i = 0; i < picks.length; i += MAX_PICKS_PER_TX) {

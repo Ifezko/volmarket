@@ -36,6 +36,14 @@ export async function fundWallet(address: string, amount: number): Promise<FundR
   return data as FundResult
 }
 
+// Reliably tops up gas SOL for `address` via the treasury (amount 0 => the endpoint only sends SOL
+// if the wallet is below its gas floor, no USDC minted). Used before placing so the fee payer can
+// cover fees + account rent. This works for ANY wallet — embedded or an external one like Solflare
+// — unlike the devnet airdrop, which is rate-limited and silently fails.
+export async function topUpGas(address: string): Promise<void> {
+  await fundWallet(address, 0)
+}
+
 // The wallet's spendable USDC balance (its canonical-mint ATA), in whole USDC. 0 if no ATA yet.
 export async function fetchUsdcBalance(connection: Connection, owner: PublicKey): Promise<number> {
   const ata = getAssociatedTokenAddressSync(USDC_MINT, owner)
