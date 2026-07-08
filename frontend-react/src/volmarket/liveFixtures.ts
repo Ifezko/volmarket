@@ -39,6 +39,41 @@ export interface LiveFixture {
   odds: LiveOdd[]
 }
 
+// The secondary-nav filters + sort. These actually drive the board (see applyBoardView).
+export type BoardFilter = 'all' | 'trending' | 'live' | 'today' | 'upcoming'
+export type BoardSort = 'volume' | 'recent'
+
+// Total USDC staked across all of a fixture's markets — the "volume" the board sorts on.
+export function fixtureVolume(f: LiveFixture): number {
+  let v = 0
+  for (const o of f.odds) for (const m of o.markets) v += m.totalYes + m.totalNo
+  return v
+}
+
+// Most recent market window on the fixture — used for the "Recent" sort.
+function fixtureLatest(f: LiveFixture): number {
+  let t = 0
+  for (const o of f.odds) for (const m of o.markets) t = Math.max(t, m.windowStart)
+  return t
+}
+
+/**
+ * Applies the selected secondary-nav filter + sort to the board's fixtures. Filters narrow by
+ * status (live / upcoming / today = live-or-soon); "Trending" shows everything ranked by volume;
+ * "All" keeps the current sort. This is what makes the nav tabs do something visible.
+ */
+export function applyBoardView(fixtures: LiveFixture[], filter: BoardFilter, sort: BoardSort): LiveFixture[] {
+  let list = fixtures
+  if (filter === 'live') list = list.filter((f) => f.status === 'live')
+  else if (filter === 'upcoming') list = list.filter((f) => f.status === 'soon')
+  else if (filter === 'today') list = list.filter((f) => f.status === 'live' || f.status === 'soon')
+
+  const s: BoardSort = filter === 'trending' ? 'volume' : sort
+  return [...list].sort((a, b) =>
+    s === 'volume' ? fixtureVolume(b) - fixtureVolume(a) : fixtureLatest(b) - fixtureLatest(a),
+  )
+}
+
 // There's no fixture metadata on-chain (team names, competition, kickoff) — that lives in
 // TxLINE's feed, which isn't wired into the browser yet (see README "Open" items). Rather
 // than hand-maintain a lookup table that only covers today's seeded demo fixtures, derive

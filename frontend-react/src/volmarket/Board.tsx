@@ -6,10 +6,12 @@ import type { LiveFixture } from './liveFixtures'
 // fixtures now (see liveFixtures.ts), not the mock array.
 export function Board({
   fixtures,
+  hasAnyMarkets,
   onOpenMatch,
   onOpenHow,
 }: {
   fixtures: LiveFixture[]
+  hasAnyMarkets: boolean
   onOpenMatch: (id: string) => void
   onOpenHow: () => void
 }) {
@@ -41,7 +43,11 @@ export function Board({
 
       <div className="grid" id="grid">
         {fixtures.length === 0 ? (
-          <p className="empty">No real markets on devnet yet — seed some with keeper/scripts/seed-devnet.ts.</p>
+          <p className="empty">
+            {hasAnyMarkets
+              ? 'No matches in this view — try another filter.'
+              : 'No real markets on devnet yet — seed some with keeper/scripts/seed-devnet.ts.'}
+          </p>
         ) : (
           fixtures.map((m) => <MatchCard key={m.id} m={m} onOpen={onOpenMatch} />)
         )}

@@ -1,12 +1,17 @@
-// Ported from the <nav> markup in frontend/index.html. One deliberate departure from
-// the original, per product decision: there is no mock wallet/balance in this app, so
-// the "Balance" + avatar slot is replaced with the real Privy embedded wallet address,
-// and a "Devnet" topic pill is added to reach the real on-chain devnet-proof screen
-// (slices 2-4). Everything else — logo, search, tabs, topic pills, Groups — is unchanged.
+import type { BoardFilter } from './liveFixtures'
+
+// The app's top nav: logo + search + wallet/balance/deposit/profile (nav1), and the
+// secondary row of board filters + sort (nav2). The nav1 balance shows the real embedded-
+// wallet USDC balance; the avatar opens the profile. The nav2 filters/sort actually drive
+// the board (see applyBoardView) — clicking one re-filters/re-sorts the fixtures grid.
 export function Nav({
   comboCount,
   walletAddress,
   usdcBalance,
+  filter,
+  sortLabel,
+  onSelectFilter,
+  onCycleSort,
   onLogoClick,
   onOpenDeposit,
   onOpenSlip,
@@ -16,6 +21,10 @@ export function Nav({
   comboCount: number
   walletAddress: string | undefined
   usdcBalance: number | null
+  filter: BoardFilter
+  sortLabel: string
+  onSelectFilter: (f: BoardFilter) => void
+  onCycleSort: () => void
   onLogoClick: () => void
   onOpenDeposit: () => void
   onOpenSlip: () => void
@@ -58,17 +67,27 @@ export function Nav({
           </div>
         </div>
         <div className="nav2">
-          <span className="tab on">All</span>
-          <span className="tab">Trending</span>
-          <span className="topic">
+          <span className={`tab${filter === 'all' ? ' on' : ''}`} onClick={() => onSelectFilter('all')}>
+            All
+          </span>
+          <span className={`tab${filter === 'trending' ? ' on' : ''}`} onClick={() => onSelectFilter('trending')}>
+            Trending
+          </span>
+          <span className={`topic${filter === 'live' ? ' on' : ''}`} onClick={() => onSelectFilter('live')}>
             <span className="pdot"></span>Live now
           </span>
-          <span className="tab">Today</span>
-          <span className="tab">Upcoming</span>
+          <span className={`tab${filter === 'today' ? ' on' : ''}`} onClick={() => onSelectFilter('today')}>
+            Today
+          </span>
+          <span className={`tab${filter === 'upcoming' ? ' on' : ''}`} onClick={() => onSelectFilter('upcoming')}>
+            Upcoming
+          </span>
           <span className="topic" onClick={onOpenGroupsView}>
             Groups
           </span>
-          <span className="tab sortpill">Sort: Volume ▾</span>
+          <span className="tab sortpill" onClick={onCycleSort}>
+            Sort: {sortLabel} ▾
+          </span>
         </div>
       </div>
     </nav>

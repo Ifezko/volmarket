@@ -19,8 +19,8 @@ import { initialGroups, type Group } from './groups'
 import { fetchRealMarkets } from '../lib/onchainMarkets'
 import { placeRealPredictions, type PendingPick } from '../lib/depositMarkets'
 import { fetchClaimablePositions, claimPositions, type ClaimablePosition } from '../lib/claimMarkets'
-import { fundWallet, fetchUsdcBalance, withdrawUsdc } from '../lib/funds'
-import { buildLiveFixtures, type LiveFixture } from './liveFixtures'
+import { fundWallet, fetchUsdcBalance, withdrawUsdc, fetchTxHistory } from '../lib/funds'
+import { buildLiveFixtures, applyBoardView, type LiveFixture, type BoardFilter, type BoardSort } from './liveFixtures'
 import type { PredictionLine } from './SignalChart'
 import type { RealPredictMeta } from './PredictBuilder'
 
@@ -101,8 +101,14 @@ export function VolmarketApp() {
   const [surfaceFallback, setSurfaceFallback] = useState(false)
   const prevClaimKeys = useRef<Set<string>>(new Set())
   const [usdcBalance, setUsdcBalance] = useState<number | null>(null)
+  const [boardFilter, setBoardFilter] = useState<BoardFilter>('all')
+  const [boardSort, setBoardSort] = useState<BoardSort>('volume')
 
   const curMatch = curMatchId ? fixtures.find((m) => m.id === curMatchId) ?? null : null
+  const displayedFixtures = useMemo(
+    () => applyBoardView(fixtures, boardFilter, boardSort),
+    [fixtures, boardFilter, boardSort],
+  )
 
   const refreshMarkets = useCallback(async () => {
     try {
@@ -408,6 +414,10 @@ export function VolmarketApp() {
         comboCount={slip.length}
         walletAddress={solanaWallet?.address}
         usdcBalance={usdcBalance}
+        filter={boardFilter}
+        sortLabel={boardSort === 'volume' ? 'Volume' : 'Recent'}
+        onSelectFilter={setBoardFilter}
+        onCycleSort={() => setBoardSort((s) => (s === 'volume' ? 'recent' : 'volume'))}
         onLogoClick={closeMatch}
         onOpenDeposit={openDeposit}
         onOpenSlip={() => {
@@ -419,7 +429,12 @@ export function VolmarketApp() {
         onOpenGroupsView={() => setGroupsViewOpen(true)}
         onOpenProfile={openProfile}
       />
-      <Board fixtures={fixtures} onOpenMatch={openMatch} onOpenHow={() => setHowOpen(true)} />
+      <Board
+        fixtures={displayedFixtures}
+        hasAnyMarkets={fixtures.length > 0}
+        onOpenMatch={openMatch}
+        onOpenHow={() => setHowOpen(true)}
+      />
       <Footer />
 
       {curMatch && (
@@ -470,6 +485,11 @@ export function VolmarketApp() {
                         balance={usdcBalance ?? 0}
                         onCopyAddress={copyCode}
                         onWithdraw={withdraw}
+                        loadHistory={async () => {
+                          if (!solanaWallet) return []
+                          const connection = new Connection(RPC_URL, 'confirmed')
+                          return fetchTxHistory(connection, new PublicKey(solanaWallet.address))
+                        }}
                       />
                     ),
                   }
