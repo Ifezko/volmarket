@@ -61,7 +61,7 @@
      everywhere the old emoji did; emoji fallbacks (Draw/Over/Under) still size by font-size. */
   .fl{display:inline-flex;align-items:center;line-height:1}
   .fl svg{width:1.24em;height:.83em;border-radius:2px;display:block;object-fit:cover;box-shadow:0 0 0 1px rgba(0,0,0,.25)}
-  .mmid{font-family:var(--mono);font-size:18px;font-weight:700;min-width:54px;text-align:center}
+  .mmid{font-family:var(--mono);font-size:18px;font-weight:700;min-width:54px;text-align:center;color:var(--dim)}.mmid.score{color:var(--text);letter-spacing:1px}
   .mmid.ko{font-size:13px;color:var(--dim)}
   .spark{width:100%;height:56px;display:block}
   .sigline{display:flex;justify-content:space-between;font-family:var(--mono);font-size:11.5px;margin-top:4px;color:var(--dim)}
@@ -78,7 +78,7 @@
   .dline{display:flex;align-items:center;justify-content:flex-start;gap:14px}
   .dscore .min{font-family:var(--mono);font-size:12px;color:var(--green);display:flex;align-items:center;justify-content:flex-start;gap:6px}
   .dscore .t{display:flex;align-items:center;gap:10px;font-size:18px;font-weight:600}.dscore .t .fl{font-size:28px}
-  .dscore .sc{font-family:var(--mono);font-size:28px;font-weight:700}.dscore .sc.live{color:var(--green)}
+  .dscore .sc{font-family:var(--mono);font-size:28px;font-weight:700}
   .dsub{color:var(--dim);font-size:13px;margin-bottom:18px}
 
   /* odds selector */

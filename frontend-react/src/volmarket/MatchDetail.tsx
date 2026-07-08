@@ -3,7 +3,7 @@ import { Flag } from './Flag'
 import { useNow } from './useNow'
 import { SignalChart, type PredictionLine } from './SignalChart'
 import { PredictBuilder, type RealPredictMeta } from './PredictBuilder'
-import { matchClock, type LiveFixture } from './liveFixtures'
+import { matchState, type LiveFixture } from './liveFixtures'
 
 // Ported from openMatch() in frontend/index.html: the .detail overlay — score header,
 // grouped odds selector (live only), the .sig volume-signal panel, the all-odds list,
@@ -40,27 +40,23 @@ export function MatchDetail({
   const totalVol = curOdds.reduce((sum, o) => sum + o.markets.reduce((s, m) => s + m.totalYes + m.totalNo, 0), 0)
 
   const now = Math.floor(useNow(1000) / 1000)
-  const clock = matchClock(match, now)
+  const st = matchState(match, now)
 
-  const minTag =
-    match.status === 'live' ? (
-      <span className="min">
-        <span className="pdot"></span>
-        Live
-      </span>
-    ) : match.status === 'soon' ? (
-      <span className="min" style={{ color: 'var(--dim)' }}>
-        Kickoff {clock.text}
-      </span>
-    ) : (
-      <span className="min" style={{ color: 'var(--dim)' }}>
-        Full time
-      </span>
-    )
+  // Left side: the live dot + match minute / HT / FT (or the kickoff time for upcoming) —
+  // the standard scoreboard status column.
+  const minTag = st.live ? (
+    <span className="min">
+      <span className="pdot"></span>
+      {st.clock}
+    </span>
+  ) : (
+    <span className="min" style={{ color: 'var(--dim)' }}>
+      {match.status === 'soon' ? `Kickoff ${st.clock}` : st.clock}
+    </span>
+  )
 
-  // The centre of the score line is a real match clock, not the old "LIVE" placeholder:
-  // live -> minute since kickoff, upcoming -> kickoff time, resolved -> FT.
-  const mid = <span className={`sc${clock.live ? ' live' : ''}`}>{clock.text}</span>
+  // Middle: the score, where a scoreboard puts it (not the clock/status).
+  const mid = <span className="sc">{st.score ? `${st.score[0]} – ${st.score[1]}` : 'vs'}</span>
 
   const groups = [...new Set(curOdds.map((o) => o.grp))]
 

@@ -42,22 +42,50 @@ export interface LiveFixture {
   odds: LiveOdd[]
 }
 
-// A match-style clock for a fixture, replacing the old generic "Live"/"Resolved" labels:
-// live -> minutes elapsed since kickoff (football style, e.g. 67'), upcoming -> the scheduled
-// kickoff time, resolved -> FT (full time). `nowSecs` is the current wall-clock (see useNow).
-export function matchClock(f: LiveFixture, nowSecs: number): { text: string; live: boolean } {
-  if (f.status === 'live') {
-    const mins = f.kickoff != null ? Math.max(0, Math.floor((nowSecs - f.kickoff) / 60)) : 0
-    return { text: `${Math.min(mins, 120)}'`, live: true }
-  }
+// The scoreboard follows the standard football mental model: a live dot + match minute (or
+// HT/FT) on the LEFT, and the SCORE in the middle. There's no real match feed on-chain — the
+// market windows are week-long trading windows (see keeper/scripts/seed-devnet.ts), not match
+// clocks — so, exactly like the team names/odds/sparklines, the score and minute are derived
+// deterministically from the fixture id. Each fixture runs its own seeded 45+45 timeline that
+// ticks in real time (with a half-time break), so a "live" match shows a believable, advancing
+// minute in 1'..90' instead of a stale elapsed count.
+const HALF = 45 * 60 // seconds of play per half
+const HT_BREAK = 2 * 60 // half-time break on the display timeline
+const FULL = HALF * 2 + HT_BREAK
+
+export interface MatchState {
+  /** left-hand label: "67'", "45+1'", "HT", "FT", or a kickoff time for upcoming */
+  clock: string
+  /** middle score, e.g. [2, 1]; null before kickoff (shown as "vs") */
+  score: [number, number] | null
+  /** whether to show the live pulse dot */
+  live: boolean
+}
+
+function pseudoScore(fixtureId: number): [number, number] {
+  const r = rng(`score-${fixtureId}`)
+  return [Math.floor(r() * 4), Math.floor(r() * 4)]
+}
+
+export function matchState(f: LiveFixture, nowSecs: number): MatchState {
   if (f.status === 'soon') {
-    const text =
+    const clock =
       f.kickoff != null
         ? new Date(f.kickoff * 1000).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })
         : (f.ko ?? 'Upcoming')
-    return { text, live: false }
+    return { clock, score: null, live: false }
   }
-  return { text: 'FT', live: false }
+  if (f.status === 'ended') {
+    return { clock: 'FT', score: pseudoScore(f.fixtureId), live: false }
+  }
+  // live: advance a per-fixture seeded timeline in real time so each match shows a different,
+  // ticking minute rather than a shared stale count.
+  const offset = Math.floor(rng(`clock-${f.fixtureId}`)() * FULL)
+  const t = (nowSecs + offset) % FULL
+  const score = pseudoScore(f.fixtureId)
+  if (t < HALF) return { clock: `${Math.floor(t / 60) + 1}'`, score, live: true }
+  if (t < HALF + HT_BREAK) return { clock: 'HT', score, live: true }
+  return { clock: `${46 + Math.floor((t - HALF - HT_BREAK) / 60)}'`, score, live: true }
 }
 
 // The secondary-nav filters + sort. These actually drive the board (see applyBoardView).
