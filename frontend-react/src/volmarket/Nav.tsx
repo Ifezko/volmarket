@@ -6,6 +6,7 @@
 export function Nav({
   comboCount,
   walletAddress,
+  usdcBalance,
   activeTab,
   onLogoClick,
   onOpenDeposit,
@@ -15,6 +16,7 @@ export function Nav({
 }: {
   comboCount: number
   walletAddress: string | undefined
+  usdcBalance: number | null
   activeTab: 'devnet' | 'product'
   onLogoClick: () => void
   onOpenDeposit: () => void
@@ -37,6 +39,14 @@ export function Nav({
             <span className="kbd">/</span>
           </div>
           <div className="nav-right">
+            {walletAddress && (
+              <div className="bal">
+                <div className="k">Balance</div>
+                <div className="v mono" style={{ color: 'var(--green)' }}>
+                  {usdcBalance == null ? '—' : `${usdcBalance.toFixed(2)} USDC`}
+                </div>
+              </div>
+            )}
             <div className="bal">
               <div className="k">Wallet</div>
               <div className="v mono">{shortWallet}</div>

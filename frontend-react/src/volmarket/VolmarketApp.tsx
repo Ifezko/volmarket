@@ -18,6 +18,7 @@ import { initialGroups, type Group } from './groups'
 import { fetchRealMarkets } from '../lib/onchainMarkets'
 import { placeRealPredictions, type PendingPick } from '../lib/depositMarkets'
 import { fetchClaimablePositions, claimPositions, type ClaimablePosition } from '../lib/claimMarkets'
+import { fundWallet, fetchUsdcBalance } from '../lib/funds'
 import { buildLiveFixtures, type LiveFixture } from './liveFixtures'
 import type { PredictionLine } from './SignalChart'
 import type { RealPredictMeta } from './PredictBuilder'
@@ -97,6 +98,7 @@ export function VolmarketApp({ onOpenDevnet }: { onOpenDevnet: () => void }) {
   // reveals the hidden manual-claim affordance so funds can never get stuck.
   const [surfaceFallback, setSurfaceFallback] = useState(false)
   const prevClaimKeys = useRef<Set<string>>(new Set())
+  const [usdcBalance, setUsdcBalance] = useState<number | null>(null)
 
   const curMatch = curMatchId ? fixtures.find((m) => m.id === curMatchId) ?? null : null
 
@@ -138,11 +140,28 @@ export function VolmarketApp({ onOpenDevnet }: { onOpenDevnet: () => void }) {
     refreshMarkets()
   }, [refreshMarkets])
 
+  const refreshUsdc = useCallback(async () => {
+    if (!authenticated || !solanaWallet) {
+      setUsdcBalance(null)
+      return
+    }
+    try {
+      const connection = new Connection(RPC_URL, 'confirmed')
+      setUsdcBalance(await fetchUsdcBalance(connection, new PublicKey(solanaWallet.address)))
+    } catch (err) {
+      console.error('failed to fetch USDC balance', err)
+    }
+  }, [authenticated, solanaWallet])
+
   useEffect(() => {
     refreshClaimables()
-    const id = setInterval(refreshClaimables, 20_000)
+    refreshUsdc()
+    const id = setInterval(() => {
+      refreshClaimables()
+      refreshUsdc()
+    }, 20_000)
     return () => clearInterval(id)
-  }, [refreshClaimables])
+  }, [refreshClaimables, refreshUsdc])
 
   useEffect(() => {
     document.body.classList.toggle('lock', curMatch !== null || groupsViewOpen)
@@ -268,6 +287,7 @@ export function VolmarketApp({ onOpenDevnet }: { onOpenDevnet: () => void }) {
         const connection = new Connection(RPC_URL, 'confirmed')
         await placeRealPredictions(connection, solanaWallet, signTransaction, picks)
         await refreshMarkets()
+        await refreshUsdc()
       } catch (err) {
         setPlaceError(err instanceof Error ? err.message : String(err))
         setPlacing(false)
@@ -317,6 +337,19 @@ export function VolmarketApp({ onOpenDevnet }: { onOpenDevnet: () => void }) {
     }
   }
 
+  // Real deposit: funds the embedded wallet with `amount` devnet USDC (and a little gas SOL)
+  // via the treasury endpoint, then refreshes the on-screen balance. Login is prompted here if
+  // needed, same as placing — you can't deposit into a wallet you haven't signed into yet.
+  async function depositUsdc(amount: number) {
+    if (!authenticated) {
+      login()
+      throw new Error('Sign in to deposit.')
+    }
+    if (!solanaWallet) throw new Error('Wallet not ready yet — try again in a moment.')
+    await fundWallet(solanaWallet.address, amount)
+    await refreshUsdc()
+  }
+
   // Ported from openGroups()/createGroup() — opens the group-creation form in the slip
   // drawer, pre-seeded with a ticket's share code when reached via "Make this a group".
   function openGroupCreate(seedCode?: string) {
@@ -349,6 +382,7 @@ export function VolmarketApp({ onOpenDevnet }: { onOpenDevnet: () => void }) {
       <Nav
         comboCount={slip.length}
         walletAddress={solanaWallet?.address}
+        usdcBalance={usdcBalance}
         activeTab="product"
         onLogoClick={closeMatch}
         onOpenDeposit={openDeposit}
@@ -401,7 +435,7 @@ export function VolmarketApp({ onOpenDevnet }: { onOpenDevnet: () => void }) {
                 ),
               }
             : depositOpen
-              ? { title: 'Deposit', body: <DepositPanel onContinue={() => setSlipOpen(false)} /> }
+              ? { title: 'Deposit', body: <DepositPanel balance={usdcBalance ?? 0} onDeposit={depositUsdc} /> }
               : null
         }
         onOpen={() => {

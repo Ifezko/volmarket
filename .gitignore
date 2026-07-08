@@ -10,3 +10,6 @@ test-ledger/
 *id.json
 keeper/signal_markets.idl.json
 keeper/.demo-state.json
+
+# devnet treasury keypair — never commit (Vercel env only)
+keeper/.treasury.json

@@ -1,0 +1,12 @@
+{
+  "name": "volmarket-api",
+  "private": true,
+  "description": "Root package for Vercel serverless functions in /api (the static frontend builds from frontend-react/ — see vercel.json).",
+  "dependencies": {
+    "@solana/spl-token": "^0.4.14",
+    "@solana/web3.js": "^1.98.4"
+  },
+  "devDependencies": {
+    "@vercel/node": "^5.1.0"
+  }
+}

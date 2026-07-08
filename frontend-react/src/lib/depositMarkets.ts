@@ -1,26 +1,23 @@
-import { Connection, Keypair, PublicKey, SystemProgram, SYSVAR_RENT_PUBKEY, Transaction } from '@solana/web3.js'
+import { Connection, PublicKey, SystemProgram, SYSVAR_RENT_PUBKEY, Transaction } from '@solana/web3.js'
 import {
-  MINT_SIZE,
   TOKEN_PROGRAM_ID,
   createAssociatedTokenAccountIdempotentInstruction,
-  createInitializeMint2Instruction,
-  createMintToInstruction,
   getAssociatedTokenAddressSync,
-  getMinimumBalanceForRentExemptMint,
 } from '@solana/spl-token'
 import { BN } from '@coral-xyz/anchor'
 import type { ConnectedStandardSolanaWallet } from '@privy-io/react-auth/solana'
 import { getReadonlyProgram } from './onchainMarkets'
 import { PrivyAnchorWallet } from './privyAnchorWallet'
+import { USDC_MINT } from './funds'
 
 const SIDE_HOLD = 0
 const SIDE_BREAK = 1
 const SIDE_YES = 1
 const FEE_BPS = 500
-// Each pick costs 2 instructions (create_market + deposit) plus ~13 account metas; a
-// mint-setup + 4-pick transaction measured out at 1311 bytes against the 1232-byte
-// legacy-transaction limit, but 3 picks fit comfortably (~1120 bytes) — verified against
-// devnet. Larger combos are sent as sequential transactions instead of erroring.
+// Each pick costs 2 instructions (create_market + deposit) plus ~13 account metas. Now that the
+// stake is the user's already-deposited USDC (no per-tx mint setup), a single idempotent ATA
+// instruction plus 3 picks fits comfortably under the 1232-byte legacy limit; larger combos are
+// sent as sequential transactions instead of erroring.
 const MAX_PICKS_PER_TX = 3
 
 export interface PendingPick {
@@ -69,24 +66,13 @@ async function placeBatch(
   const userPublicKey = new PublicKey(wallet.address)
   const program = getReadonlyProgram(connection)
 
-  const mintKeypair = Keypair.generate()
-  const mintLamports = await getMinimumBalanceForRentExemptMint(connection)
-  const userToken = getAssociatedTokenAddressSync(mintKeypair.publicKey, userPublicKey)
-  const totalStake = picks.reduce((sum, p) => sum + p.amountUsdc, 0)
+  // Stakes are the user's real deposited USDC on the canonical mint (funded via the deposit
+  // sheet / /api/fund) — no more throwaway per-pick mint. The USDC ATA already exists from
+  // depositing; create it idempotently just in case so a deposit never fails on a missing ATA.
+  const userToken = getAssociatedTokenAddressSync(USDC_MINT, userPublicKey)
 
   const tx = new Transaction()
-  tx.add(
-    SystemProgram.createAccount({
-      fromPubkey: userPublicKey,
-      newAccountPubkey: mintKeypair.publicKey,
-      space: MINT_SIZE,
-      lamports: mintLamports,
-      programId: TOKEN_PROGRAM_ID,
-    }),
-    createInitializeMint2Instruction(mintKeypair.publicKey, 6, userPublicKey, null),
-    createAssociatedTokenAccountIdempotentInstruction(userPublicKey, userToken, userPublicKey, mintKeypair.publicKey),
-    createMintToInstruction(mintKeypair.publicKey, userToken, userPublicKey, Math.round(totalStake * 1e6)),
-  )
+  tx.add(createAssociatedTokenAccountIdempotentInstruction(userPublicKey, userToken, userPublicKey, USDC_MINT))
 
   const now = Math.floor(Date.now() / 1000)
 
@@ -122,7 +108,7 @@ async function placeBatch(
       .accounts({
         authority: userPublicKey,
         market,
-        usdcMint: mintKeypair.publicKey,
+        usdcMint: USDC_MINT,
         vault,
         tokenProgram: TOKEN_PROGRAM_ID,
         systemProgram: SystemProgram.programId,
@@ -151,10 +137,6 @@ async function placeBatch(
   const { blockhash, lastValidBlockHeight } = await connection.getLatestBlockhash()
   tx.recentBlockhash = blockhash
 
-  // The mint keypair co-signs locally (we generated it, no Privy round-trip needed);
-  // the Privy wallet's signature is added by anchorWallet.signTransaction below.
-  tx.partialSign(mintKeypair)
-
   const signedTx = await anchorWallet.signTransaction(tx)
   const signature = await connection.sendRawTransaction(signedTx.serialize())
   await connection.confirmTransaction({ signature, blockhash, lastValidBlockHeight }, 'confirmed')
@@ -165,11 +147,11 @@ async function placeBatch(
  * Places one or more predictions. Unlike depositing into an existing market, a user
  * picking a level/duration nobody has opened yet has nothing to deposit into — so this
  * creates that market first (permissionless, same as the keeper's seed scripts:
- * `create_market` accepts any signer as authority), funded by a throwaway USDC mint
- * minted to the wallet in the same transaction (same pattern as slice3's devnet proof),
- * then deposits YES (agreeing with the market's own hold/break thesis) on each one.
- * Combos larger than fit in one transaction are sent as sequential batches, each its own
- * signature — the wallet signs once per batch, not once per pick.
+ * `create_market` accepts any signer as authority), then deposits YES (agreeing with the
+ * market's own hold/break thesis) on each one, staked with the user's real deposited USDC
+ * (the canonical mint — funded via the deposit sheet / /api/fund). Combos larger than fit in
+ * one transaction are sent as sequential batches, each its own signature — the wallet signs
+ * once per batch, not once per pick.
  */
 export async function placeRealPredictions(
   connection: Connection,
