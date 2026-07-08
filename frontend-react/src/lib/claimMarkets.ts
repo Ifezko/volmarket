@@ -45,49 +45,6 @@ function computePayout(market: RealMarket, stakeUsdc: number): number {
   return +(stakeUsdc + winnings - fee).toFixed(6)
 }
 
-/**
- * Finds every position the wallet holds that has become claimable: its market is resolved,
- * the outcome matches the side it took, and it hasn't been claimed yet. This is what turns
- * the keeper's autonomous `resolve_market` settlements into "you won, collect your USDC".
- */
-export async function fetchClaimablePositions(connection: Connection, owner: PublicKey): Promise<ClaimablePosition[]> {
-  const positions = await withFailover<any[]>(connection, (program) =>
-    (program.account as any).position.all([{ memcmp: { offset: POSITION_OWNER_OFFSET, bytes: owner.toBase58() } }]),
-  )
-  if (!positions.length) return []
-
-  const markets = await fetchRealMarkets(connection)
-  const byAddress = new Map<string, RealMarket>(markets.map((m) => [m.address.toBase58(), m]))
-
-  const claimable: ClaimablePosition[] = []
-  for (const { publicKey, account } of positions as { publicKey: PublicKey; account: any }[]) {
-    if (account.claimed) continue
-    const market = byAddress.get(account.market.toBase58())
-    if (!market || market.status !== 'resolved') continue
-    // positions are always YES (agreeing with the market thesis, see depositMarkets.ts), so
-    // a position wins iff the market resolved YES.
-    const positionSide = account.side === SIDE_YES ? 'yes' : 'no'
-    if (market.outcome !== positionSide) continue
-
-    const stakeUsdc = Number(account.amount) / 1e6
-    claimable.push({
-      market: market.address,
-      position: publicKey,
-      fixtureId: market.fixtureId,
-      oddKey: market.oddKey,
-      marketParams: market.marketParams,
-      side: market.side,
-      level: market.level,
-      stakeUsdc,
-      payoutUsdc: computePayout(market, stakeUsdc),
-      usdcMint: market.usdcMint,
-      vault: market.vault,
-      authority: market.authority,
-    })
-  }
-  return claimable
-}
-
 export interface ActivePosition {
   market: PublicKey
   position: PublicKey
@@ -104,29 +61,39 @@ export interface ActivePosition {
   status: 'pending' | 'won' | 'lost'
 }
 
-/**
- * Every position the wallet holds, joined to its market and tagged pending/won/lost. Unlike
- * fetchClaimablePositions (winners still awaiting payout), this is the full set — including
- * live and already-lost markets — so the signal chart can draw the user's calls with their
- * outcome. Positions are always YES (agreeing with the market thesis, see depositMarkets.ts),
- * so a resolved market's YES/NO outcome is directly the position's win/loss.
- */
-export async function fetchActivePositions(connection: Connection, owner: PublicKey): Promise<ActivePosition[]> {
-  const positions = await withFailover<any[]>(connection, (program) =>
-    (program.account as any).position.all([{ memcmp: { offset: POSITION_OWNER_OFFSET, bytes: owner.toBase58() } }]),
-  )
-  if (!positions.length) return []
+export interface WalletState {
+  markets: RealMarket[]
+  active: ActivePosition[]
+  claimable: ClaimablePosition[]
+}
 
-  const markets = await fetchRealMarkets(connection)
+/**
+ * One combined read of the wallet's on-chain state: a single position scan + a single market
+ * scan (in parallel, each with RPC failover), from which everything the app polls for is derived
+ * — the board's markets, the wallet's active positions (pending/won/lost, for the chart), and the
+ * claimable subset (won & unclaimed, for auto-credit). Consolidating what used to be two separate
+ * position+market scans per poll halves the getProgramAccounts load the public devnet RPC throttles.
+ * Positions are always YES (agree with the market thesis, see depositMarkets.ts), so a resolved
+ * market's YES/NO outcome is directly the position's win/loss.
+ */
+export async function fetchWalletState(connection: Connection, owner: PublicKey): Promise<WalletState> {
+  const [positions, markets] = await Promise.all([
+    withFailover<any[]>(connection, (program) =>
+      (program.account as any).position.all([{ memcmp: { offset: POSITION_OWNER_OFFSET, bytes: owner.toBase58() } }]),
+    ),
+    fetchRealMarkets(connection),
+  ])
   const byAddress = new Map<string, RealMarket>(markets.map((m) => [m.address.toBase58(), m]))
 
-  const out: ActivePosition[] = []
+  const active: ActivePosition[] = []
+  const claimable: ClaimablePosition[] = []
   for (const { publicKey, account } of positions as { publicKey: PublicKey; account: any }[]) {
     const market = byAddress.get(account.market.toBase58())
     if (!market) continue
+    const stakeUsdc = Number(account.amount) / 1e6
     const status: ActivePosition['status'] =
       market.status !== 'resolved' ? 'pending' : market.outcome === 'yes' ? 'won' : 'lost'
-    out.push({
+    active.push({
       market: market.address,
       position: publicKey,
       fixtureId: market.fixtureId,
@@ -135,11 +102,28 @@ export async function fetchActivePositions(connection: Connection, owner: Public
       side: market.side,
       level: market.level,
       windowEnd: market.windowEnd,
-      stakeUsdc: Number(account.amount) / 1e6,
+      stakeUsdc,
       status,
     })
+
+    if (!account.claimed && market.status === 'resolved' && market.outcome === (account.side === SIDE_YES ? 'yes' : 'no')) {
+      claimable.push({
+        market: market.address,
+        position: publicKey,
+        fixtureId: market.fixtureId,
+        oddKey: market.oddKey,
+        marketParams: market.marketParams,
+        side: market.side,
+        level: market.level,
+        stakeUsdc,
+        payoutUsdc: computePayout(market, stakeUsdc),
+        usdcMint: market.usdcMint,
+        vault: market.vault,
+        authority: market.authority,
+      })
+    }
   }
-  return out
+  return { markets, active, claimable }
 }
 
 async function claimBatch(

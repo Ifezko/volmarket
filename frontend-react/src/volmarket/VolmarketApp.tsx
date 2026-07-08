@@ -19,7 +19,7 @@ import { ResultModal } from './ResultModal'
 import { initialGroups, type Group } from './groups'
 import { fetchRealMarkets, PRIMARY_RPC_URL } from '../lib/onchainMarkets'
 import { placeRealPredictions, type PendingPick } from '../lib/depositMarkets'
-import { fetchClaimablePositions, claimPositions, fetchActivePositions, type ClaimablePosition, type ActivePosition } from '../lib/claimMarkets'
+import { claimPositions, fetchWalletState, type ClaimablePosition, type ActivePosition } from '../lib/claimMarkets'
 import { resolveMarkets } from '../lib/resolveMarkets'
 import { fundWallet, fetchUsdcBalance, withdrawUsdc, fetchTxHistory } from '../lib/funds'
 import { buildLiveFixtures, applyBoardView, type LiveFixture, type BoardFilter, type BoardSort } from './liveFixtures'
@@ -96,12 +96,10 @@ export function VolmarketApp() {
   const [claiming, setClaiming] = useState(false)
   const [claimed, setClaimed] = useState(false)
   const [claimError, setClaimError] = useState<string | null>(null)
-  // The keeper auto-claims winners, so a winning position is normally marked claimed on-chain
-  // within seconds and never shows up here. `surfaceFallback` only turns true for a position
-  // still unclaimed after a full poll cycle (~20s) — i.e. the keeper didn't settle it — which
-  // reveals the hidden manual-claim affordance so funds can never get stuck.
+  // Winners are auto-claimed in the background (see refreshWalletState); `surfaceFallback` reveals
+  // the hidden manual-claim affordance only once auto-claim has exhausted its retries, so funds
+  // can never get stuck.
   const [surfaceFallback, setSurfaceFallback] = useState(false)
-  const prevClaimKeys = useRef<Set<string>>(new Set())
   // Background auto-claim so winnings land in the balance automatically (no "Claim" click): a
   // per-position attempt counter (retry-capped, then the manual fallback surfaces) and a guard.
   const autoClaimAttempts = useRef<Map<string, number>>(new Map())
@@ -140,57 +138,6 @@ export function VolmarketApp() {
     }
   }, [])
 
-  // Poll for winning positions and auto-credit them. The keeper normally claims winners' payouts
-  // automatically; this is the browser-side fallback so a win lands in the user's balance without
-  // them clicking "Claim" (claim is permissionless, signed silently — same as placing/resolving).
-  // Retry-capped: if auto-claim keeps failing, the position stays claimable and the hidden manual
-  // affordance (surfaceFallback / SettleModal) surfaces so funds can never get stuck.
-  const refreshClaimables = useCallback(async () => {
-    if (claiming || autoClaiming.current) return // don't clobber the list mid-claim
-    if (!authenticated || !solanaWallet) {
-      setClaimables([])
-      setSurfaceFallback(false)
-      prevClaimKeys.current = new Set()
-      autoClaimAttempts.current = new Map()
-      return
-    }
-    try {
-      const connection = new Connection(RPC_URL, 'confirmed')
-      const owner = new PublicKey(solanaWallet.address)
-      const found = await fetchClaimablePositions(connection, owner)
-
-      const MAX_CLAIM_ATTEMPTS = 6
-      const toClaim = found.filter(
-        (c) => (autoClaimAttempts.current.get(c.position.toBase58()) ?? 0) < MAX_CLAIM_ATTEMPTS,
-      )
-      let list = found
-      if (toClaim.length) {
-        autoClaiming.current = true
-        toClaim.forEach((c) => {
-          const k = c.position.toBase58()
-          autoClaimAttempts.current.set(k, (autoClaimAttempts.current.get(k) ?? 0) + 1)
-        })
-        try {
-          await claimPositions(connection, solanaWallet, signTransaction, toClaim)
-          setUsdcBalance(await fetchUsdcBalance(connection, owner))
-          list = await fetchClaimablePositions(connection, owner) // drop the ones we just paid out
-        } catch (err) {
-          console.error('auto-claim failed', err)
-        } finally {
-          autoClaiming.current = false
-        }
-      }
-
-      setClaimables(list)
-      // whatever couldn't be auto-claimed and is still here next cycle reveals the manual fallback
-      const stuck = list.some((c) => prevClaimKeys.current.has(c.position.toBase58()))
-      setSurfaceFallback(stuck)
-      prevClaimKeys.current = new Set(list.map((c) => c.position.toBase58()))
-    } catch (err) {
-      console.error('failed to fetch claimable positions', err)
-    }
-  }, [authenticated, solanaWallet, claiming, signTransaction])
-
   useEffect(() => {
     refreshMarkets()
   }, [refreshMarkets])
@@ -225,75 +172,112 @@ export function VolmarketApp() {
     setResultOpen(true)
   }, [])
 
-  const refreshActivePositions = useCallback(async () => {
-    if (!authenticated || !solanaWallet) {
-      setActivePositions([])
-      resolvedSeen.current = new Set()
-      resolveSeeded.current = false
-      resolveAttempts.current = new Map()
-      return
-    }
-    try {
-      const connection = new Connection(RPC_URL, 'confirmed')
-      const owner = new PublicKey(solanaWallet.address)
-      const positions = await fetchActivePositions(connection, owner)
-      setActivePositions(positions)
-      surfaceEnded(positions)
-
-      // Fallback resolver: settle our own predictions whose window has closed but nothing has
-      // resolved them yet, so they resolve at the duration the user picked (the keeper is the
-      // primary resolver — it verifies hold/break in-window against the real signal; this only
-      // covers it not running / not seeing the market in time). resolve_market's timeout branch
-      // is permissionless and proofless — signed silently, same as placing.
-      //
-      // Wait RESOLVE_GRACE_SECS past window close before stepping in, so a running keeper gets
-      // first shot at a *verified* resolution; and retry up to MAX_RESOLVE_ATTEMPTS so a
-      // transient failure (RPC hiccup, clock skew right at the boundary) doesn't strand it.
-      const RESOLVE_GRACE_SECS = 12
-      const MAX_RESOLVE_ATTEMPTS = 6
-      const nowSecs = Math.floor(Date.now() / 1000)
-      const ended = positions.filter(
-        (p) =>
-          p.status === 'pending' &&
-          nowSecs >= p.windowEnd + RESOLVE_GRACE_SECS &&
-          (resolveAttempts.current.get(p.market.toBase58()) ?? 0) < MAX_RESOLVE_ATTEMPTS,
-      )
-      if (ended.length && !resolvingEnded.current) {
-        resolvingEnded.current = true
-        ended.forEach((p) => {
-          const k = p.market.toBase58()
-          resolveAttempts.current.set(k, (resolveAttempts.current.get(k) ?? 0) + 1)
-        })
-        try {
-          const markets = [...new Set(ended.map((p) => p.market.toBase58()))].map((s) => new PublicKey(s))
-          await resolveMarkets(connection, solanaWallet, signTransaction, markets)
-          await refreshMarkets()
-          const after = await fetchActivePositions(connection, owner)
-          setActivePositions(after)
-          surfaceEnded(after)
-          await refreshClaimables()
-        } catch (err) {
-          console.error('auto-resolve failed', err)
-        } finally {
-          resolvingEnded.current = false
-        }
+  // One consolidated poll: a single combined read (fetchWalletState = one position scan + one
+  // market scan) drives the board, the chart's active positions, and claimables — then we
+  // auto-resolve ended predictions and auto-claim winners off that same data. Halves the
+  // getProgramAccounts load vs. the old separate claimables + active-positions polls.
+  const refreshWalletState = useCallback(
+    async (depth = 0) => {
+      if (!authenticated || !solanaWallet) {
+        setActivePositions([])
+        setClaimables([])
+        setSurfaceFallback(false)
+        resolvedSeen.current = new Set()
+        resolveSeeded.current = false
+        resolveAttempts.current = new Map()
+        autoClaimAttempts.current = new Map()
+        return
       }
-    } catch (err) {
-      console.error('failed to fetch active positions', err)
-    }
-  }, [authenticated, solanaWallet, signTransaction, surfaceEnded, refreshMarkets, refreshClaimables])
+      // don't overlap a still-running resolve/claim from a previous cycle
+      if (claiming || ((autoClaiming.current || resolvingEnded.current) && depth === 0)) return
+      try {
+        const connection = new Connection(RPC_URL, 'confirmed')
+        const owner = new PublicKey(solanaWallet.address)
+        const { markets, active, claimable } = await fetchWalletState(connection, owner)
+        setFixtures(buildLiveFixtures(markets))
+        setActivePositions(active)
+        surfaceEnded(active)
+
+        const MAX_CLAIM_ATTEMPTS = 6
+        const MAX_RESOLVE_ATTEMPTS = 6
+        const RESOLVE_GRACE_SECS = 12
+
+        setClaimables(claimable)
+        // manual fallback surfaces only once auto-claim has exhausted its retries on a winner
+        setSurfaceFallback(
+          claimable.some((c) => (autoClaimAttempts.current.get(c.position.toBase58()) ?? 0) >= MAX_CLAIM_ATTEMPTS),
+        )
+
+        // bound the per-cycle resolve→claim cascade; each pass that does work re-reads once more
+        if (depth >= 2) return
+
+        // Auto-resolve our own predictions whose window has closed but nothing settled them yet, so
+        // they resolve at the chosen duration (the keeper is the primary, in-window verified
+        // resolver; this covers it not running / not seeing the market in time). Wait RESOLVE_GRACE
+        // past close so a running keeper wins, and cap retries so a transient failure doesn't strand.
+        const nowSecs = Math.floor(Date.now() / 1000)
+        const ended = active.filter(
+          (p) =>
+            p.status === 'pending' &&
+            nowSecs >= p.windowEnd + RESOLVE_GRACE_SECS &&
+            (resolveAttempts.current.get(p.market.toBase58()) ?? 0) < MAX_RESOLVE_ATTEMPTS,
+        )
+        const toClaim = claimable.filter(
+          (c) => (autoClaimAttempts.current.get(c.position.toBase58()) ?? 0) < MAX_CLAIM_ATTEMPTS,
+        )
+        if (!ended.length && !toClaim.length) return
+
+        let didWork = false
+        if (ended.length && !resolvingEnded.current) {
+          resolvingEnded.current = true
+          ended.forEach((p) => {
+            const k = p.market.toBase58()
+            resolveAttempts.current.set(k, (resolveAttempts.current.get(k) ?? 0) + 1)
+          })
+          try {
+            const mk = [...new Set(ended.map((p) => p.market.toBase58()))].map((s) => new PublicKey(s))
+            await resolveMarkets(connection, solanaWallet, signTransaction, mk)
+            didWork = true
+          } catch (err) {
+            console.error('auto-resolve failed', err)
+          } finally {
+            resolvingEnded.current = false
+          }
+        }
+        if (toClaim.length && !autoClaiming.current) {
+          autoClaiming.current = true
+          toClaim.forEach((c) => {
+            const k = c.position.toBase58()
+            autoClaimAttempts.current.set(k, (autoClaimAttempts.current.get(k) ?? 0) + 1)
+          })
+          try {
+            await claimPositions(connection, solanaWallet, signTransaction, toClaim)
+            setUsdcBalance(await fetchUsdcBalance(connection, owner))
+            didWork = true
+          } catch (err) {
+            console.error('auto-claim failed', err)
+          } finally {
+            autoClaiming.current = false
+          }
+        }
+        // reflect the resolve/claim results with a single follow-up combined read
+        if (didWork) await refreshWalletState(depth + 1)
+      } catch (err) {
+        console.error('failed to refresh wallet state', err)
+      }
+    },
+    [authenticated, solanaWallet, signTransaction, claiming, surfaceEnded],
+  )
 
   useEffect(() => {
-    refreshClaimables()
+    refreshWalletState()
     refreshUsdc()
-    refreshActivePositions()
     const id = setInterval(() => {
-      refreshClaimables()
+      refreshWalletState()
       refreshUsdc()
-      refreshActivePositions()
     }, 20_000)
     return () => clearInterval(id)
-  }, [refreshClaimables, refreshUsdc, refreshActivePositions])
+  }, [refreshWalletState, refreshUsdc])
 
   useEffect(() => {
     document.body.classList.toggle('lock', curMatch !== null || groupsViewOpen)
@@ -430,12 +414,10 @@ export function VolmarketApp() {
         return
       }
       setPlacing(false)
-      // The prediction is confirmed on-chain — show success now. Refresh the board / balance /
-      // positions in the background rather than making the user wait on three more round-trips
-      // (refreshActivePositions can even kick off resolve/claim txs of its own).
-      void refreshMarkets()
+      // The prediction is confirmed on-chain — show success now. Refresh board / balance /
+      // positions in the background rather than making the user wait on more round-trips.
+      void refreshWalletState()
       void refreshUsdc()
-      void refreshActivePositions()
     }
 
     setTicket({ code: genCode(), sel: slip, stake, mult: combo })
@@ -454,7 +436,8 @@ export function VolmarketApp() {
       const connection = new Connection(RPC_URL, 'confirmed')
       await claimPositions(connection, solanaWallet, signTransaction, claimables)
       setClaimed(true)
-      await refreshMarkets()
+      await refreshWalletState()
+      await refreshUsdc()
     } catch (err) {
       setClaimError(err instanceof Error ? err.message : String(err))
     } finally {
@@ -473,9 +456,8 @@ export function VolmarketApp() {
     if (claimed) {
       setClaimed(false)
       // resync now that the claim landed so the fallback affordance clears.
-      prevClaimKeys.current = new Set()
       setSurfaceFallback(false)
-      refreshClaimables()
+      refreshWalletState()
     }
   }
 
