@@ -76,7 +76,13 @@ async function placeBatch(
 
   const now = Math.floor(Date.now() / 1000)
 
-  for (const pick of picks) {
+  // Derive each pick's PDAs first so we can check which markets already exist. A market for
+  // this exact odd/level/window may already be open (created by an earlier prediction on the
+  // same line, or by another user) — re-running create_market on it fails with "already in
+  // use". So we only create markets that don't exist yet and deposit into the rest; deposit's
+  // init_if_needed position + additive stake makes topping up an existing market safe (this is
+  // the "create whatever markets don't exist yet and deposit on all of them" behavior).
+  const derived = picks.map((pick) => {
     const sideVal = pick.side === 'hold' ? SIDE_HOLD : SIDE_BREAK
     const windowStart = new BN(now)
     const windowEnd = new BN(now + pick.windowSecs)
@@ -102,34 +108,47 @@ async function placeBatch(
       [Buffer.from('position'), market.toBuffer(), userPublicKey.toBuffer(), Buffer.from([SIDE_YES])],
       program.programId,
     )
+    return { pick, sideVal, windowStart, windowEnd, fixtureId, oddKey, marketParams, level, market, vault, position }
+  })
 
-    const createMarketIx = await program.methods
-      .createMarket(fixtureId, oddKey, marketParams, sideVal, level, windowStart, windowEnd, FEE_BPS)
-      .accounts({
-        authority: userPublicKey,
-        market,
-        usdcMint: USDC_MINT,
-        vault,
-        tokenProgram: TOKEN_PROGRAM_ID,
-        systemProgram: SystemProgram.programId,
-        rent: SYSVAR_RENT_PUBKEY,
-      })
-      .instruction()
+  const marketInfos = await connection.getMultipleAccountsInfo(derived.map((d) => d.market))
+  const willCreate = new Set<string>() // guard against two picks in one batch sharing a market
+
+  for (let i = 0; i < derived.length; i++) {
+    const d = derived[i]
+    const key = d.market.toBase58()
+    const exists = marketInfos[i] !== null || willCreate.has(key)
+
+    if (!exists) {
+      willCreate.add(key)
+      const createMarketIx = await program.methods
+        .createMarket(d.fixtureId, d.oddKey, d.marketParams, d.sideVal, d.level, d.windowStart, d.windowEnd, FEE_BPS)
+        .accounts({
+          authority: userPublicKey,
+          market: d.market,
+          usdcMint: USDC_MINT,
+          vault: d.vault,
+          tokenProgram: TOKEN_PROGRAM_ID,
+          systemProgram: SystemProgram.programId,
+          rent: SYSVAR_RENT_PUBKEY,
+        })
+        .instruction()
+      tx.add(createMarketIx)
+    }
 
     const depositIx = await program.methods
-      .deposit(SIDE_YES, new BN(Math.round(pick.amountUsdc * 1e6)))
+      .deposit(SIDE_YES, new BN(Math.round(d.pick.amountUsdc * 1e6)))
       .accounts({
         user: userPublicKey,
-        market,
-        position,
-        vault,
+        market: d.market,
+        position: d.position,
+        vault: d.vault,
         userToken,
         tokenProgram: TOKEN_PROGRAM_ID,
         systemProgram: SystemProgram.programId,
       })
       .instruction()
-
-    tx.add(createMarketIx, depositIx)
+    tx.add(depositIx)
   }
 
   const anchorWallet = new PrivyAnchorWallet(wallet, privySignTransaction)
