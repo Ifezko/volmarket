@@ -575,6 +575,9 @@ export function VolmarketApp() {
         ticket={ticket}
         placing={placing}
         placeError={placeError}
+        insufficientFunds={authenticated && usdcBalance != null && usdcBalance < stake}
+        balance={usdcBalance}
+        onOpenDeposit={openDeposit}
         override={
           creatingGroup
             ? {

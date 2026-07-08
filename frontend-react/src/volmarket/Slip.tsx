@@ -26,6 +26,9 @@ export function Slip({
   override,
   placing,
   placeError,
+  insufficientFunds,
+  balance,
+  onOpenDeposit,
   onOpen,
   onClose,
   onRemove,
@@ -45,6 +48,11 @@ export function Slip({
   override: { title: string; body: ReactNode } | null
   placing: boolean
   placeError: string | null
+  // true when the signed-in wallet's USDC balance can't cover the stake — block Place and steer
+  // to Deposit instead (a common external-wallet snag: SOL/other USDC present, but no app USDC).
+  insufficientFunds: boolean
+  balance: number | null
+  onOpenDeposit: () => void
   onOpen: () => void
   onClose: () => void
   onRemove: (id: string) => void
@@ -171,9 +179,21 @@ export function Slip({
                   {placeError}
                 </div>
               )}
-              <button className="btn btn-blue" style={{ width: '100%' }} onClick={onPlace} disabled={placing}>
-                {placing ? 'Placing…' : `Place prediction · ${stake} USDC`}
-              </button>
+              {insufficientFunds ? (
+                <>
+                  <div className="s" style={{ color: 'var(--dim)', margin: '2px 0 8px', textAlign: 'center' }}>
+                    Your balance ({(balance ?? 0).toFixed(2)} USDC) doesn't cover this {stake} USDC stake.
+                    Deposit to place.
+                  </div>
+                  <button className="btn btn-blue" style={{ width: '100%' }} onClick={onOpenDeposit}>
+                    Deposit to place
+                  </button>
+                </>
+              ) : (
+                <button className="btn btn-blue" style={{ width: '100%' }} onClick={onPlace} disabled={placing}>
+                  {placing ? 'Placing…' : `Place prediction · ${stake} USDC`}
+                </button>
+              )}
               {codePaste}
             </>
           )}
