@@ -47,14 +47,21 @@ export function PredictBuilder({
       <div className="winrow">
         <span className="winlbl">Window</span>
         <div className="wchips">
-          {WINDOWS.map((w, i) => (
-            <span key={w}>
-              {(i === 4 || i === 10) && <span className="wdiv"></span>}
-              <button className={`wchip${i === activeWin ? ' on' : ''}`} onClick={() => setActiveWin(i)}>
-                {w}
-              </button>
-            </span>
-          ))}
+          {/* Only windows the keeper can realistically verify in-window against the live signal.
+              Sub-30s durations close before a freshly-created market is even observed, so they'd
+              always settle to the default outcome rather than a verified one — hidden to keep the
+              "verified within your window" promise honest. Indices are kept absolute (WSECS/probs
+              unchanged) so the odds math and pick ids stay consistent. */}
+          {WINDOWS.map((w, i) =>
+            WSECS[i] < 30 ? null : (
+              <span key={w}>
+                {(i === 4 || i === 10) && <span className="wdiv"></span>}
+                <button className={`wchip${i === activeWin ? ' on' : ''}`} onClick={() => setActiveWin(i)}>
+                  {w}
+                </button>
+              </span>
+            ),
+          )}
         </div>
       </div>
       <div className="sigact">
