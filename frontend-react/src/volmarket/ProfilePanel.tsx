@@ -1,5 +1,6 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import type { ActivePosition } from '../lib/claimMarkets'
+import type { FundingEvent } from '../lib/funds'
 import { describeMarket } from './liveFixtures'
 
 // Rendered in the Slip drawer's `override` slot (same pattern as Deposit). Two views via a
@@ -14,6 +15,7 @@ export function ProfilePanel({
   onWithdraw,
   onLogout,
   positions,
+  loadFunding,
 }: {
   walletAddress: string | undefined
   balance: number
@@ -22,6 +24,7 @@ export function ProfilePanel({
   onWithdraw: (destination: string, amount: number) => Promise<void>
   onLogout: () => Promise<void>
   positions: ActivePosition[]
+  loadFunding: () => Promise<FundingEvent[]>
 }) {
   const [view, setView] = useState<'account' | 'history'>('account')
   const [destination, setDestination] = useState('')
@@ -31,6 +34,23 @@ export function ProfilePanel({
   const [done, setDone] = useState<number | null>(null)
   const [copied, setCopied] = useState(false)
   const [loggingOut, setLoggingOut] = useState(false)
+
+  // Deposits/withdrawals (predictions come from `positions`, already polled). Loaded lazily the
+  // first time History opens, and after a withdrawal so the new debit shows up.
+  const [funding, setFunding] = useState<FundingEvent[] | null>(null)
+  const [fundingError, setFundingError] = useState<string | null>(null)
+
+  useEffect(() => {
+    if (view !== 'history' || funding !== null) return
+    let cancelled = false
+    setFundingError(null)
+    loadFunding()
+      .then((f) => !cancelled && setFunding(f))
+      .catch((err) => !cancelled && setFundingError(err instanceof Error ? err.message : String(err)))
+    return () => {
+      cancelled = true
+    }
+  }, [view, funding, loadFunding])
 
   const amt = Number(amount)
   const canWithdraw = !busy && destination.trim() !== '' && amt > 0 && amt <= balance
@@ -51,6 +71,7 @@ export function ProfilePanel({
       setDone(amt)
       setAmount('')
       setDestination('')
+      setFunding(null) // reload so the new withdrawal appears in History
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err))
     } finally {
@@ -173,53 +194,117 @@ export function ProfilePanel({
           </div>
         </>
       ) : (
-        <HistoryList positions={positions} />
+        <HistoryList positions={positions} funding={funding} fundingError={fundingError} />
       )}
     </>
   )
 }
 
-// History = the wallet's predictions, newest first. Each row shows the human-readable
-// prediction (teams · market: holds/breaks N%), how it settled, and the amount at stake —
-// green +payout for wins, red −stake for losses, dim for still-open. Sourced from the same
-// position scan the board/chart already poll (no extra RPC), so it stays live.
-function HistoryList({ positions }: { positions: ActivePosition[] }) {
-  if (positions.length === 0) {
-    return <div className="empty">No predictions yet — pick a window and place one to get started.</div>
+// One row: left = title + subtitle, right = colored amount. Shared by predictions and
+// deposits/withdrawals so every History entry reads the same.
+function FeedRow({
+  title,
+  subtitle,
+  subtitleColor,
+  amount,
+  amountColor,
+}: {
+  title: string
+  subtitle: string
+  subtitleColor: string
+  amount: string
+  amountColor: string
+}) {
+  return (
+    <div className="selrow" style={{ alignItems: 'flex-start' }}>
+      <div style={{ minWidth: 0 }}>
+        <div className="l" style={{ fontSize: 13, lineHeight: 1.35 }}>
+          {title}
+        </div>
+        <div className="s" style={{ color: 'var(--dim)', marginTop: 2 }}>
+          <span style={{ color: subtitleColor, fontWeight: 600 }}>{subtitle}</span>
+        </div>
+      </div>
+      <span className="s mono" style={{ color: amountColor, whiteSpace: 'nowrap', fontWeight: 700, marginLeft: 8 }}>
+        {amount}
+      </span>
+    </div>
+  )
+}
+
+type FeedEntry =
+  | { kind: 'prediction'; key: string; time: number; pos: ActivePosition }
+  | { kind: 'funding'; key: string; time: number; ev: FundingEvent }
+
+// History = one chronological feed of everything that moved money: predictions (win/loss +
+// payout/stake, from the polled position scan) and deposits/withdrawals (from the USDC-account
+// scan). Newest first — predictions ordered by their settle time, funding by block time.
+function HistoryList({
+  positions,
+  funding,
+  fundingError,
+}: {
+  positions: ActivePosition[]
+  funding: FundingEvent[] | null
+  fundingError: string | null
+}) {
+  const entries: FeedEntry[] = [
+    ...positions.map(
+      (p): FeedEntry => ({ kind: 'prediction', key: p.position.toBase58(), time: p.windowEnd, pos: p }),
+    ),
+    ...(funding ?? []).map(
+      (ev): FeedEntry => ({ kind: 'funding', key: ev.signature, time: ev.blockTime ?? 0, ev }),
+    ),
+  ].sort((a, b) => b.time - a.time)
+
+  if (entries.length === 0 && funding !== null) {
+    return <div className="empty">No activity yet — deposit, then pick a window and place a prediction.</div>
   }
-  const sorted = [...positions].sort((a, b) => b.windowEnd - a.windowEnd)
 
   return (
     <div style={{ display: 'grid', gap: 8 }}>
-      {sorted.map((p) => {
-        const won = p.status === 'won'
-        const lost = p.status === 'lost'
-        const statusColor = won ? 'var(--green)' : lost ? 'var(--red)' : 'var(--dim)'
-        const statusText = won ? 'WON' : lost ? 'LOST' : 'PENDING'
-        const amount = won
-          ? `+${p.payoutUsdc.toFixed(2)}`
-          : lost
-            ? `−${p.stakeUsdc.toFixed(2)}`
-            : `${p.stakeUsdc.toFixed(2)}`
-
+      {entries.map((entry) => {
+        if (entry.kind === 'prediction') {
+          const p = entry.pos
+          const won = p.status === 'won'
+          const lost = p.status === 'lost'
+          const color = won ? 'var(--green)' : lost ? 'var(--red)' : 'var(--dim)'
+          return (
+            <FeedRow
+              key={entry.key}
+              title={describeMarket(p.fixtureId, p.oddKey, p.marketParams, p.side, p.level)}
+              subtitle={`${won ? 'WON' : lost ? 'LOST' : 'PENDING'} · ${new Date(p.windowEnd * 1000).toLocaleString()}`}
+              subtitleColor={color}
+              amount={won ? `+${p.payoutUsdc.toFixed(2)}` : lost ? `−${p.stakeUsdc.toFixed(2)}` : p.stakeUsdc.toFixed(2)}
+              amountColor={color}
+            />
+          )
+        }
+        const ev = entry.ev
+        const isDeposit = ev.kind === 'deposit'
+        const when = ev.blockTime ? new Date(ev.blockTime * 1000).toLocaleString() : 'pending'
         return (
-          <div className="selrow" key={p.position.toBase58()} style={{ alignItems: 'flex-start' }}>
-            <div style={{ minWidth: 0 }}>
-              <div className="l" style={{ fontSize: 13, lineHeight: 1.35 }}>
-                {describeMarket(p.fixtureId, p.oddKey, p.marketParams, p.side, p.level)}
-              </div>
-              <div className="s" style={{ color: 'var(--dim)', marginTop: 2 }}>
-                <span style={{ color: statusColor, fontWeight: 600 }}>{statusText}</span>
-                {' · '}
-                {new Date(p.windowEnd * 1000).toLocaleString()}
-              </div>
-            </div>
-            <span className="s mono" style={{ color: statusColor, whiteSpace: 'nowrap', fontWeight: 700, marginLeft: 8 }}>
-              {amount}
-            </span>
-          </div>
+          <FeedRow
+            key={entry.key}
+            title={isDeposit ? 'Deposit' : 'Withdrawal'}
+            subtitle={`${isDeposit ? 'DEPOSIT' : 'WITHDRAW'} · ${when}`}
+            subtitleColor="var(--dim)"
+            amount={`${isDeposit ? '+' : '−'}${ev.amountUsdc.toFixed(2)}`}
+            amountColor={isDeposit ? 'var(--green)' : 'var(--text)'}
+          />
         )
       })}
+
+      {funding === null && !fundingError && (
+        <div className="s" style={{ color: 'var(--dim)', padding: '4px 2px' }}>
+          Loading deposits & withdrawals…
+        </div>
+      )}
+      {fundingError && (
+        <div className="s" style={{ color: 'var(--dim)', padding: '4px 2px' }}>
+          Couldn't load deposits/withdrawals.
+        </div>
+      )}
     </div>
   )
 }

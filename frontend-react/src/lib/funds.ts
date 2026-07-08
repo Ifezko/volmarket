@@ -6,6 +6,7 @@ import {
 } from '@solana/spl-token'
 import type { ConnectedStandardSolanaWallet } from '@privy-io/react-auth/solana'
 import { PrivyAnchorWallet } from './privyAnchorWallet'
+import { SIGNAL_MARKETS_PROGRAM_ID } from './onchainMarkets'
 
 type PrivySignTransaction = ConstructorParameters<typeof PrivyAnchorWallet>[1]
 
@@ -47,17 +48,65 @@ export async function fetchUsdcBalance(connection: Connection, owner: PublicKey)
   }
 }
 
-export interface TxHistoryItem {
+export interface FundingEvent {
   signature: string
   blockTime: number | null
-  err: boolean
+  kind: 'deposit' | 'withdraw'
+  /** movement size, in whole USDC (always positive) */
+  amountUsdc: number
 }
 
-// Recent transactions for the wallet, newest first — powers the profile's history section.
-// Kept lightweight (signatures + time + success flag); each links out to the explorer for detail.
-export async function fetchTxHistory(connection: Connection, owner: PublicKey, limit = 20): Promise<TxHistoryItem[]> {
-  const sigs = await connection.getSignaturesForAddress(owner, { limit })
-  return sigs.map((s) => ({ signature: s.signature, blockTime: s.blockTime ?? null, err: s.err != null }))
+// Deposit/withdrawal history for the wallet's canonical-USDC account, newest first — the money-in/
+// money-out half of the profile's History (predictions are the other half). We scan the USDC ATA's
+// signatures, then classify each by the ATA's USDC balance delta: a credit is a deposit (treasury
+// mint), a debit is a withdrawal. Predictions ALSO move USDC on this account (place debits into a
+// market vault, claim credits back), so we drop any transaction that touches the signal_markets
+// program — those already appear as predictions and would otherwise double-count as deposits/
+// withdrawals. Only loaded when the History tab opens, so the per-tx parse cost is paid rarely.
+export async function fetchFundingHistory(
+  connection: Connection,
+  owner: PublicKey,
+  limit = 30,
+): Promise<FundingEvent[]> {
+  const ata = getAssociatedTokenAddressSync(USDC_MINT, owner)
+  const sigs = await connection.getSignaturesForAddress(ata, { limit })
+  if (!sigs.length) return []
+
+  const parsed = await connection.getParsedTransactions(
+    sigs.map((s) => s.signature),
+    { maxSupportedTransactionVersion: 0 },
+  )
+
+  const ownerStr = owner.toBase58()
+  const mintStr = USDC_MINT.toBase58()
+  const programStr = SIGNAL_MARKETS_PROGRAM_ID.toBase58()
+
+  const events: FundingEvent[] = []
+  parsed.forEach((tx, i) => {
+    if (!tx || tx.meta?.err) return
+
+    // skip prediction placements/claims (they run through the signal_markets program) — those are
+    // shown as predictions, not deposits/withdrawals.
+    const touchesProgram =
+      tx.transaction.message.instructions.some((ix) => ix.programId.toBase58() === programStr) ||
+      (tx.meta?.innerInstructions ?? []).some((inner) =>
+        inner.instructions.some((ix) => ix.programId.toBase58() === programStr),
+      )
+    if (touchesProgram) return
+
+    const pre = tx.meta?.preTokenBalances?.find((b) => b.mint === mintStr && b.owner === ownerStr)
+    const post = tx.meta?.postTokenBalances?.find((b) => b.mint === mintStr && b.owner === ownerStr)
+    const deltaRaw = (post ? Number(post.uiTokenAmount.amount) : 0) - (pre ? Number(pre.uiTokenAmount.amount) : 0)
+    if (deltaRaw === 0) return
+
+    events.push({
+      signature: sigs[i].signature,
+      blockTime: sigs[i].blockTime ?? tx.blockTime ?? null,
+      kind: deltaRaw > 0 ? 'deposit' : 'withdraw',
+      amountUsdc: Math.abs(deltaRaw) / 1e6,
+    })
+  })
+  return events
 }
 
 const USDC_DECIMALS = 6
