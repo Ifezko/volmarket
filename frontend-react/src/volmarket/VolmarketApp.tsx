@@ -348,15 +348,16 @@ export function VolmarketApp() {
     return slip.some((s) => s.id === id)
   }
 
-  // "Your call" lines for the currently-viewed odd: placed on-chain positions (tagged
-  // won/lost/pending) plus any not-yet-placed slip picks (no status).
+  // "Your call" lines for the currently-viewed odd: only ACTIVE calls — live (pending) placed
+  // positions and not-yet-placed slip picks. Settled predictions (won/lost) drop off the chart
+  // once resolved, so only in-play calls are ever drawn.
   const predictionLines = useMemo<PredictionLine[]>(() => {
     if (!curMatch || !activeKey) return []
     const oddKey = Number(activeKey)
     const lines: PredictionLine[] = []
     activePositions.forEach((p) => {
-      if (p.fixtureId === curMatch.fixtureId && p.oddKey === oddKey) {
-        lines.push({ level: p.level, side: p.side, status: p.status })
+      if (p.status === 'pending' && p.fixtureId === curMatch.fixtureId && p.oddKey === oddKey) {
+        lines.push({ level: p.level, side: p.side, status: 'pending' })
       }
     })
     slip.forEach((s) => {

@@ -140,28 +140,6 @@ export function SignalChart({
     ctx.arc(plotR, y(sig.prob), 3.5, 0, 7)
     ctx.fill()
 
-    // live value tag riding the dot — reads out the exact % as the tape varies
-    const lv = sig.prob.toFixed(1) + '%'
-    ctx.font = 'bold 10px "JetBrains Mono"'
-    const lpad = 5
-    const lboxW = ctx.measureText(lv).width + lpad * 2
-    const lboxH = 15
-    const lx = plotR - lboxW - 5 // sit just left of the dot, over the tape's tip
-    const ly = Math.max(padT, Math.min(h - padB - lboxH, y(sig.prob) - lboxH / 2))
-    ctx.fillStyle = 'rgba(15,19,24,.92)'
-    if (ctx.roundRect) {
-      ctx.beginPath()
-      ctx.roundRect(lx, ly, lboxW, lboxH, 4)
-      ctx.fill()
-    } else {
-      ctx.fillRect(lx, ly, lboxW, lboxH)
-    }
-    ctx.fillStyle = '#F2B43D'
-    ctx.textAlign = 'left'
-    ctx.textBaseline = 'middle'
-    ctx.fillText(lv, lx + lpad, ly + lboxH / 2 + 0.5)
-    ctx.textBaseline = 'alphabetic'
-
     sig.vol.forEach((v, i) => {
       const p = i2p(sig, i)
       if (p < sig.pmin || p > sig.pmax) return
@@ -236,6 +214,33 @@ export function SignalChart({
     ctx.textAlign = 'right'
     ctx.fillText('now', plotR, h - 3)
     ctx.textAlign = 'left'
+
+    // live % value pinned at the tip of the tape — drawn LAST so nothing overpaints it. Solid
+    // amber pill with dark text for high contrast, sitting just above the dot (flips below if
+    // there's no room), so the exact percentage is readable as the line moves.
+    const lv = sig.prob.toFixed(1) + '%'
+    ctx.font = 'bold 11px "JetBrains Mono"'
+    const padX = 6
+    const boxH = 17
+    const boxW = ctx.measureText(lv).width + padX * 2
+    let bx = Math.min(plotR - boxW + 2, w - boxW - 1)
+    bx = Math.max(padL, bx)
+    let by = y(sig.prob) - boxH - 6
+    if (by < padT) by = y(sig.prob) + 6
+    by = Math.max(padT, Math.min(by, h - padB - boxH))
+    ctx.fillStyle = '#F2B43D'
+    if (ctx.roundRect) {
+      ctx.beginPath()
+      ctx.roundRect(bx, by, boxW, boxH, 5)
+      ctx.fill()
+    } else {
+      ctx.fillRect(bx, by, boxW, boxH)
+    }
+    ctx.fillStyle = '#12161b'
+    ctx.textAlign = 'left'
+    ctx.textBaseline = 'middle'
+    ctx.fillText(lv, bx + padX, by + boxH / 2 + 0.5)
+    ctx.textBaseline = 'alphabetic'
   }, [i2p, nodes, predictionLines, onLiveProb, windowSecs])
 
   const stepSig = useCallback(() => {
