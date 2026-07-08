@@ -11,6 +11,15 @@ type PrivySignTransaction = ConstructorParameters<typeof PrivyAnchorWallet>[1]
 // account even on the timeout path (where it isn't actually CPI'd), so we pass it explicitly.
 const TXLINE_PROGRAM_ID = new PublicKey('FPnwSSp2DXcNvJnxXWc2JXvU4MLNfrWDT6wBcU5Eptse')
 const MAX_RESOLVE_PER_TX = 6
+// mirror onchainMarkets STATUS_RESOLVED
+const STATUS_RESOLVED = 1
+
+// The keeper (or another tab) may resolve a market between our read and our send; the program
+// then rejects our resolve with AlreadyResolved. That's not a failure — the market is settled
+// either way — so we treat it as a no-op.
+function isAlreadyResolved(err: unknown): boolean {
+  return String((err as { message?: string })?.message ?? err).includes('AlreadyResolved')
+}
 
 async function resolveBatch(
   connection: Connection,
@@ -59,9 +68,23 @@ export async function resolveMarkets(
   markets: PublicKey[],
 ): Promise<string[]> {
   if (!markets.length) return []
+
+  // Drop any already resolved (commonly the keeper got there first) before building a tx —
+  // otherwise one resolved market would fail the whole batch. A resolved market is null-safe
+  // here; treat a failed fetch as still-open and let the send-time guard catch the race.
+  const program = getReadonlyProgram(connection)
+  const accounts = await (program.account as any).market.fetchMultiple(markets)
+  const open = markets.filter((_, i) => !accounts[i] || accounts[i].status !== STATUS_RESOLVED)
+  if (!open.length) return []
+
   const signatures: string[] = []
-  for (let i = 0; i < markets.length; i += MAX_RESOLVE_PER_TX) {
-    signatures.push(await resolveBatch(connection, wallet, privySignTransaction, markets.slice(i, i + MAX_RESOLVE_PER_TX)))
+  for (let i = 0; i < open.length; i += MAX_RESOLVE_PER_TX) {
+    try {
+      signatures.push(await resolveBatch(connection, wallet, privySignTransaction, open.slice(i, i + MAX_RESOLVE_PER_TX)))
+    } catch (err) {
+      // AlreadyResolved is a benign race (settled by the keeper mid-flight); anything else is real.
+      if (!isAlreadyResolved(err)) throw err
+    }
   }
   return signatures
 }
