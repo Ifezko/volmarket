@@ -29,6 +29,8 @@
   .iconbtn .badge.show{display:block}
   .avatar{width:34px;height:34px;border-radius:50%;background:linear-gradient(135deg,#4d8dff,#9b5cff)}
   .nav2{display:flex;align-items:center;gap:4px;height:46px;overflow-x:auto;scrollbar-width:none}.nav2::-webkit-scrollbar{display:none}
+  /* sort control sits to the far right of the secondary nav (collapses inline when it scrolls) */
+  .sortpill{margin-left:auto;color:var(--dim);font-family:var(--mono);font-size:12.5px}.sortpill:hover{color:var(--text)}
   .tab{padding:7px 13px;border-radius:8px;color:var(--dim);font-weight:500;font-size:13.5px;white-space:nowrap;cursor:pointer}.tab:hover{color:var(--text)}.tab.on{color:var(--text);background:var(--surface2)}
   .nav2 .sep{width:1px;height:20px;background:var(--border);margin:0 6px;flex-shrink:0}
   .topic{display:flex;align-items:center;gap:6px;padding:7px 12px;border-radius:8px;color:var(--dim);font-size:13.5px;white-space:nowrap;cursor:pointer}.topic:hover{color:var(--text);background:var(--surface)}
@@ -152,7 +154,6 @@
   @media(max-width:680px){
     .nav1{gap:10px;height:54px}
     .search{display:none}
-    .avatar{display:none}
     .bal .k{display:none}
     .btn{padding:9px 13px;font-size:13px}
     .intro{flex-direction:column;align-items:flex-start;gap:6px;margin:14px 0 12px}

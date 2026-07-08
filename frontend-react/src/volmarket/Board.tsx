@@ -1,8 +1,9 @@
 import { MatchCard } from './MatchCard'
 import type { LiveFixture } from './liveFixtures'
 
-// Ported verbatim from the .intro/.legend/.filters/.grid markup in frontend/index.html.
-// `fixtures` are real on-chain fixtures now (see liveFixtures.ts), not the mock array.
+// The board's .intro/.legend header + the fixtures .grid. The filter/sort controls that used
+// to sit here moved up into the secondary nav (see Nav.tsx). `fixtures` are real on-chain
+// fixtures now (see liveFixtures.ts), not the mock array.
 export function Board({
   fixtures,
   onOpenMatch,
@@ -35,16 +36,6 @@ export function Board({
           <span>
             <i style={{ background: 'var(--cyan)' }}></i>Live line
           </span>
-        </div>
-      </div>
-
-      <div className="filters">
-        <span className="chip on">All</span>
-        <span className="chip">Live now</span>
-        <span className="chip">Starting soon</span>
-        <span className="chip">Group stage</span>
-        <div className="right">
-          <span className="chip">Sort: Volume ▾</span>
         </div>
       </div>
 

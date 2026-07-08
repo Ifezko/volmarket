@@ -58,7 +58,8 @@ export function Nav({
           </div>
         </div>
         <div className="nav2">
-          <span className="tab on">Trending</span>
+          <span className="tab on">All</span>
+          <span className="tab">Trending</span>
           <span className="topic">
             <span className="pdot"></span>Live now
           </span>
@@ -67,6 +68,7 @@ export function Nav({
           <span className="topic" onClick={onOpenGroupsView}>
             Groups
           </span>
+          <span className="tab sortpill">Sort: Volume ▾</span>
         </div>
       </div>
     </nav>
