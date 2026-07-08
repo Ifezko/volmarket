@@ -47,6 +47,19 @@ export async function fetchUsdcBalance(connection: Connection, owner: PublicKey)
   }
 }
 
+export interface TxHistoryItem {
+  signature: string
+  blockTime: number | null
+  err: boolean
+}
+
+// Recent transactions for the wallet, newest first — powers the profile's history section.
+// Kept lightweight (signatures + time + success flag); each links out to the explorer for detail.
+export async function fetchTxHistory(connection: Connection, owner: PublicKey, limit = 20): Promise<TxHistoryItem[]> {
+  const sigs = await connection.getSignaturesForAddress(owner, { limit })
+  return sigs.map((s) => ({ signature: s.signature, blockTime: s.blockTime ?? null, err: s.err != null }))
+}
+
 const USDC_DECIMALS = 6
 
 // Withdraws USDC from the embedded wallet to any Solana address (signed silently by Privy,
