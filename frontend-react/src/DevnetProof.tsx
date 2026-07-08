@@ -1,10 +1,8 @@
 import { useEffect, useState } from 'react'
-import { Connection } from '@solana/web3.js'
 import { useSignTransaction, useWallets as useSolanaWallets } from '@privy-io/react-auth/solana'
 import { runDevnetProof } from './lib/devnetProof'
 import { fetchMarkets, type MarketView } from './lib/markets'
-
-const RPC_URL = import.meta.env.VITE_RPC_URL ?? 'https://api.devnet.solana.com'
+import { makeConnection } from './lib/onchainMarkets'
 
 type ProofState =
   | { status: 'idle' }
@@ -22,7 +20,7 @@ function MarketsList() {
 
   useEffect(() => {
     let cancelled = false
-    fetchMarkets(new Connection(RPC_URL, 'confirmed'))
+    fetchMarkets(makeConnection())
       .then((result) => {
         if (!cancelled) setMarkets({ status: 'done', markets: result })
       })
@@ -65,7 +63,7 @@ export function DevnetProof({ userEmail }: { userEmail: string | undefined }) {
     if (!solanaWallet) return
     setProof({ status: 'running' })
     try {
-      const connection = new Connection(RPC_URL, 'confirmed')
+      const connection = makeConnection()
       const result = await runDevnetProof(connection, solanaWallet, signTransaction)
       setProof({ status: 'done', ...result })
     } catch (err) {

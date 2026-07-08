@@ -63,10 +63,18 @@ const ALCHEMY_RPC_URL =
 // else Alchemy if configured, else the public devnet endpoint.
 export const PRIMARY_RPC_URL = import.meta.env.VITE_RPC_URL || ALCHEMY_RPC_URL || PUBLIC_DEVNET
 
+// All connections go through here. `disableRetryOnRateLimit` turns OFF web3.js's built-in 429
+// auto-retry (it silently fires ~5 extra POSTs per throttled call — the "Retrying after 500ms
+// delay" storm) so OUR withFailover is the single, deliberate retry/fallback path. Massively cuts
+// the request volume when the RPC is throttling.
+export function makeConnection(url: string = PRIMARY_RPC_URL): Connection {
+  return new Connection(url, { commitment: 'confirmed', disableRetryOnRateLimit: true })
+}
+
 // Read-only fallbacks tried after the primary connection, in order. Deduped so we never hit the
 // same endpoint twice, and the public endpoint is always kept as a last resort.
 const FALLBACK_URLS = [...new Set([ALCHEMY_RPC_URL, PUBLIC_DEVNET].filter(Boolean) as string[])]
-const fallbackConnections = FALLBACK_URLS.map((url) => new Connection(url, 'confirmed'))
+const fallbackConnections = FALLBACK_URLS.map((url) => makeConnection(url))
 
 // Startup diagnostic: log which RPC hosts are wired in (host only — never the URL, which
 // contains the Alchemy key). If this prints `api.devnet.solana.com` as primary with no Alchemy

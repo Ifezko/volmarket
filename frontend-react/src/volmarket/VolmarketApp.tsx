@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import { Connection, PublicKey } from '@solana/web3.js'
+import { PublicKey } from '@solana/web3.js'
 import { usePrivy } from '@privy-io/react-auth'
 import { useSignTransaction, useWallets as useSolanaWallets } from '@privy-io/react-auth/solana'
 import './volmarket.css'
@@ -17,7 +17,7 @@ import { ProfilePanel } from './ProfilePanel'
 import { SettleModal } from './SettleModal'
 import { ResultModal } from './ResultModal'
 import { initialGroups, type Group } from './groups'
-import { fetchRealMarkets, PRIMARY_RPC_URL } from '../lib/onchainMarkets'
+import { fetchRealMarkets, makeConnection } from '../lib/onchainMarkets'
 import { placeRealPredictions, type PendingPick } from '../lib/depositMarkets'
 import { claimPositions, fetchWalletState, type ClaimablePosition, type ActivePosition } from '../lib/claimMarkets'
 import { resolveMarkets } from '../lib/resolveMarkets'
@@ -25,8 +25,6 @@ import { fundWallet, fetchUsdcBalance, withdrawUsdc, fetchTxHistory } from '../l
 import { buildLiveFixtures, applyBoardView, type LiveFixture, type BoardFilter, type BoardSort } from './liveFixtures'
 import type { PredictionLine } from './SignalChart'
 import type { RealPredictMeta } from './PredictBuilder'
-
-const RPC_URL = PRIMARY_RPC_URL
 
 function genCode(): string {
   const s = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789'
@@ -130,7 +128,7 @@ export function VolmarketApp() {
 
   const refreshMarkets = useCallback(async () => {
     try {
-      const connection = new Connection(RPC_URL, 'confirmed')
+      const connection = makeConnection()
       const real = await fetchRealMarkets(connection)
       setFixtures(buildLiveFixtures(real))
     } catch (err) {
@@ -148,7 +146,7 @@ export function VolmarketApp() {
       return
     }
     try {
-      const connection = new Connection(RPC_URL, 'confirmed')
+      const connection = makeConnection()
       setUsdcBalance(await fetchUsdcBalance(connection, new PublicKey(solanaWallet.address)))
     } catch (err) {
       console.error('failed to fetch USDC balance', err)
@@ -191,7 +189,7 @@ export function VolmarketApp() {
       // don't overlap a still-running resolve/claim from a previous cycle
       if (claiming || ((autoClaiming.current || resolvingEnded.current) && depth === 0)) return
       try {
-        const connection = new Connection(RPC_URL, 'confirmed')
+        const connection = makeConnection()
         const owner = new PublicKey(solanaWallet.address)
         const { markets, active, claimable } = await fetchWalletState(connection, owner)
         setFixtures(buildLiveFixtures(markets))
@@ -407,7 +405,7 @@ export function VolmarketApp() {
       setPlacing(true)
       setPlaceError(null)
       try {
-        const connection = new Connection(RPC_URL, 'confirmed')
+        const connection = makeConnection()
         await placeRealPredictions(connection, solanaWallet, signTransaction, picks)
       } catch (err) {
         setPlaceError(err instanceof Error ? err.message : String(err))
@@ -434,7 +432,7 @@ export function VolmarketApp() {
     setClaimError(null)
     setClaimedItems(claimables)
     try {
-      const connection = new Connection(RPC_URL, 'confirmed')
+      const connection = makeConnection()
       await claimPositions(connection, solanaWallet, signTransaction, claimables)
       setClaimed(true)
       await refreshWalletState()
@@ -478,7 +476,7 @@ export function VolmarketApp() {
   // Withdraws USDC from the embedded wallet to an external address, then refreshes the balance.
   async function withdraw(destination: string, amount: number) {
     if (!solanaWallet) throw new Error('Wallet not ready yet — try again in a moment.')
-    const connection = new Connection(RPC_URL, 'confirmed')
+    const connection = makeConnection()
     await withdrawUsdc(connection, solanaWallet, signTransaction, destination, amount)
     await refreshUsdc()
   }
@@ -604,7 +602,7 @@ export function VolmarketApp() {
                         onWithdraw={withdraw}
                         loadHistory={async () => {
                           if (!solanaWallet) return []
-                          const connection = new Connection(RPC_URL, 'confirmed')
+                          const connection = makeConnection()
                           return fetchTxHistory(connection, new PublicKey(solanaWallet.address))
                         }}
                       />
