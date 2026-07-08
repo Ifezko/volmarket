@@ -98,9 +98,11 @@ export interface ActivePosition {
   marketParams: number
   side: 'hold' | 'break'
   level: number
+  /** unix seconds the trading window closes — when the prediction is due to resolve */
+  windowEnd: number
   /** the staked amount, in whole USDC */
   stakeUsdc: number
-  /** pending while the market is open; won/lost once the keeper resolves it */
+  /** pending while the market is open; won/lost once resolved */
   status: 'pending' | 'won' | 'lost'
 }
 
@@ -136,6 +138,7 @@ export async function fetchActivePositions(connection: Connection, owner: Public
       marketParams: market.marketParams,
       side: market.side,
       level: market.level,
+      windowEnd: market.windowEnd,
       stakeUsdc: Number(account.amount) / 1e6,
       status,
     })

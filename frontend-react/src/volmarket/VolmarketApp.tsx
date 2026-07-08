@@ -15,10 +15,12 @@ import { GroupCreatePanel } from './GroupCreatePanel'
 import { DepositPanel } from './DepositPanel'
 import { ProfilePanel } from './ProfilePanel'
 import { SettleModal } from './SettleModal'
+import { ResultModal } from './ResultModal'
 import { initialGroups, type Group } from './groups'
 import { fetchRealMarkets } from '../lib/onchainMarkets'
 import { placeRealPredictions, type PendingPick } from '../lib/depositMarkets'
 import { fetchClaimablePositions, claimPositions, fetchActivePositions, type ClaimablePosition, type ActivePosition } from '../lib/claimMarkets'
+import { resolveMarkets } from '../lib/resolveMarkets'
 import { fundWallet, fetchUsdcBalance, withdrawUsdc, fetchTxHistory } from '../lib/funds'
 import { buildLiveFixtures, applyBoardView, type LiveFixture, type BoardFilter, type BoardSort } from './liveFixtures'
 import type { PredictionLine } from './SignalChart'
@@ -104,6 +106,16 @@ export function VolmarketApp() {
   // Every position the wallet holds (pending/won/lost) — drawn onto the signal chart as the
   // user's "calls", so placed predictions and their outcome show up alongside the live tape.
   const [activePositions, setActivePositions] = useState<ActivePosition[]>([])
+  // "Your prediction ended" popup: the positions that just settled this session.
+  const [endedResults, setEndedResults] = useState<ActivePosition[]>([])
+  const [resultOpen, setResultOpen] = useState(false)
+  // position keys already settled (so we only pop for ones that end while you're watching, not
+  // for history); markets we've already tried to resolve (so a failure doesn't retry every poll);
+  // and a re-entrancy guard around the resolve tx.
+  const resolvedSeen = useRef<Set<string>>(new Set())
+  const resolveSeeded = useRef(false)
+  const attemptedResolve = useRef<Set<string>>(new Set())
+  const resolvingEnded = useRef(false)
   const [boardFilter, setBoardFilter] = useState<BoardFilter>('all')
   const [boardSort, setBoardSort] = useState<BoardSort>('volume')
 
@@ -164,18 +176,67 @@ export function VolmarketApp() {
     }
   }, [authenticated, solanaWallet])
 
+  // Surfaces the "prediction ended" popup for any settled positions not seen yet. Seeds the
+  // seen-set silently on the first pass so we don't pop for predictions that settled before
+  // this session — only for ones that end while you're here.
+  const surfaceEnded = useCallback((positions: ActivePosition[]) => {
+    const settled = positions.filter((p) => p.status !== 'pending')
+    if (!resolveSeeded.current) {
+      resolvedSeen.current = new Set(settled.map((p) => p.position.toBase58()))
+      resolveSeeded.current = true
+      return
+    }
+    const fresh = settled.filter((p) => !resolvedSeen.current.has(p.position.toBase58()))
+    if (!fresh.length) return
+    fresh.forEach((p) => resolvedSeen.current.add(p.position.toBase58()))
+    setEndedResults(fresh)
+    setResultOpen(true)
+  }, [])
+
   const refreshActivePositions = useCallback(async () => {
     if (!authenticated || !solanaWallet) {
       setActivePositions([])
+      resolvedSeen.current = new Set()
+      resolveSeeded.current = false
+      attemptedResolve.current = new Set()
       return
     }
     try {
       const connection = new Connection(RPC_URL, 'confirmed')
-      setActivePositions(await fetchActivePositions(connection, new PublicKey(solanaWallet.address)))
+      const owner = new PublicKey(solanaWallet.address)
+      const positions = await fetchActivePositions(connection, owner)
+      setActivePositions(positions)
+      surfaceEnded(positions)
+
+      // Fallback resolver: settle our own predictions whose window has closed but nothing has
+      // resolved them yet, so they resolve at the duration the user picked (the keeper normally
+      // does this; this covers it not running). resolve_market's timeout branch is permissionless
+      // and proofless — signed silently, same as placing.
+      const nowSecs = Math.floor(Date.now() / 1000)
+      const ended = positions.filter(
+        (p) => p.status === 'pending' && p.windowEnd <= nowSecs && !attemptedResolve.current.has(p.market.toBase58()),
+      )
+      if (ended.length && !resolvingEnded.current) {
+        resolvingEnded.current = true
+        ended.forEach((p) => attemptedResolve.current.add(p.market.toBase58()))
+        try {
+          const markets = [...new Set(ended.map((p) => p.market.toBase58()))].map((s) => new PublicKey(s))
+          await resolveMarkets(connection, solanaWallet, signTransaction, markets)
+          await refreshMarkets()
+          const after = await fetchActivePositions(connection, owner)
+          setActivePositions(after)
+          surfaceEnded(after)
+          await refreshClaimables()
+        } catch (err) {
+          console.error('auto-resolve failed', err)
+        } finally {
+          resolvingEnded.current = false
+        }
+      }
     } catch (err) {
       console.error('failed to fetch active positions', err)
     }
-  }, [authenticated, solanaWallet])
+  }, [authenticated, solanaWallet, signTransaction, surfaceEnded, refreshMarkets, refreshClaimables])
 
   useEffect(() => {
     refreshClaimables()
@@ -545,6 +606,17 @@ export function VolmarketApp() {
           Claim {claimables.length} winning prediction{claimables.length > 1 ? 's' : ''}
         </button>
       )}
+
+      <ResultModal
+        open={resultOpen}
+        results={endedResults}
+        onCollect={async () => {
+          setResultOpen(false)
+          await refreshClaimables()
+          openSettle()
+        }}
+        onClose={() => setResultOpen(false)}
+      />
 
       <SettleModal
         open={settleOpen}
