@@ -81,10 +81,12 @@ export async function runKeeper(program: Program) {
     }
   }, CONFIG.deadlineSweepMs);
 
-  // periodically refresh the market set (new markets created mid-tournament, resolved ones drop out)
+  // periodically refresh the market set (new markets created mid-tournament, resolved ones drop
+  // out). Kept short (CONFIG.marketRefreshMs) so a user's just-placed prediction is watched
+  // quickly enough to be verified in-window, not just swept to its default after the window.
   const refresher = setInterval(async () => {
     byFixture = await loadMarkets(program);
-  }, 60_000);
+  }, CONFIG.marketRefreshMs);
 
   let stop: () => void;
   if (CONFIG.mock) {

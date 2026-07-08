@@ -51,7 +51,11 @@ export const CONFIG = {
   serviceLevel: Number(process.env.TXLINE_SERVICE_LEVEL ?? 1),
   txlineApiKey: process.env.TXLINE_API_KEY ?? "", // populated at runtime by activate() if left blank
   pollIntervalMs: Number(process.env.POLL_INTERVAL_MS ?? 15000),
-  deadlineSweepMs: Number(process.env.DEADLINE_SWEEP_MS ?? 30000),
+  deadlineSweepMs: Number(process.env.DEADLINE_SWEEP_MS ?? 10000),
+  // How often the watched-market set is refreshed. Kept short so a user's freshly-created
+  // prediction — especially a short-window one — is picked up in time to be verified in-window
+  // against the live signal, instead of only being caught by the post-window default sweep.
+  marketRefreshMs: Number(process.env.MARKET_REFRESH_MS ?? 8000),
   mock: process.argv.includes("--mock"),
 };
 

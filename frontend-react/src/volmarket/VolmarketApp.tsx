@@ -110,11 +110,12 @@ export function VolmarketApp() {
   const [endedResults, setEndedResults] = useState<ActivePosition[]>([])
   const [resultOpen, setResultOpen] = useState(false)
   // position keys already settled (so we only pop for ones that end while you're watching, not
-  // for history); markets we've already tried to resolve (so a failure doesn't retry every poll);
-  // and a re-entrancy guard around the resolve tx.
+  // for history); a per-market resolve-attempt counter (so a transient failure retries a few
+  // times instead of stranding the prediction forever, but can't spin indefinitely); and a
+  // re-entrancy guard around the resolve tx.
   const resolvedSeen = useRef<Set<string>>(new Set())
   const resolveSeeded = useRef(false)
-  const attemptedResolve = useRef<Set<string>>(new Set())
+  const resolveAttempts = useRef<Map<string, number>>(new Map())
   const resolvingEnded = useRef(false)
   const [boardFilter, setBoardFilter] = useState<BoardFilter>('all')
   const [boardSort, setBoardSort] = useState<BoardSort>('volume')
@@ -198,7 +199,7 @@ export function VolmarketApp() {
       setActivePositions([])
       resolvedSeen.current = new Set()
       resolveSeeded.current = false
-      attemptedResolve.current = new Set()
+      resolveAttempts.current = new Map()
       return
     }
     try {
@@ -209,16 +210,29 @@ export function VolmarketApp() {
       surfaceEnded(positions)
 
       // Fallback resolver: settle our own predictions whose window has closed but nothing has
-      // resolved them yet, so they resolve at the duration the user picked (the keeper normally
-      // does this; this covers it not running). resolve_market's timeout branch is permissionless
-      // and proofless — signed silently, same as placing.
+      // resolved them yet, so they resolve at the duration the user picked (the keeper is the
+      // primary resolver — it verifies hold/break in-window against the real signal; this only
+      // covers it not running / not seeing the market in time). resolve_market's timeout branch
+      // is permissionless and proofless — signed silently, same as placing.
+      //
+      // Wait RESOLVE_GRACE_SECS past window close before stepping in, so a running keeper gets
+      // first shot at a *verified* resolution; and retry up to MAX_RESOLVE_ATTEMPTS so a
+      // transient failure (RPC hiccup, clock skew right at the boundary) doesn't strand it.
+      const RESOLVE_GRACE_SECS = 12
+      const MAX_RESOLVE_ATTEMPTS = 6
       const nowSecs = Math.floor(Date.now() / 1000)
       const ended = positions.filter(
-        (p) => p.status === 'pending' && p.windowEnd <= nowSecs && !attemptedResolve.current.has(p.market.toBase58()),
+        (p) =>
+          p.status === 'pending' &&
+          nowSecs >= p.windowEnd + RESOLVE_GRACE_SECS &&
+          (resolveAttempts.current.get(p.market.toBase58()) ?? 0) < MAX_RESOLVE_ATTEMPTS,
       )
       if (ended.length && !resolvingEnded.current) {
         resolvingEnded.current = true
-        ended.forEach((p) => attemptedResolve.current.add(p.market.toBase58()))
+        ended.forEach((p) => {
+          const k = p.market.toBase58()
+          resolveAttempts.current.set(k, (resolveAttempts.current.get(k) ?? 0) + 1)
+        })
         try {
           const markets = [...new Set(ended.map((p) => p.market.toBase58()))].map((s) => new PublicKey(s))
           await resolveMarkets(connection, solanaWallet, signTransaction, markets)
