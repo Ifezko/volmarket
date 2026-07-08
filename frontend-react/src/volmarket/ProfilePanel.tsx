@@ -197,7 +197,7 @@ function HistoryList({ positions }: { positions: ActivePosition[] }) {
         const statusColor = won ? 'var(--green)' : lost ? 'var(--red)' : 'var(--dim)'
         const statusText = won ? 'WON' : lost ? 'LOST' : 'PENDING'
         const amount = won
-          ? `+${p.stakeUsdc.toFixed(2)}`
+          ? `+${p.payoutUsdc.toFixed(2)}`
           : lost
             ? `−${p.stakeUsdc.toFixed(2)}`
             : `${p.stakeUsdc.toFixed(2)}`

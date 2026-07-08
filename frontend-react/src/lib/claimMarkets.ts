@@ -57,6 +57,8 @@ export interface ActivePosition {
   windowEnd: number
   /** the staked amount, in whole USDC */
   stakeUsdc: number
+  /** net payout (stake back + pro-rata winnings after fee), whole USDC; only meaningful when status === 'won' */
+  payoutUsdc: number
   /** pending while the market is open; won/lost once resolved */
   status: 'pending' | 'won' | 'lost'
 }
@@ -103,6 +105,7 @@ export async function fetchWalletState(connection: Connection, owner: PublicKey)
       level: market.level,
       windowEnd: market.windowEnd,
       stakeUsdc,
+      payoutUsdc: status === 'won' ? computePayout(market, stakeUsdc) : 0,
       status,
     })
 
