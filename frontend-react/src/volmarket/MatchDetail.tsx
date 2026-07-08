@@ -1,8 +1,9 @@
-import { FL } from './data'
 import { Sparkline } from './Sparkline'
+import { Flag } from './Flag'
+import { useNow } from './useNow'
 import { SignalChart, type PredictionLine } from './SignalChart'
 import { PredictBuilder, type RealPredictMeta } from './PredictBuilder'
-import type { LiveFixture } from './liveFixtures'
+import { matchClock, type LiveFixture } from './liveFixtures'
 
 // Ported from openMatch() in frontend/index.html: the .detail overlay — score header,
 // grouped odds selector (live only), the .sig volume-signal panel, the all-odds list,
@@ -38,6 +39,9 @@ export function MatchDetail({
   const activeOdd = curOdds.find((o) => o.key === activeKey)
   const totalVol = curOdds.reduce((sum, o) => sum + o.markets.reduce((s, m) => s + m.totalYes + m.totalNo, 0), 0)
 
+  const now = Math.floor(useNow(1000) / 1000)
+  const clock = matchClock(match, now)
+
   const minTag =
     match.status === 'live' ? (
       <span className="min">
@@ -46,15 +50,17 @@ export function MatchDetail({
       </span>
     ) : match.status === 'soon' ? (
       <span className="min" style={{ color: 'var(--dim)' }}>
-        Opens {match.ko}
+        Kickoff {clock.text}
       </span>
     ) : (
       <span className="min" style={{ color: 'var(--dim)' }}>
-        Resolved
+        Full time
       </span>
     )
 
-  const mid = <span className="sc">{match.status.toUpperCase()}</span>
+  // The centre of the score line is a real match clock, not the old "LIVE" placeholder:
+  // live -> minute since kickoff, upcoming -> kickoff time, resolved -> FT.
+  const mid = <span className={`sc${clock.live ? ' live' : ''}`}>{clock.text}</span>
 
   const groups = [...new Set(curOdds.map((o) => o.grp))]
 
@@ -73,13 +79,13 @@ export function MatchDetail({
           <div className="dclock">{minTag}</div>
           <div className="dline">
             <div className="t">
-              <span className="fl">{FL[match.a]}</span>
+              <Flag country={match.a} />
               {match.a}
             </div>
             {mid}
             <div className="t">
               {match.b}
-              <span className="fl">{FL[match.b]}</span>
+              <Flag country={match.b} />
             </div>
           </div>
         </div>
@@ -102,7 +108,7 @@ export function MatchDetail({
                       className={`ochip${o.key === activeKey ? ' on' : ''}`}
                       onClick={() => onSelectOdd(o.key)}
                     >
-                      <span className="fl">{o.fl}</span>
+                      <Flag country={o.label} fallback={o.fl} />
                       {o.label}
                       <span className="op">{o.prob.toFixed(1)}%</span>
                     </div>

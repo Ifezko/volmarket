@@ -36,7 +36,28 @@ export interface LiveFixture {
   b: string
   status: 'live' | 'soon' | 'ended'
   ko?: string
+  /** unix seconds the match clock counts from: the current live window's start (live) or the
+   *  next window's start (soon). Undefined only if the fixture has no timed markets at all. */
+  kickoff?: number
   odds: LiveOdd[]
+}
+
+// A match-style clock for a fixture, replacing the old generic "Live"/"Resolved" labels:
+// live -> minutes elapsed since kickoff (football style, e.g. 67'), upcoming -> the scheduled
+// kickoff time, resolved -> FT (full time). `nowSecs` is the current wall-clock (see useNow).
+export function matchClock(f: LiveFixture, nowSecs: number): { text: string; live: boolean } {
+  if (f.status === 'live') {
+    const mins = f.kickoff != null ? Math.max(0, Math.floor((nowSecs - f.kickoff) / 60)) : 0
+    return { text: `${Math.min(mins, 120)}'`, live: true }
+  }
+  if (f.status === 'soon') {
+    const text =
+      f.kickoff != null
+        ? new Date(f.kickoff * 1000).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })
+        : (f.ko ?? 'Upcoming')
+    return { text, live: false }
+  }
+  return { text: 'FT', live: false }
 }
 
 // The secondary-nav filters + sort. These actually drive the board (see applyBoardView).
@@ -173,7 +194,12 @@ export function buildLiveFixtures(markets: RealMarket[]): LiveFixture[] {
     const status: LiveFixture['status'] = liveNow ? 'live' : upcoming ? 'soon' : openMarkets.length ? 'live' : 'ended'
     const ko = upcoming ? new Date(upcoming.windowStart * 1000).toLocaleString() : undefined
 
-    fixtures.push({ id: String(fixtureId), fixtureId, comp, a, b, status, ko, odds })
+    // Clock reference: the earliest open window that's already running (the live session the
+    // minute counts from), else the next window to open (soon), else nothing (resolved).
+    const startedOpen = openMarkets.filter((m) => m.windowStart <= now).map((m) => m.windowStart)
+    const kickoff = startedOpen.length ? Math.min(...startedOpen) : upcoming ? upcoming.windowStart : undefined
+
+    fixtures.push({ id: String(fixtureId), fixtureId, comp, a, b, status, ko, kickoff, odds })
   }
 
   return fixtures.sort((x, y) => x.fixtureId - y.fixtureId)

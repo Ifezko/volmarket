@@ -1,4 +1,5 @@
 import { MatchCard } from './MatchCard'
+import { useNow } from './useNow'
 import type { LiveFixture } from './liveFixtures'
 
 // The board's .intro/.legend header + the fixtures .grid. The filter/sort controls that used
@@ -15,6 +16,7 @@ export function Board({
   onOpenMatch: (id: string) => void
   onOpenHow: () => void
 }) {
+  const now = Math.floor(useNow(1000) / 1000)
   return (
     <div className="wrap">
       <div className="intro">
@@ -49,7 +51,7 @@ export function Board({
               : 'No real markets on devnet yet — seed some with keeper/scripts/seed-devnet.ts.'}
           </p>
         ) : (
-          fixtures.map((m) => <MatchCard key={m.id} m={m} onOpen={onOpenMatch} />)
+          fixtures.map((m) => <MatchCard key={m.id} m={m} now={now} onOpen={onOpenMatch} />)
         )}
       </div>
     </div>
