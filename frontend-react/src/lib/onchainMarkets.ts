@@ -49,26 +49,52 @@ export function getReadonlyProgram(connection: Connection): Program {
 }
 
 // getProgramAccounts (what account.all() uses) is heavy and the public devnet RPC frequently
-// rate-limits it (HTTP 429), which would otherwise blank the board on a transient failure.
-// Retry with exponential backoff so a throttled read recovers instead of showing "no markets".
-// (For production, point VITE_RPC_URL at a dedicated RPC — the public endpoint isn't reliable
-// for getProgramAccounts under a live app's polling.)
-export async function withRetry<T>(fn: () => Promise<T>, attempts = 4, baseMs = 600): Promise<T> {
+// rate-limits it (HTTP 429), which would otherwise blank the board. Alchemy's devnet RPC is far
+// more tolerant of it, so we fall back to it (then to the public endpoint) when the primary
+// throttles. Configure it with VITE_ALCHEMY_RPC_URL (full URL) or VITE_ALCHEMY_API_KEY.
+const PUBLIC_DEVNET = 'https://api.devnet.solana.com'
+const ALCHEMY_RPC_URL =
+  import.meta.env.VITE_ALCHEMY_RPC_URL ||
+  (import.meta.env.VITE_ALCHEMY_API_KEY
+    ? `https://solana-devnet.g.alchemy.com/v2/${import.meta.env.VITE_ALCHEMY_API_KEY}`
+    : undefined)
+
+// The RPC the app should prefer for everything (reads + writes): an explicit VITE_RPC_URL wins,
+// else Alchemy if configured, else the public devnet endpoint.
+export const PRIMARY_RPC_URL = import.meta.env.VITE_RPC_URL || ALCHEMY_RPC_URL || PUBLIC_DEVNET
+
+// Read-only fallbacks tried after the primary connection, in order. Deduped so we never hit the
+// same endpoint twice, and the public endpoint is always kept as a last resort.
+const FALLBACK_URLS = [...new Set([ALCHEMY_RPC_URL, PUBLIC_DEVNET].filter(Boolean) as string[])]
+const fallbackConnections = FALLBACK_URLS.map((url) => new Connection(url, 'confirmed'))
+
+// Runs `run` against the primary connection, failing over to each configured fallback endpoint
+// (notably Alchemy) when a read throws — e.g. the public RPC 429-ing getProgramAccounts — with a
+// short backoff between full passes. Used for every account scan so throttling degrades instead
+// of blanking the UI.
+export async function withFailover<T>(
+  primary: Connection,
+  run: (program: Program) => Promise<T>,
+  passes = 2,
+  baseMs = 500,
+): Promise<T> {
+  const conns = [primary, ...fallbackConnections.filter((c) => c.rpcEndpoint !== primary.rpcEndpoint)]
   let lastErr: unknown
-  for (let i = 0; i < attempts; i++) {
-    try {
-      return await fn()
-    } catch (err) {
-      lastErr = err
-      if (i < attempts - 1) await new Promise((r) => setTimeout(r, baseMs * 2 ** i))
+  for (let pass = 0; pass < passes; pass++) {
+    for (const conn of conns) {
+      try {
+        return await run(getReadonlyProgram(conn))
+      } catch (err) {
+        lastErr = err
+      }
     }
+    if (pass < passes - 1) await new Promise((r) => setTimeout(r, baseMs * 2 ** pass))
   }
   throw lastErr
 }
 
 export async function fetchRealMarkets(connection: Connection): Promise<RealMarket[]> {
-  const program = getReadonlyProgram(connection)
-  const accounts = await withRetry<any[]>(() => (program.account as any).market.all())
+  const accounts = await withFailover<any[]>(connection, (program) => (program.account as any).market.all())
 
   return accounts.map(({ publicKey, account }: { publicKey: PublicKey; account: any }) => {
     const levelRaw = Number(account.level)

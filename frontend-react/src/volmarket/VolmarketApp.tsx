@@ -17,7 +17,7 @@ import { ProfilePanel } from './ProfilePanel'
 import { SettleModal } from './SettleModal'
 import { ResultModal } from './ResultModal'
 import { initialGroups, type Group } from './groups'
-import { fetchRealMarkets } from '../lib/onchainMarkets'
+import { fetchRealMarkets, PRIMARY_RPC_URL } from '../lib/onchainMarkets'
 import { placeRealPredictions, type PendingPick } from '../lib/depositMarkets'
 import { fetchClaimablePositions, claimPositions, fetchActivePositions, type ClaimablePosition, type ActivePosition } from '../lib/claimMarkets'
 import { resolveMarkets } from '../lib/resolveMarkets'
@@ -26,7 +26,7 @@ import { buildLiveFixtures, applyBoardView, type LiveFixture, type BoardFilter, 
 import type { PredictionLine } from './SignalChart'
 import type { RealPredictMeta } from './PredictBuilder'
 
-const RPC_URL = import.meta.env.VITE_RPC_URL ?? 'https://api.devnet.solana.com'
+const RPC_URL = PRIMARY_RPC_URL
 
 function genCode(): string {
   const s = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789'
