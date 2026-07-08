@@ -68,6 +68,17 @@ export const PRIMARY_RPC_URL = import.meta.env.VITE_RPC_URL || ALCHEMY_RPC_URL |
 const FALLBACK_URLS = [...new Set([ALCHEMY_RPC_URL, PUBLIC_DEVNET].filter(Boolean) as string[])]
 const fallbackConnections = FALLBACK_URLS.map((url) => new Connection(url, 'confirmed'))
 
+// Startup diagnostic: log which RPC hosts are wired in (host only — never the URL, which
+// contains the Alchemy key). If this prints `api.devnet.solana.com` as primary with no Alchemy
+// host in the fallbacks, the VITE_ALCHEMY_* env var wasn't present at *build* time — set it in
+// Vercel and redeploy (Vite bakes env vars at build, not runtime).
+try {
+  const host = (u: string) => new URL(u).host
+  console.info('[volmarket] RPC primary:', host(PRIMARY_RPC_URL), '· fallbacks:', FALLBACK_URLS.map(host).join(', '))
+} catch {
+  /* URL parse guard — never block startup on a diagnostic */
+}
+
 // Runs `run` against the primary connection, failing over to each configured fallback endpoint
 // (notably Alchemy) when a read throws — e.g. the public RPC 429-ing getProgramAccounts — with a
 // short backoff between full passes. Used for every account scan so throttling degrades instead
