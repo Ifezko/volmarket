@@ -139,6 +139,29 @@ export function SignalChart({
     ctx.beginPath()
     ctx.arc(plotR, y(sig.prob), 3.5, 0, 7)
     ctx.fill()
+
+    // live value tag riding the dot — reads out the exact % as the tape varies
+    const lv = sig.prob.toFixed(1) + '%'
+    ctx.font = 'bold 10px "JetBrains Mono"'
+    const lpad = 5
+    const lboxW = ctx.measureText(lv).width + lpad * 2
+    const lboxH = 15
+    const lx = plotR - lboxW - 5 // sit just left of the dot, over the tape's tip
+    const ly = Math.max(padT, Math.min(h - padB - lboxH, y(sig.prob) - lboxH / 2))
+    ctx.fillStyle = 'rgba(15,19,24,.92)'
+    if (ctx.roundRect) {
+      ctx.beginPath()
+      ctx.roundRect(lx, ly, lboxW, lboxH, 4)
+      ctx.fill()
+    } else {
+      ctx.fillRect(lx, ly, lboxW, lboxH)
+    }
+    ctx.fillStyle = '#F2B43D'
+    ctx.textAlign = 'left'
+    ctx.textBaseline = 'middle'
+    ctx.fillText(lv, lx + lpad, ly + lboxH / 2 + 0.5)
+    ctx.textBaseline = 'alphabetic'
+
     sig.vol.forEach((v, i) => {
       const p = i2p(sig, i)
       if (p < sig.pmin || p > sig.pmax) return
