@@ -102,6 +102,10 @@ export function VolmarketApp() {
   // reveals the hidden manual-claim affordance so funds can never get stuck.
   const [surfaceFallback, setSurfaceFallback] = useState(false)
   const prevClaimKeys = useRef<Set<string>>(new Set())
+  // Background auto-claim so winnings land in the balance automatically (no "Claim" click): a
+  // per-position attempt counter (retry-capped, then the manual fallback surfaces) and a guard.
+  const autoClaimAttempts = useRef<Map<string, number>>(new Map())
+  const autoClaiming = useRef(false)
   const [usdcBalance, setUsdcBalance] = useState<number | null>(null)
   // Every position the wallet holds (pending/won/lost) — drawn onto the signal chart as the
   // user's "calls", so placed predictions and their outcome show up alongside the live tape.
@@ -136,29 +140,56 @@ export function VolmarketApp() {
     }
   }, [])
 
-  // Poll for winning positions the keeper hasn't paid out. In the happy path this stays empty
-  // (the keeper claims within seconds); we only reveal the manual fallback for a position that
-  // is still unclaimed after a full poll cycle, so a transient race doesn't flash the affordance.
+  // Poll for winning positions and auto-credit them. The keeper normally claims winners' payouts
+  // automatically; this is the browser-side fallback so a win lands in the user's balance without
+  // them clicking "Claim" (claim is permissionless, signed silently — same as placing/resolving).
+  // Retry-capped: if auto-claim keeps failing, the position stays claimable and the hidden manual
+  // affordance (surfaceFallback / SettleModal) surfaces so funds can never get stuck.
   const refreshClaimables = useCallback(async () => {
-    if (claiming) return // don't clobber the list mid-claim
+    if (claiming || autoClaiming.current) return // don't clobber the list mid-claim
     if (!authenticated || !solanaWallet) {
       setClaimables([])
       setSurfaceFallback(false)
       prevClaimKeys.current = new Set()
+      autoClaimAttempts.current = new Map()
       return
     }
     try {
       const connection = new Connection(RPC_URL, 'confirmed')
-      const found = await fetchClaimablePositions(connection, new PublicKey(solanaWallet.address))
-      setClaimables(found)
-      const keys = new Set(found.map((c) => c.position.toBase58()))
-      const stuck = found.some((c) => prevClaimKeys.current.has(c.position.toBase58()))
+      const owner = new PublicKey(solanaWallet.address)
+      const found = await fetchClaimablePositions(connection, owner)
+
+      const MAX_CLAIM_ATTEMPTS = 6
+      const toClaim = found.filter(
+        (c) => (autoClaimAttempts.current.get(c.position.toBase58()) ?? 0) < MAX_CLAIM_ATTEMPTS,
+      )
+      let list = found
+      if (toClaim.length) {
+        autoClaiming.current = true
+        toClaim.forEach((c) => {
+          const k = c.position.toBase58()
+          autoClaimAttempts.current.set(k, (autoClaimAttempts.current.get(k) ?? 0) + 1)
+        })
+        try {
+          await claimPositions(connection, solanaWallet, signTransaction, toClaim)
+          setUsdcBalance(await fetchUsdcBalance(connection, owner))
+          list = await fetchClaimablePositions(connection, owner) // drop the ones we just paid out
+        } catch (err) {
+          console.error('auto-claim failed', err)
+        } finally {
+          autoClaiming.current = false
+        }
+      }
+
+      setClaimables(list)
+      // whatever couldn't be auto-claimed and is still here next cycle reveals the manual fallback
+      const stuck = list.some((c) => prevClaimKeys.current.has(c.position.toBase58()))
       setSurfaceFallback(stuck)
-      prevClaimKeys.current = keys
+      prevClaimKeys.current = new Set(list.map((c) => c.position.toBase58()))
     } catch (err) {
       console.error('failed to fetch claimable positions', err)
     }
-  }, [authenticated, solanaWallet, claiming])
+  }, [authenticated, solanaWallet, claiming, signTransaction])
 
   useEffect(() => {
     refreshMarkets()
@@ -621,16 +652,7 @@ export function VolmarketApp() {
         </button>
       )}
 
-      <ResultModal
-        open={resultOpen}
-        results={endedResults}
-        onCollect={async () => {
-          setResultOpen(false)
-          await refreshClaimables()
-          openSettle()
-        }}
-        onClose={() => setResultOpen(false)}
-      />
+      <ResultModal open={resultOpen} results={endedResults} onClose={() => setResultOpen(false)} />
 
       <SettleModal
         open={settleOpen}
