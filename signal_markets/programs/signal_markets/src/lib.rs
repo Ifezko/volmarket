@@ -194,8 +194,12 @@ pub mod signal_markets {
         Ok(())
     }
 
-    /// Winner claims pro-rata payout from the vault. The fee_bps "cut" is taken on
+    /// Pays a winner their pro-rata payout from the vault. The fee_bps "cut" is taken on
     /// winnings only and routes to the market authority. Non-custodial throughout.
+    ///
+    /// Permissionless: any signer may `payer` the transaction — funds always route to the
+    /// position `owner`'s token account, so the keeper (or anyone) can push a winner's payout
+    /// without the winner needing to sign. The winner can still self-claim as a fallback.
     pub fn claim(ctx: Context<Claim>) -> Result<()> {
         // capture scalars before taking the mutable market/position borrows
         let outcome = ctx.accounts.market.outcome;
@@ -461,8 +465,14 @@ pub struct ResolveMarket<'info> {
 
 #[derive(Accounts)]
 pub struct Claim<'info> {
+    /// Pays the transaction fee. Permissionless — not coupled to the position, so the keeper
+    /// (or anyone) can settle a winner's payout. Funds route to `owner`, never to `payer`.
     #[account(mut)]
-    pub user: Signer<'info>,
+    pub payer: Signer<'info>,
+
+    /// CHECK: the position owner. Not a signer — used only to derive the position PDA and as
+    /// the required owner of `user_token`, so a claim can only ever pay the legitimate winner.
+    pub owner: UncheckedAccount<'info>,
 
     #[account(
         seeds = [
@@ -481,9 +491,9 @@ pub struct Claim<'info> {
 
     #[account(
         mut,
-        seeds = [b"position", market.key().as_ref(), user.key().as_ref(), &[position.side]],
+        seeds = [b"position", market.key().as_ref(), owner.key().as_ref(), &[position.side]],
         bump = position.bump,
-        constraint = position.owner == user.key() @ MarketError::Unauthorized,
+        constraint = position.owner == owner.key() @ MarketError::Unauthorized,
         constraint = !position.claimed @ MarketError::AlreadyClaimed,
     )]
     pub position: Account<'info, Position>,
@@ -493,7 +503,7 @@ pub struct Claim<'info> {
 
     #[account(
         mut,
-        constraint = user_token.owner == user.key() @ MarketError::Unauthorized,
+        constraint = user_token.owner == owner.key() @ MarketError::Unauthorized,
         constraint = user_token.mint == market.usdc_mint @ MarketError::WrongMint,
     )]
     pub user_token: Account<'info, TokenAccount>,

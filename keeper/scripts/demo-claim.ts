@@ -41,7 +41,8 @@ async function main() {
   const claimSig = await program.methods
     .claim()
     .accounts({
-      user: wallet.publicKey,
+      payer: wallet.publicKey, // permissionless claim (payer/owner split); here both are this wallet
+      owner: wallet.publicKey,
       market,
       position,
       vault,

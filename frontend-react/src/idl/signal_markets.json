@@ -10,8 +10,12 @@
     {
       "name": "claim",
       "docs": [
-        "Winner claims pro-rata payout from the vault. The fee_bps \"cut\" is taken on",
-        "winnings only and routes to the market authority. Non-custodial throughout."
+        "Pays a winner their pro-rata payout from the vault. The fee_bps \"cut\" is taken on",
+        "winnings only and routes to the market authority. Non-custodial throughout.",
+        "",
+        "Permissionless: any signer may `payer` the transaction — funds always route to the",
+        "position `owner`'s token account, so the keeper (or anyone) can push a winner's payout",
+        "without the winner needing to sign. The winner can still self-claim as a fallback."
       ],
       "discriminator": [
         62,
@@ -25,9 +29,19 @@
       ],
       "accounts": [
         {
-          "name": "user",
+          "name": "payer",
+          "docs": [
+            "Pays the transaction fee. Permissionless — not coupled to the position, so the keeper",
+            "(or anyone) can settle a winner's payout. Funds route to `owner`, never to `payer`."
+          ],
           "writable": true,
           "signer": true
+        },
+        {
+          "name": "owner",
+          "docs": [
+            "the required owner of `user_token`, so a claim can only ever pay the legitimate winner."
+          ]
         },
         {
           "name": "market",

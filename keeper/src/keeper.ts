@@ -3,6 +3,7 @@ import { CONFIG, log } from "./config.js";
 import { subscribeStream, getOddsProof, resolveOutcomeValue, type TxEvent, type ProofResult } from "./txline.js";
 import { loadMarkets, crossingResolves, inWindow, oddOutcome, type WatchedMarket } from "./markets.js";
 import { resolveMarket } from "./resolver.js";
+import { claimWinners } from "./claimer.js";
 import { startMockFeed, mockProof } from "./mockFeed.js";
 
 // The program's post-window timeout branch settles the DEFAULT outcome (HOLD→YES, BREAK→NO)
@@ -20,6 +21,10 @@ export async function runKeeper(program: Program) {
     inFlight.add(key);
     try {
       await resolveMarket(program, m.pubkey, proof);
+      // Autonomous payout: once the outcome is on-chain, push every winner their USDC. Safe to
+      // call even if the resolve was a no-op (already resolved) — claimWinners re-checks status
+      // and only pays unclaimed winning positions, so it never double-pays.
+      await claimWinners(program, m.pubkey);
     } finally {
       inFlight.delete(key);
     }

@@ -79,6 +79,24 @@ function oddLabel(oddKey: number, marketParams: number, a: string, b: string): {
 }
 
 /**
+ * A human label for a market from its on-chain fields alone — the same deterministic team
+ * and odd naming the board uses, so a claim popup reads like the board did (e.g.
+ * "Brazil v Argentina · Over 2.5 goals: holds 58%"). Used by the settlement modal.
+ */
+export function describeMarket(
+  fixtureId: number,
+  oddKey: number,
+  marketParams: number,
+  side: 'hold' | 'break',
+  level: number,
+): string {
+  const { a, b } = pseudoTeams(fixtureId)
+  const { label } = oddLabel(oddKey, marketParams, a, b)
+  const verb = side === 'hold' ? 'holds' : 'breaks'
+  return `${a} v ${b} · ${label}: ${verb} ${level}%`
+}
+
+/**
  * Groups the flat list of real on-chain Market accounts into board-shaped fixtures. Every
  * known fixture always offers the full canonical odd set (both teams, draw, over/under) —
  * real markets attach to whichever odds already have one, the rest get a placeholder

@@ -1,5 +1,5 @@
-import { useCallback, useEffect, useMemo, useState } from 'react'
-import { Connection } from '@solana/web3.js'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { Connection, PublicKey } from '@solana/web3.js'
 import { usePrivy } from '@privy-io/react-auth'
 import { useSignTransaction, useWallets as useSolanaWallets } from '@privy-io/react-auth/solana'
 import './volmarket.css'
@@ -13,9 +13,11 @@ import { HowModal } from './HowModal'
 import { GroupsView } from './GroupsView'
 import { GroupCreatePanel } from './GroupCreatePanel'
 import { DepositPanel } from './DepositPanel'
+import { SettleModal } from './SettleModal'
 import { initialGroups, type Group } from './groups'
 import { fetchRealMarkets } from '../lib/onchainMarkets'
 import { placeRealPredictions, type PendingPick } from '../lib/depositMarkets'
+import { fetchClaimablePositions, claimPositions, type ClaimablePosition } from '../lib/claimMarkets'
 import { buildLiveFixtures, type LiveFixture } from './liveFixtures'
 import type { PredictionLine } from './SignalChart'
 import type { RealPredictMeta } from './PredictBuilder'
@@ -81,6 +83,20 @@ export function VolmarketApp({ onOpenDevnet }: { onOpenDevnet: () => void }) {
   const [groupsViewOpen, setGroupsViewOpen] = useState(false)
   const [creatingGroup, setCreatingGroup] = useState<{ seedCode?: string; stage: 'form' | 'created' } | null>(null)
   const [depositOpen, setDepositOpen] = useState(false)
+  const [claimables, setClaimables] = useState<ClaimablePosition[]>([])
+  // snapshot of what was claimed, so the "Claimed" success view survives the poll that
+  // (correctly) empties `claimables` once the positions are marked claimed on-chain.
+  const [claimedItems, setClaimedItems] = useState<ClaimablePosition[]>([])
+  const [settleOpen, setSettleOpen] = useState(false)
+  const [claiming, setClaiming] = useState(false)
+  const [claimed, setClaimed] = useState(false)
+  const [claimError, setClaimError] = useState<string | null>(null)
+  // The keeper auto-claims winners, so a winning position is normally marked claimed on-chain
+  // within seconds and never shows up here. `surfaceFallback` only turns true for a position
+  // still unclaimed after a full poll cycle (~20s) — i.e. the keeper didn't settle it — which
+  // reveals the hidden manual-claim affordance so funds can never get stuck.
+  const [surfaceFallback, setSurfaceFallback] = useState(false)
+  const prevClaimKeys = useRef<Set<string>>(new Set())
 
   const curMatch = curMatchId ? fixtures.find((m) => m.id === curMatchId) ?? null : null
 
@@ -94,9 +110,39 @@ export function VolmarketApp({ onOpenDevnet }: { onOpenDevnet: () => void }) {
     }
   }, [])
 
+  // Poll for winning positions the keeper hasn't paid out. In the happy path this stays empty
+  // (the keeper claims within seconds); we only reveal the manual fallback for a position that
+  // is still unclaimed after a full poll cycle, so a transient race doesn't flash the affordance.
+  const refreshClaimables = useCallback(async () => {
+    if (claiming) return // don't clobber the list mid-claim
+    if (!authenticated || !solanaWallet) {
+      setClaimables([])
+      setSurfaceFallback(false)
+      prevClaimKeys.current = new Set()
+      return
+    }
+    try {
+      const connection = new Connection(RPC_URL, 'confirmed')
+      const found = await fetchClaimablePositions(connection, new PublicKey(solanaWallet.address))
+      setClaimables(found)
+      const keys = new Set(found.map((c) => c.position.toBase58()))
+      const stuck = found.some((c) => prevClaimKeys.current.has(c.position.toBase58()))
+      setSurfaceFallback(stuck)
+      prevClaimKeys.current = keys
+    } catch (err) {
+      console.error('failed to fetch claimable positions', err)
+    }
+  }, [authenticated, solanaWallet, claiming])
+
   useEffect(() => {
     refreshMarkets()
   }, [refreshMarkets])
+
+  useEffect(() => {
+    refreshClaimables()
+    const id = setInterval(refreshClaimables, 20_000)
+    return () => clearInterval(id)
+  }, [refreshClaimables])
 
   useEffect(() => {
     document.body.classList.toggle('lock', curMatch !== null || groupsViewOpen)
@@ -234,6 +280,43 @@ export function VolmarketApp({ onOpenDevnet }: { onOpenDevnet: () => void }) {
     setSlip([])
   }
 
+  // Collects every winning position back to the wallet by calling the program's `claim`
+  // (signed silently, same as placing). On success the positions flip to claimed on-chain,
+  // so the next refresh drops them from the list.
+  async function claimWinnings() {
+    if (!claimables.length || !solanaWallet) return
+    setClaiming(true)
+    setClaimError(null)
+    setClaimedItems(claimables)
+    try {
+      const connection = new Connection(RPC_URL, 'confirmed')
+      await claimPositions(connection, solanaWallet, signTransaction, claimables)
+      setClaimed(true)
+      await refreshMarkets()
+    } catch (err) {
+      setClaimError(err instanceof Error ? err.message : String(err))
+    } finally {
+      setClaiming(false)
+    }
+  }
+
+  function openSettle() {
+    setClaimed(false)
+    setClaimError(null)
+    setSettleOpen(true)
+  }
+
+  function closeSettle() {
+    setSettleOpen(false)
+    if (claimed) {
+      setClaimed(false)
+      // resync now that the claim landed so the fallback affordance clears.
+      prevClaimKeys.current = new Set()
+      setSurfaceFallback(false)
+      refreshClaimables()
+    }
+  }
+
   // Ported from openGroups()/createGroup() — opens the group-creation form in the slip
   // drawer, pre-seeded with a ticket's share code when reached via "Make this a group".
   function openGroupCreate(seedCode?: string) {
@@ -337,6 +420,24 @@ export function VolmarketApp({ onOpenDevnet }: { onOpenDevnet: () => void }) {
       />
 
       <HowModal open={howOpen} onClose={() => setHowOpen(false)} />
+
+      {/* Hidden fallback: only appears if the keeper hasn't paid out a winning position, so a
+          user can always recover stuck funds manually. Invisible in the normal auto-paid flow. */}
+      {surfaceFallback && !settleOpen && claimables.length > 0 && (
+        <button className="claim-fallback" onClick={openSettle}>
+          Claim {claimables.length} winning prediction{claimables.length > 1 ? 's' : ''}
+        </button>
+      )}
+
+      <SettleModal
+        open={settleOpen}
+        claimables={claimed ? claimedItems : claimables}
+        claiming={claiming}
+        claimed={claimed}
+        error={claimError}
+        onClaim={claimWinnings}
+        onClose={closeSettle}
+      />
 
       <GroupsView
         open={groupsViewOpen}
