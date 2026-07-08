@@ -8,14 +8,18 @@ import type { TxHistoryItem } from '../lib/funds'
 export function ProfilePanel({
   walletAddress,
   balance,
+  accountLabel,
   onCopyAddress,
   onWithdraw,
+  onLogout,
   loadHistory,
 }: {
   walletAddress: string | undefined
   balance: number
+  accountLabel: string | undefined
   onCopyAddress: (address: string) => void
   onWithdraw: (destination: string, amount: number) => Promise<void>
+  onLogout: () => Promise<void>
   loadHistory: () => Promise<TxHistoryItem[]>
 }) {
   const [view, setView] = useState<'account' | 'history'>('account')
@@ -25,6 +29,7 @@ export function ProfilePanel({
   const [error, setError] = useState<string | null>(null)
   const [done, setDone] = useState<number | null>(null)
   const [copied, setCopied] = useState(false)
+  const [loggingOut, setLoggingOut] = useState(false)
 
   const [history, setHistory] = useState<TxHistoryItem[] | null>(null)
   const [historyError, setHistoryError] = useState<string | null>(null)
@@ -68,6 +73,15 @@ export function ProfilePanel({
     }
   }
 
+  async function logout() {
+    setLoggingOut(true)
+    try {
+      await onLogout()
+    } finally {
+      setLoggingOut(false)
+    }
+  }
+
   if (!walletAddress) {
     return <div className="empty">Sign in to view your profile.</div>
   }
@@ -85,6 +99,15 @@ export function ProfilePanel({
 
       {view === 'account' ? (
         <>
+          {accountLabel && (
+            <div className="gfield">
+              <label className="flbl">Signed in as</label>
+              <div className="l" style={{ wordBreak: 'break-all' }}>
+                {accountLabel}
+              </div>
+            </div>
+          )}
+
           <div className="gfield">
             <label className="flbl">Balance</label>
             <div className="mono" style={{ fontSize: 22, fontWeight: 700, color: 'var(--green)' }}>
@@ -146,6 +169,23 @@ export function ProfilePanel({
           >
             {busy ? 'Withdrawing…' : amt > balance ? 'Not enough balance' : `Withdraw${amt > 0 ? ` ${amt} USDC` : ''}`}
           </button>
+
+          <div style={{ borderTop: '1px solid var(--border)', margin: '18px 0 0', paddingTop: 14 }}>
+            <button
+              className="btn"
+              style={{
+                width: '100%',
+                background: 'transparent',
+                border: '1px solid var(--red)',
+                color: 'var(--red)',
+                ...(loggingOut ? { opacity: 0.5 } : {}),
+              }}
+              disabled={loggingOut}
+              onClick={logout}
+            >
+              {loggingOut ? 'Disconnecting…' : 'Disconnect'}
+            </button>
+          </div>
         </>
       ) : (
         <HistoryList history={history} error={historyError} />

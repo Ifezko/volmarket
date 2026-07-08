@@ -63,7 +63,7 @@ function pasteCodePool(code: string): SlipItem[] {
 // you hit "Place prediction", which then creates whatever markets don't exist yet and
 // deposits real devnet USDC on all of them in one signed transaction.
 export function VolmarketApp() {
-  const { authenticated, login } = usePrivy()
+  const { authenticated, login, logout, user } = usePrivy()
   const { wallets } = useSolanaWallets()
   const { signTransaction } = useSignTransaction()
   const solanaWallet = wallets[0]
@@ -598,8 +598,18 @@ export function VolmarketApp() {
                       <ProfilePanel
                         walletAddress={solanaWallet?.address}
                         balance={usdcBalance ?? 0}
+                        accountLabel={
+                          user?.email?.address ??
+                          user?.google?.email ??
+                          (user?.wallet ? 'External wallet' : undefined)
+                        }
                         onCopyAddress={copyCode}
                         onWithdraw={withdraw}
+                        onLogout={async () => {
+                          await logout()
+                          setSlipOpen(false)
+                          setProfileOpen(false)
+                        }}
                         loadHistory={async () => {
                           if (!solanaWallet) return []
                           const connection = makeConnection()
