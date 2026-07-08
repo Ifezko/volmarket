@@ -1,3 +1,4 @@
+import { useEffect, useRef } from 'react'
 import type { BoardFilter } from './liveFixtures'
 
 // The app's top nav: logo + search + wallet/balance/deposit/profile (nav1), and the
@@ -31,8 +32,22 @@ export function Nav({
   onOpenGroupsView: () => void
   onOpenProfile: () => void
 }) {
+  // The full-screen overlays (match detail, groups) now sit *below* the nav rather than
+  // covering it, so the top header stays visible on every page. They read the live nav
+  // height from --nav-h; measure it here (it changes with the responsive breakpoints).
+  const navRef = useRef<HTMLElement>(null)
+  useEffect(() => {
+    const el = navRef.current
+    if (!el) return
+    const setH = () => document.documentElement.style.setProperty('--nav-h', `${el.offsetHeight}px`)
+    setH()
+    const ro = new ResizeObserver(setH)
+    ro.observe(el)
+    return () => ro.disconnect()
+  }, [])
+
   return (
-    <nav>
+    <nav ref={navRef}>
       <div className="wrap">
         <div className="nav1">
           <div className="logo" onClick={onLogoClick}>

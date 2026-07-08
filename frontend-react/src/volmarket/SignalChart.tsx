@@ -23,6 +23,8 @@ interface Sig {
 export interface PredictionLine {
   level: number
   side: 'hold' | 'break'
+  /** placed on-chain positions carry a status; undefined = a pending, not-yet-placed slip pick */
+  status?: 'pending' | 'won' | 'lost'
 }
 
 export function SignalChart({
@@ -146,18 +148,32 @@ export function SignalChart({
     })
     ctx.globalAlpha = 1
 
-    // prediction lines on this odd — the wallet's real deposited positions
+    // prediction lines on this odd — the wallet's real deposited positions (tagged won/lost/
+    // pending once placed) plus any not-yet-placed slip picks (no status).
     const seen = new Set<string>()
     predictionLines.forEach((ln) => {
-      const tag = ln.side + ':' + ln.level
+      const tag = ln.side + ':' + ln.level + ':' + (ln.status ?? 'slip')
       if (seen.has(tag)) return
       seen.add(tag)
-      const yy = y(ln.level),
+      const yy = y(ln.level)
+      let col: string, label: string, alpha: number
+      if (ln.status === 'won') {
+        col = '#2fc079'
+        label = '✓ won ' + ln.level + '%'
+        alpha = 0.95
+      } else if (ln.status === 'lost') {
+        col = '#f3596b'
+        label = '✗ lost ' + ln.level + '%'
+        alpha = 0.5
+      } else {
         col = ln.side === 'hold' ? '#2fc079' : '#f3596b'
+        label = '◆ your call ' + ln.level + '%' + (ln.status === 'pending' ? ' · live' : '')
+        alpha = 0.85
+      }
       ctx.save()
       ctx.setLineDash([4, 3])
       ctx.strokeStyle = col
-      ctx.globalAlpha = 0.85
+      ctx.globalAlpha = alpha
       ctx.lineWidth = 1.3
       ctx.beginPath()
       ctx.moveTo(padL, yy)
@@ -168,7 +184,7 @@ export function SignalChart({
       ctx.fillStyle = col
       ctx.font = '9px "JetBrains Mono"'
       ctx.textAlign = 'left'
-      ctx.fillText('◆ your call ' + ln.level + '%', padL + 3, yy - 3)
+      ctx.fillText(label, padL + 3, yy - 3)
       ctx.restore()
     })
 

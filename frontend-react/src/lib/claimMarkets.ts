@@ -90,6 +90,59 @@ export async function fetchClaimablePositions(connection: Connection, owner: Pub
   return claimable
 }
 
+export interface ActivePosition {
+  market: PublicKey
+  position: PublicKey
+  fixtureId: number
+  oddKey: number
+  marketParams: number
+  side: 'hold' | 'break'
+  level: number
+  /** the staked amount, in whole USDC */
+  stakeUsdc: number
+  /** pending while the market is open; won/lost once the keeper resolves it */
+  status: 'pending' | 'won' | 'lost'
+}
+
+/**
+ * Every position the wallet holds, joined to its market and tagged pending/won/lost. Unlike
+ * fetchClaimablePositions (winners still awaiting payout), this is the full set — including
+ * live and already-lost markets — so the signal chart can draw the user's calls with their
+ * outcome. Positions are always YES (agreeing with the market thesis, see depositMarkets.ts),
+ * so a resolved market's YES/NO outcome is directly the position's win/loss.
+ */
+export async function fetchActivePositions(connection: Connection, owner: PublicKey): Promise<ActivePosition[]> {
+  const program = getReadonlyProgram(connection)
+
+  const positions = await (program.account as any).position.all([
+    { memcmp: { offset: POSITION_OWNER_OFFSET, bytes: owner.toBase58() } },
+  ])
+  if (!positions.length) return []
+
+  const markets = await fetchRealMarkets(connection)
+  const byAddress = new Map<string, RealMarket>(markets.map((m) => [m.address.toBase58(), m]))
+
+  const out: ActivePosition[] = []
+  for (const { publicKey, account } of positions as { publicKey: PublicKey; account: any }[]) {
+    const market = byAddress.get(account.market.toBase58())
+    if (!market) continue
+    const status: ActivePosition['status'] =
+      market.status !== 'resolved' ? 'pending' : market.outcome === 'yes' ? 'won' : 'lost'
+    out.push({
+      market: market.address,
+      position: publicKey,
+      fixtureId: market.fixtureId,
+      oddKey: market.oddKey,
+      marketParams: market.marketParams,
+      side: market.side,
+      level: market.level,
+      stakeUsdc: Number(account.amount) / 1e6,
+      status,
+    })
+  }
+  return out
+}
+
 async function claimBatch(
   connection: Connection,
   wallet: ConnectedStandardSolanaWallet,

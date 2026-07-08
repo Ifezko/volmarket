@@ -18,7 +18,7 @@ import { SettleModal } from './SettleModal'
 import { initialGroups, type Group } from './groups'
 import { fetchRealMarkets } from '../lib/onchainMarkets'
 import { placeRealPredictions, type PendingPick } from '../lib/depositMarkets'
-import { fetchClaimablePositions, claimPositions, type ClaimablePosition } from '../lib/claimMarkets'
+import { fetchClaimablePositions, claimPositions, fetchActivePositions, type ClaimablePosition, type ActivePosition } from '../lib/claimMarkets'
 import { fundWallet, fetchUsdcBalance, withdrawUsdc, fetchTxHistory } from '../lib/funds'
 import { buildLiveFixtures, applyBoardView, type LiveFixture, type BoardFilter, type BoardSort } from './liveFixtures'
 import type { PredictionLine } from './SignalChart'
@@ -101,6 +101,9 @@ export function VolmarketApp() {
   const [surfaceFallback, setSurfaceFallback] = useState(false)
   const prevClaimKeys = useRef<Set<string>>(new Set())
   const [usdcBalance, setUsdcBalance] = useState<number | null>(null)
+  // Every position the wallet holds (pending/won/lost) — drawn onto the signal chart as the
+  // user's "calls", so placed predictions and their outcome show up alongside the live tape.
+  const [activePositions, setActivePositions] = useState<ActivePosition[]>([])
   const [boardFilter, setBoardFilter] = useState<BoardFilter>('all')
   const [boardSort, setBoardSort] = useState<BoardSort>('volume')
 
@@ -161,15 +164,30 @@ export function VolmarketApp() {
     }
   }, [authenticated, solanaWallet])
 
+  const refreshActivePositions = useCallback(async () => {
+    if (!authenticated || !solanaWallet) {
+      setActivePositions([])
+      return
+    }
+    try {
+      const connection = new Connection(RPC_URL, 'confirmed')
+      setActivePositions(await fetchActivePositions(connection, new PublicKey(solanaWallet.address)))
+    } catch (err) {
+      console.error('failed to fetch active positions', err)
+    }
+  }, [authenticated, solanaWallet])
+
   useEffect(() => {
     refreshClaimables()
     refreshUsdc()
+    refreshActivePositions()
     const id = setInterval(() => {
       refreshClaimables()
       refreshUsdc()
+      refreshActivePositions()
     }, 20_000)
     return () => clearInterval(id)
-  }, [refreshClaimables, refreshUsdc])
+  }, [refreshClaimables, refreshUsdc, refreshActivePositions])
 
   useEffect(() => {
     document.body.classList.toggle('lock', curMatch !== null || groupsViewOpen)
@@ -240,11 +258,17 @@ export function VolmarketApp() {
     return slip.some((s) => s.id === id)
   }
 
-  // "Your call" lines for the currently-viewed odd, drawn from pending slip picks.
+  // "Your call" lines for the currently-viewed odd: placed on-chain positions (tagged
+  // won/lost/pending) plus any not-yet-placed slip picks (no status).
   const predictionLines = useMemo<PredictionLine[]>(() => {
     if (!curMatch || !activeKey) return []
     const oddKey = Number(activeKey)
     const lines: PredictionLine[] = []
+    activePositions.forEach((p) => {
+      if (p.fixtureId === curMatch.fixtureId && p.oddKey === oddKey) {
+        lines.push({ level: p.level, side: p.side, status: p.status })
+      }
+    })
     slip.forEach((s) => {
       const m = predMeta[s.id]
       if (m && m.fixtureId === curMatch.fixtureId && m.oddKey === oddKey) {
@@ -252,7 +276,7 @@ export function VolmarketApp() {
       }
     })
     return lines
-  }, [slip, predMeta, curMatch, activeKey])
+  }, [slip, predMeta, curMatch, activeKey, activePositions])
 
   function removeFromSlip(id: string) {
     setSlip((prev) => prev.filter((s) => s.id !== id))
@@ -296,6 +320,7 @@ export function VolmarketApp() {
         await placeRealPredictions(connection, solanaWallet, signTransaction, picks)
         await refreshMarkets()
         await refreshUsdc()
+        await refreshActivePositions()
       } catch (err) {
         setPlaceError(err instanceof Error ? err.message : String(err))
         setPlacing(false)
