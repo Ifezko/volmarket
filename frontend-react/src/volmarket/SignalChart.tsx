@@ -50,6 +50,9 @@ export function SignalChart({
   const sigRef = useRef<Sig | null>(null)
   const timerRef = useRef<ReturnType<typeof setInterval> | null>(null)
   const [pills, setPills] = useState({ r: '—', l: '—', s: '—' })
+  // the current simulated line value, refreshed every sim tick — the WINNING/LOSING chips
+  // are evaluated against this so they update live as the tape moves toward/away from a call.
+  const [liveProb, setLiveProb] = useState<number | null>(null)
 
   const i2p = useCallback((sig: Sig, i: number) => sig.pmin + (i / (BUCKETS - 1)) * (sig.pmax - sig.pmin), [])
   const p2i = useCallback(
@@ -195,6 +198,7 @@ export function SignalChart({
       s: sup ? i2p(sig, sup.i).toFixed(0) + '%' : '—',
       r: res ? i2p(sig, res.i).toFixed(0) + '%' : '—',
     })
+    setLiveProb(sig.prob)
     onLiveProb?.(sig.prob)
 
     // x time axis — reads the market's real window duration
@@ -283,6 +287,33 @@ export function SignalChart({
     return () => removeEventListener('resize', drawSignal)
   }, [drawSignal])
 
+  // One status chip per distinct call on this odd. Placed-but-unresolved calls (and pending
+  // slip picks) are judged live against the current line: WINNING once it reaches/holds the
+  // level, LOSING otherwise. Already-settled positions show their final WON/LOST instead.
+  const seenChips = new Set<string>()
+  const chips = predictionLines
+    .filter((ln) => {
+      const tag = ln.side + ':' + ln.level + ':' + (ln.status ?? 'slip')
+      if (seenChips.has(tag)) return false
+      seenChips.add(tag)
+      return true
+    })
+    .map((ln) => {
+      const verb = ln.side === 'hold' ? 'Holds' : 'Breaks'
+      const desc = `${verb} ${ln.level}%`
+      if (ln.status === 'won') return { key: desc + 'w', desc, state: 'won' as const }
+      if (ln.status === 'lost') return { key: desc + 'l', desc, state: 'lost' as const }
+      const winning = liveProb != null && liveProb >= ln.level
+      return { key: desc + (ln.status ?? 's'), desc, state: winning ? ('winning' as const) : ('losing' as const) }
+    })
+
+  const chipText: Record<string, string> = {
+    winning: 'WINNING ▲',
+    losing: 'LOSING ▼',
+    won: 'WON ✓',
+    lost: 'LOST ✗',
+  }
+
   return (
     <div className="sig">
       <div className="sigh">
@@ -313,6 +344,16 @@ export function SignalChart({
           </div>
         </div>
       </div>
+      {chips.length > 0 && (
+        <div className="predstat">
+          {chips.map((c) => (
+            <span key={c.key} className={`pchip ${c.state}`}>
+              <span className="pd">◆ {c.desc}</span>
+              <span className="ps">{chipText[c.state]}</span>
+            </span>
+          ))}
+        </div>
+      )}
     </div>
   )
 }
