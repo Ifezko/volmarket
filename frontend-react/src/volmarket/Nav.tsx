@@ -13,6 +13,7 @@ export function Nav({
   onOpenSlip,
   onOpenGroupsView,
   onOpenDevnet,
+  onOpenProfile,
 }: {
   comboCount: number
   walletAddress: string | undefined
@@ -23,9 +24,8 @@ export function Nav({
   onOpenSlip: () => void
   onOpenGroupsView: () => void
   onOpenDevnet: () => void
+  onOpenProfile: () => void
 }) {
-  const shortWallet = walletAddress ? `${walletAddress.slice(0, 4)}…${walletAddress.slice(-4)}` : '—'
-
   return (
     <nav>
       <div className="wrap">
@@ -43,21 +43,22 @@ export function Nav({
               <div className="bal">
                 <div className="k">Balance</div>
                 <div className="v mono" style={{ color: 'var(--green)' }}>
-                  {usdcBalance == null ? '—' : `${usdcBalance.toFixed(2)} USDC`}
+                  {usdcBalance == null ? '—' : `$${usdcBalance.toFixed(2)}`}
                 </div>
               </div>
             )}
-            <div className="bal">
-              <div className="k">Wallet</div>
-              <div className="v mono">{shortWallet}</div>
-            </div>
             <button className="btn btn-blue" onClick={onOpenDeposit}>
               Deposit
             </button>
             <button className="iconbtn" title="Combo slip" onClick={onOpenSlip}>
               🎟️<span className={`badge${comboCount > 0 ? ' show' : ''}`}>{comboCount}</span>
             </button>
-            <div className="avatar"></div>
+            <button
+              className="avatar"
+              title="Profile"
+              onClick={onOpenProfile}
+              style={{ cursor: 'pointer', border: 'none', padding: 0 }}
+            ></button>
           </div>
         </div>
         <div className="nav2">

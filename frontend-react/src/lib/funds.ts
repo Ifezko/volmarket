@@ -1,5 +1,13 @@
-import { Connection, PublicKey } from '@solana/web3.js'
-import { getAssociatedTokenAddressSync } from '@solana/spl-token'
+import { Connection, PublicKey, Transaction } from '@solana/web3.js'
+import {
+  getAssociatedTokenAddressSync,
+  createAssociatedTokenAccountIdempotentInstruction,
+  createTransferCheckedInstruction,
+} from '@solana/spl-token'
+import type { ConnectedStandardSolanaWallet } from '@privy-io/react-auth/solana'
+import { PrivyAnchorWallet } from './privyAnchorWallet'
+
+type PrivySignTransaction = ConstructorParameters<typeof PrivyAnchorWallet>[1]
 
 // The app's canonical devnet USDC mint (treasury-controlled — see keeper/scripts/setup-treasury.ts).
 // Overridable per-env via VITE_USDC_MINT; the fallback is the mint created for this deployment.
@@ -37,4 +45,45 @@ export async function fetchUsdcBalance(connection: Connection, owner: PublicKey)
   } catch {
     return 0
   }
+}
+
+const USDC_DECIMALS = 6
+
+// Withdraws USDC from the embedded wallet to any Solana address (signed silently by Privy,
+// same as placing). Creates the destination's USDC token account if it doesn't exist yet, then
+// transfers — so the recipient doesn't have to have opened one first.
+export async function withdrawUsdc(
+  connection: Connection,
+  wallet: ConnectedStandardSolanaWallet,
+  privySignTransaction: PrivySignTransaction,
+  destination: string,
+  amount: number,
+): Promise<string> {
+  const owner = new PublicKey(wallet.address)
+  let dest: PublicKey
+  try {
+    dest = new PublicKey(destination.trim())
+  } catch {
+    throw new Error('Enter a valid Solana address to withdraw to.')
+  }
+  const raw = Math.round(amount * 10 ** USDC_DECIMALS)
+  if (!Number.isFinite(raw) || raw <= 0) throw new Error('Enter an amount greater than 0.')
+
+  const ownerAta = getAssociatedTokenAddressSync(USDC_MINT, owner)
+  const destAta = getAssociatedTokenAddressSync(USDC_MINT, dest)
+
+  const tx = new Transaction()
+  tx.add(
+    createAssociatedTokenAccountIdempotentInstruction(owner, destAta, dest, USDC_MINT),
+    createTransferCheckedInstruction(ownerAta, USDC_MINT, destAta, owner, raw, USDC_DECIMALS),
+  )
+  tx.feePayer = owner
+  const { blockhash, lastValidBlockHeight } = await connection.getLatestBlockhash()
+  tx.recentBlockhash = blockhash
+
+  const anchorWallet = new PrivyAnchorWallet(wallet, privySignTransaction)
+  const signed = await anchorWallet.signTransaction(tx)
+  const signature = await connection.sendRawTransaction(signed.serialize())
+  await connection.confirmTransaction({ signature, blockhash, lastValidBlockHeight }, 'confirmed')
+  return signature
 }

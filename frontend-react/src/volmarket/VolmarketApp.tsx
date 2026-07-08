@@ -13,12 +13,13 @@ import { HowModal } from './HowModal'
 import { GroupsView } from './GroupsView'
 import { GroupCreatePanel } from './GroupCreatePanel'
 import { DepositPanel } from './DepositPanel'
+import { ProfilePanel } from './ProfilePanel'
 import { SettleModal } from './SettleModal'
 import { initialGroups, type Group } from './groups'
 import { fetchRealMarkets } from '../lib/onchainMarkets'
 import { placeRealPredictions, type PendingPick } from '../lib/depositMarkets'
 import { fetchClaimablePositions, claimPositions, type ClaimablePosition } from '../lib/claimMarkets'
-import { fundWallet, fetchUsdcBalance } from '../lib/funds'
+import { fundWallet, fetchUsdcBalance, withdrawUsdc } from '../lib/funds'
 import { buildLiveFixtures, type LiveFixture } from './liveFixtures'
 import type { PredictionLine } from './SignalChart'
 import type { RealPredictMeta } from './PredictBuilder'
@@ -84,6 +85,7 @@ export function VolmarketApp({ onOpenDevnet }: { onOpenDevnet: () => void }) {
   const [groupsViewOpen, setGroupsViewOpen] = useState(false)
   const [creatingGroup, setCreatingGroup] = useState<{ seedCode?: string; stage: 'form' | 'created' } | null>(null)
   const [depositOpen, setDepositOpen] = useState(false)
+  const [profileOpen, setProfileOpen] = useState(false)
   const [claimables, setClaimables] = useState<ClaimablePosition[]>([])
   // snapshot of what was claimed, so the "Claimed" success view survives the poll that
   // (correctly) empties `claimables` once the positions are marked claimed on-chain.
@@ -350,11 +352,33 @@ export function VolmarketApp({ onOpenDevnet }: { onOpenDevnet: () => void }) {
     await refreshUsdc()
   }
 
+  // Withdraws USDC from the embedded wallet to an external address, then refreshes the balance.
+  async function withdraw(destination: string, amount: number) {
+    if (!solanaWallet) throw new Error('Wallet not ready yet — try again in a moment.')
+    const connection = new Connection(RPC_URL, 'confirmed')
+    await withdrawUsdc(connection, solanaWallet, signTransaction, destination, amount)
+    await refreshUsdc()
+  }
+
+  // Opens the profile (wallet address + withdraw) in the slip drawer's override slot. Login is
+  // prompted if needed — the profile is meaningless without a signed-in embedded wallet.
+  function openProfile() {
+    if (!authenticated) {
+      login()
+      return
+    }
+    setProfileOpen(true)
+    setDepositOpen(false)
+    setCreatingGroup(null)
+    setSlipOpen(true)
+  }
+
   // Ported from openGroups()/createGroup() — opens the group-creation form in the slip
   // drawer, pre-seeded with a ticket's share code when reached via "Make this a group".
   function openGroupCreate(seedCode?: string) {
     setCreatingGroup({ seedCode, stage: 'form' })
     setDepositOpen(false)
+    setProfileOpen(false)
     setSlipOpen(true)
   }
 
@@ -363,6 +387,7 @@ export function VolmarketApp({ onOpenDevnet }: { onOpenDevnet: () => void }) {
   function openDeposit() {
     setDepositOpen(true)
     setCreatingGroup(null)
+    setProfileOpen(false)
     setSlipOpen(true)
   }
 
@@ -389,10 +414,12 @@ export function VolmarketApp({ onOpenDevnet }: { onOpenDevnet: () => void }) {
         onOpenSlip={() => {
           setCreatingGroup(null)
           setDepositOpen(false)
+          setProfileOpen(false)
           setSlipOpen(true)
         }}
         onOpenGroupsView={() => setGroupsViewOpen(true)}
         onOpenDevnet={onOpenDevnet}
+        onOpenProfile={openProfile}
       />
       <Board fixtures={fixtures} onOpenMatch={openMatch} onOpenHow={() => setHowOpen(true)} />
       <Footer />
@@ -436,11 +463,24 @@ export function VolmarketApp({ onOpenDevnet }: { onOpenDevnet: () => void }) {
               }
             : depositOpen
               ? { title: 'Deposit', body: <DepositPanel balance={usdcBalance ?? 0} onDeposit={depositUsdc} /> }
-              : null
+              : profileOpen
+                ? {
+                    title: 'Profile',
+                    body: (
+                      <ProfilePanel
+                        walletAddress={solanaWallet?.address}
+                        balance={usdcBalance ?? 0}
+                        onCopyAddress={copyCode}
+                        onWithdraw={withdraw}
+                      />
+                    ),
+                  }
+                : null
         }
         onOpen={() => {
           setCreatingGroup(null)
           setDepositOpen(false)
+          setProfileOpen(false)
           setSlipOpen(true)
         }}
         onClose={() => setSlipOpen(false)}
