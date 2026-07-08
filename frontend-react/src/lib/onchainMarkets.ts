@@ -48,9 +48,27 @@ export function getReadonlyProgram(connection: Connection): Program {
   return new Program(idl as Idl, provider)
 }
 
+// getProgramAccounts (what account.all() uses) is heavy and the public devnet RPC frequently
+// rate-limits it (HTTP 429), which would otherwise blank the board on a transient failure.
+// Retry with exponential backoff so a throttled read recovers instead of showing "no markets".
+// (For production, point VITE_RPC_URL at a dedicated RPC — the public endpoint isn't reliable
+// for getProgramAccounts under a live app's polling.)
+export async function withRetry<T>(fn: () => Promise<T>, attempts = 4, baseMs = 600): Promise<T> {
+  let lastErr: unknown
+  for (let i = 0; i < attempts; i++) {
+    try {
+      return await fn()
+    } catch (err) {
+      lastErr = err
+      if (i < attempts - 1) await new Promise((r) => setTimeout(r, baseMs * 2 ** i))
+    }
+  }
+  throw lastErr
+}
+
 export async function fetchRealMarkets(connection: Connection): Promise<RealMarket[]> {
   const program = getReadonlyProgram(connection)
-  const accounts = await (program.account as any).market.all()
+  const accounts = await withRetry<any[]>(() => (program.account as any).market.all())
 
   return accounts.map(({ publicKey, account }: { publicKey: PublicKey; account: any }) => {
     const levelRaw = Number(account.level)

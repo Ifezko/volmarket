@@ -1,7 +1,7 @@
 import { Connection, PublicKey, Transaction } from '@solana/web3.js'
 import { TOKEN_PROGRAM_ID, getAssociatedTokenAddressSync } from '@solana/spl-token'
 import type { ConnectedStandardSolanaWallet } from '@privy-io/react-auth/solana'
-import { fetchRealMarkets, getReadonlyProgram, type RealMarket } from './onchainMarkets'
+import { fetchRealMarkets, getReadonlyProgram, withRetry, type RealMarket } from './onchainMarkets'
 import { PrivyAnchorWallet } from './privyAnchorWallet'
 
 // mirror the on-chain u8 constants (signal_markets/programs/signal_markets/src/lib.rs)
@@ -53,9 +53,9 @@ function computePayout(market: RealMarket, stakeUsdc: number): number {
 export async function fetchClaimablePositions(connection: Connection, owner: PublicKey): Promise<ClaimablePosition[]> {
   const program = getReadonlyProgram(connection)
 
-  const positions = await (program.account as any).position.all([
-    { memcmp: { offset: POSITION_OWNER_OFFSET, bytes: owner.toBase58() } },
-  ])
+  const positions = await withRetry<any[]>(() =>
+    (program.account as any).position.all([{ memcmp: { offset: POSITION_OWNER_OFFSET, bytes: owner.toBase58() } }]),
+  )
   if (!positions.length) return []
 
   const markets = await fetchRealMarkets(connection)
@@ -116,9 +116,9 @@ export interface ActivePosition {
 export async function fetchActivePositions(connection: Connection, owner: PublicKey): Promise<ActivePosition[]> {
   const program = getReadonlyProgram(connection)
 
-  const positions = await (program.account as any).position.all([
-    { memcmp: { offset: POSITION_OWNER_OFFSET, bytes: owner.toBase58() } },
-  ])
+  const positions = await withRetry<any[]>(() =>
+    (program.account as any).position.all([{ memcmp: { offset: POSITION_OWNER_OFFSET, bytes: owner.toBase58() } }]),
+  )
   if (!positions.length) return []
 
   const markets = await fetchRealMarkets(connection)
