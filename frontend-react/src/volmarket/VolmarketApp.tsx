@@ -62,7 +62,7 @@ function pasteCodePool(code: string): SlipItem[] {
 // slip, no wallet needed (see PredictBuilder.tsx) — Privy only asks you to log in when
 // you hit "Place prediction", which then creates whatever markets don't exist yet and
 // deposits real devnet USDC on all of them in one signed transaction.
-export function VolmarketApp({ onOpenDevnet }: { onOpenDevnet: () => void }) {
+export function VolmarketApp() {
   const { authenticated, login } = usePrivy()
   const { wallets } = useSolanaWallets()
   const { signTransaction } = useSignTransaction()
@@ -408,7 +408,6 @@ export function VolmarketApp({ onOpenDevnet }: { onOpenDevnet: () => void }) {
         comboCount={slip.length}
         walletAddress={solanaWallet?.address}
         usdcBalance={usdcBalance}
-        activeTab="product"
         onLogoClick={closeMatch}
         onOpenDeposit={openDeposit}
         onOpenSlip={() => {
@@ -418,7 +417,6 @@ export function VolmarketApp({ onOpenDevnet }: { onOpenDevnet: () => void }) {
           setSlipOpen(true)
         }}
         onOpenGroupsView={() => setGroupsViewOpen(true)}
-        onOpenDevnet={onOpenDevnet}
         onOpenProfile={openProfile}
       />
       <Board fixtures={fixtures} onOpenMatch={openMatch} onOpenHow={() => setHowOpen(true)} />

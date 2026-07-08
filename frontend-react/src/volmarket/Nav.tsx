@@ -7,23 +7,19 @@ export function Nav({
   comboCount,
   walletAddress,
   usdcBalance,
-  activeTab,
   onLogoClick,
   onOpenDeposit,
   onOpenSlip,
   onOpenGroupsView,
-  onOpenDevnet,
   onOpenProfile,
 }: {
   comboCount: number
   walletAddress: string | undefined
   usdcBalance: number | null
-  activeTab: 'devnet' | 'product'
   onLogoClick: () => void
   onOpenDeposit: () => void
   onOpenSlip: () => void
   onOpenGroupsView: () => void
-  onOpenDevnet: () => void
   onOpenProfile: () => void
 }) {
   return (
@@ -63,20 +59,13 @@ export function Nav({
         </div>
         <div className="nav2">
           <span className="tab on">Trending</span>
-          <span className="tab">Live</span>
-          <span className="tab">Today</span>
-          <span className="tab">Upcoming</span>
-          <span className="sep"></span>
           <span className="topic">
             <span className="pdot"></span>Live now
           </span>
-          <span className="topic">World Cup</span>
-          <span className="topic">Signals</span>
+          <span className="tab">Today</span>
+          <span className="tab">Upcoming</span>
           <span className="topic" onClick={onOpenGroupsView}>
             Groups
-          </span>
-          <span className={`topic${activeTab === 'devnet' ? ' on' : ''}`} onClick={onOpenDevnet}>
-            Devnet
           </span>
         </div>
       </div>
