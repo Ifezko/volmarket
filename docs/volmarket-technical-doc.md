@@ -28,7 +28,7 @@ signal_markets (Anchor program, devnet)  ── escrow vault PDA · HOLD|BREAK m
 keeper (off-chain service) ── watches TxLINE odds, matches open markets (SuperOddsType + MarketParameters),
       ▲                        reads the outcome's Pct[] (× 1000), fetches the Merkle proof, fires resolve_market
       │
-TxLINE oracle (oracle-dev.txodds.com) ── StablePrice odds, each update anchored on Solana
+TxLINE oracle (txline-dev.txodds.com) ── StablePrice odds, each update anchored on Solana
 ```
 
 Four components, all built:
@@ -81,13 +81,13 @@ Everything settles on the **anchored line**. There are no pure-volume markets �
 
 ## 6. TxLINE endpoints used
 
-**API host:** `oracle-dev.txodds.com` (devnet) / `oracle.txodds.com` (mainnet) — the real host per the tx-on-chain repo, **not** `txline.txodds.com` (docs site) or `txline-dev.txodds.com` (a separate Swagger UI).
+**API host:** `txline-dev.txodds.com` (devnet) / `txline.txodds.com` (mainnet) — per the live OpenAPI `servers:` block at https://txline-dev.txodds.com/docs. The old `github.com/txodds/tx-on-chain` repo was renamed to these hosts ~2 months ago; the earlier `oracle*.txodds.com` guess no longer resolves.
 
 | Purpose | Endpoint |
 |---|---|
 | Guest session JWT (30-day) | `POST /auth/guest/start` |
 | Activate API token | `POST /api/token/activate` |
-| Live odds — the signal line | `GET /api/guest/odds/stream` (SSE) |
+| Live odds — the signal line | `GET /api/odds/stream` (SSE) |
 | Latest odds per market line | snapshots-of-the-latest-odds-for-a-fixture |
 | **Odds Merkle proof — line settlement** | `GET /api/odds/validation?messageId&ts` → `OddsValidation { odds, summary, subTreeProof, mainTreeProof }`; the outcome's demargined probability is `odds.Pct[]` (settle on this, × 1000) — not `odds.Prices[]` |
 | Live scores | `GET /api/scores/stream` (SSE) |

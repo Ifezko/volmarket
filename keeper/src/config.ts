@@ -1,19 +1,21 @@
 import "dotenv/config";
 import { PublicKey } from "@solana/web3.js";
 
-// Real values confirmed from github.com/txodds/tx-on-chain (README, as of the repo's last update).
-// NOTE: that repo is dated ~Sept-Nov 2025 and may predate World Cup coverage — see
-// scripts/check-worldcup-coverage.ts, run it before trusting these for the hackathon build.
+// API hosts confirmed from the live TxLINE OpenAPI spec (docs.yaml v1.5.2) at
+// https://txline-dev.txodds.com/docs — the `servers:` block lists prod as txline.txodds.com
+// and DevNet as txline-dev.txodds.com. The old github.com/txodds/tx-on-chain repo (the source
+// of the earlier oracle*.txodds.com guess) was renamed to those two hosts ~2 months ago;
+// oracle-dev.txodds.com no longer resolves. See scripts/check-worldcup-coverage.ts for coverage.
 const NETWORK_DEFAULTS = {
   devnet: {
     rpcUrl: "https://api.devnet.solana.com",
-    txlineBaseUrl: "https://oracle-dev.txodds.com",
+    txlineBaseUrl: "https://txline-dev.txodds.com",
     txlineProgramId: "6pW64gN1s2uqjHkn1unFeEjAwJkPGHoppGvS715wyP2J",
     tokenMint: "4Zao8ocPhmMgq7PdsYWyxvqySMGx7xb9cMftPMkEokRG", // confirmed devnet settlement mint
   },
   mainnet: {
     rpcUrl: "https://api.mainnet-beta.solana.com",
-    txlineBaseUrl: "https://oracle.txodds.com",
+    txlineBaseUrl: "https://txline.txodds.com",
     txlineProgramId: "9ExbZjAapQww1vfcisDmrngPinHTEfpjYRWMunJgcKaA",
     tokenMint: "sLX1i9dfmsuyFBmJTWuGjjRmG4VPWYK6dRRKSM4BCSx",
   },
@@ -37,10 +39,12 @@ export const CONFIG = {
   // TxLINE's own on-chain "txoracle" program — validate + subscribe CPI target.
   txlineProgramId: new PublicKey(process.env.TXLINE_PROGRAM_ID ?? netDefaults.txlineProgramId),
   txlineTokenMint: new PublicKey(process.env.TXLINE_TOKEN_MINT ?? netDefaults.tokenMint),
-  // NOTE: oracle(.-dev).txodds.com is the real API host per the tx-on-chain repo —
-  // NOT txline.txodds.com (docs/marketing site) or txline-dev.txodds.com (separate Swagger UI).
+  // txline(-dev).txodds.com is the real API host (OpenAPI `servers:` block). The stream endpoint
+  // is /api/odds/stream — it requires BOTH Authorization: Bearer <JWT> AND X-Api-Token headers
+  // (security: httpAuth + apiKeyAuth). There is no guest-JWT-only data path; the only /api/guest/*
+  // route in the spec is the purchase quote.
   txlineBaseUrl: process.env.TXLINE_BASE_URL ?? netDefaults.txlineBaseUrl,
-  txlineStreamUrl: process.env.TXLINE_STREAM_URL ?? `${netDefaults.txlineBaseUrl}/api/guest/odds/stream`,
+  txlineStreamUrl: process.env.TXLINE_STREAM_URL ?? `${netDefaults.txlineBaseUrl}/api/odds/stream`,
   // Service level: 1 = World Cup free, 60s delay. 12 = World Cup + Int Friendlies, free, real-time.
   // (Per the older tx-on-chain README, the *no-subscription* guest free tier only lists 9 leagues
   //  — no World Cup by name. Run scripts/check-worldcup-coverage.ts to confirm before building on it.)

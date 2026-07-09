@@ -33,7 +33,7 @@ signal_markets (Anchor program, devnet) ── escrow vault PDA · HOLD|BREAK ma
 keeper (TS service) ── watch odds → match an open market by SuperOddsType + MarketParameters
      ▲                    → read the outcome's Pct[] (× 1000) → fetch Merkle proof → resolve_market
      │
-TxLINE oracle (oracle-dev.txodds.com) ── StablePrice odds, each update anchored on Solana
+TxLINE oracle (txline-dev.txodds.com) ── StablePrice odds, each update anchored on Solana
 ```
 
 One sentence: TxLINE StablePrice odds (anchored on Solana) → `keeper` matches an update to an open market by **SuperOddsType + MarketParameters** and reads the outcome's demargined probability from **`Pct[]`** → calls `resolve_market(value, proof)` on `signal_markets` → which CPIs the validator to verify the proof → winners `claim` pro-rata from a non-custodial escrow PDA.
@@ -81,7 +81,7 @@ The self-contained IDL lives at `keeper/signal_markets.idl.json` (copied from th
 | `signal_markets` program | `86hERt8cdRZUBpc1Ng8coX2jwLmWGUcyc9JNfspw39yr` |
 | `mock_validator` program (= `TXLINE_PROGRAM_ID`) | `FPnwSSp2DXcNvJnxXWc2JXvU4MLNfrWDT6wBcU5Eptse` |
 | Devnet settlement mint | `4Zao8ocPhmMgq7PdsYWyxvqySMGx7xb9cMftPMkEokRG` |
-| TxLINE API host (devnet) | `oracle-dev.txodds.com` |
+| TxLINE API host (devnet) | `txline-dev.txodds.com` |
 
 Real-time data on devnet: TxLINE confirmed **Level 1 is not downgraded on devnet during the hackathon** — it delivers real-time (equivalent to mainnet Level 12), so sub-minute windows work on devnet Level 1. This parity is a hackathon accommodation and likely won't persist afterward.
 
