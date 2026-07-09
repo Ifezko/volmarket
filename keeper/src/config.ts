@@ -53,6 +53,22 @@ export const CONFIG = {
   // devnet Level 1. This parity is a hackathon accommodation and likely won't persist afterward,
   // so don't rely on devnet Level 1 being real-time in production.
   serviceLevel: Number(process.env.TXLINE_SERVICE_LEVEL ?? 1),
+  // Subscription duration in weeks for the on-chain subscribe() ix — must be a positive multiple
+  // of 4 (the program rejects otherwise). 4 is the minimum; free tiers still cost 0 TxLINE.
+  subscriptionWeeks: Number(process.env.TXLINE_WEEKS ?? 4),
+  // TxLINE's own on-chain program IDL (examples/devnet/idl/txoracle.json from tx-on-chain),
+  // copied into keeper/ so subscribe() can be Anchor-encoded without the examples workspace.
+  txlineIdlPath: process.env.TXLINE_IDL_PATH ?? "./txoracle.idl.json",
+  // Selected league IDs for /api/token/activate. Empty [] = legacy/standard-matrix subscription,
+  // which is what the free World Cup tier uses (see the repo's subscription_free_tier.ts, which
+  // passes []). Only a *custom* matrix subscription passes explicit league IDs (up to the purchased
+  // limit). This array is signed into the activation binding AND sent as the `leagues` field — the
+  // two MUST match. Override via TXLINE_LEAGUES="501,804,202".
+  leagues: (process.env.TXLINE_LEAGUES ?? "")
+    .split(",")
+    .map((s) => s.trim())
+    .filter((s) => s.length > 0)
+    .map(Number),
   txlineApiKey: process.env.TXLINE_API_KEY ?? "", // populated at runtime by activate() if left blank
   pollIntervalMs: Number(process.env.POLL_INTERVAL_MS ?? 15000),
   deadlineSweepMs: Number(process.env.DEADLINE_SWEEP_MS ?? 10000),
