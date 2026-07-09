@@ -78,6 +78,7 @@ export async function ensureActivated(keeperKeypair: Keypair): Promise<TxLineSes
 
   log.info("TxLINE: submitting on-chain subscribe()");
   const txSig = await subscribeOnChain(keeperKeypair, CONFIG.serviceLevel);
+  log.info("TxLINE: subscribe tx", txSig);
 
   log.info("TxLINE: signing activation message");
   const signature = signActivation(keeperKeypair, txSig, CONFIG.leagues, jwt);
