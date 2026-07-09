@@ -198,11 +198,18 @@ function normaliseStreamEvent(raw: any): TxEvent | null {
   return null;
 }
 
-/** Three-stage score Merkle proof for a single stat. */
-export async function getScoreProof(fixtureId: number, statKey: number): Promise<ProofResult> {
-  const url = `${CONFIG.txlineBaseUrl}/api/worldcup/scores/proof?fixtureId=${fixtureId}&statKey=${statKey}`;
+/**
+ * Score Merkle proof for a single stat. Endpoint is `GET /api/scores/stat-validation` (spec v1.5.2)
+ * — NOT the old `/api/worldcup/scores/proof`, which does not exist. `seq` (the sequence number of
+ * the scores event within the fixture) is REQUIRED alongside `fixtureId`; `statKey` selects the
+ * stat (legacy mode). Response is `ScoresStatValidationV2`.
+ * NOTE: currently uncalled — when score-based settlement is wired into the resolver, confirm
+ * parseProof() maps the ScoresStatValidationV2 shape correctly before relying on it.
+ */
+export async function getScoreProof(fixtureId: number, seq: number, statKey: number): Promise<ProofResult> {
+  const url = `${CONFIG.txlineBaseUrl}/api/scores/stat-validation?fixtureId=${fixtureId}&seq=${seq}&statKey=${statKey}`;
   const res = await fetch(url, { headers: authHeaders() });
-  if (!res.ok) throw new Error(`score proof ${res.status} for fixture ${fixtureId}/${statKey}`);
+  if (!res.ok) throw new Error(`score proof ${res.status} for fixture ${fixtureId} seq ${seq}/${statKey}`);
   return parseProof(await res.json());
 }
 
