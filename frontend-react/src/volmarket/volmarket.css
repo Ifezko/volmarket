@@ -248,6 +248,33 @@
   .pmsub{font-size:13px;color:var(--dim);line-height:1.55;margin:0 0 16px}
   .sgsoon{font-family:var(--mono);font-size:11px;color:var(--faint);border:1px solid var(--border);border-radius:7px;padding:7px 11px;white-space:nowrap}
 
+  /* ---- match detail: chart | predict two-column (desktop), stacked (mobile) ---- */
+  /* Chart left (narrower), the build+place panel right (wider) so the signal is read on one
+     side and predictions are stacked/placed on the other — no drawer round-trip. */
+  .detailgrid{display:grid;grid-template-columns:minmax(280px,2fr) minmax(320px,3fr);gap:16px;align-items:start;margin:16px 0 22px}
+  .dg-chart .sig{margin:0}
+  @media(min-width:981px){.dg-chart{position:sticky;top:72px}}
+  @media(max-width:980px){.detailgrid{grid-template-columns:1fr;gap:14px}}
+
+  /* fullscreen chart toggle (in the .sigh header) + the fullscreen state */
+  .fsbtn{margin-left:8px;background:var(--surface2);border:1px solid var(--border);color:var(--dim);border-radius:7px;padding:4px 9px;font-size:12px;line-height:1;cursor:pointer}
+  .fsbtn:hover{color:var(--text);border-color:var(--border2)}
+  .sig.fs{position:fixed;inset:0;z-index:56;margin:0;border-radius:0;overflow-y:auto;padding:20px}
+  .sig.fs canvas{height:64vh}
+  .sig.fs .fsbtn{background:var(--red);border-color:var(--red);color:#fff}
+
+  /* inline predict panel (right column) */
+  .predpanel{background:var(--surface);border:1px solid var(--border);border-radius:16px;padding:16px}
+  .pp-head{display:flex;align-items:center;justify-content:space-between;gap:10px;margin-bottom:14px}
+  .pp-head h3{margin:0;font-size:16px;font-weight:600}
+  .pp-count{font-family:var(--mono);font-size:11px;color:var(--amber);border:1px solid var(--amber);border-radius:20px;padding:2px 10px;white-space:nowrap}
+  .pp-slip{margin-top:14px;border-top:1px solid var(--border);padding-top:14px}
+  .pp-empty{color:var(--faint);font-size:13px;line-height:1.6;text-align:center;padding:18px 8px}
+  .pp-empty b{color:var(--text)}
+  .pp-sliplbl,.pp-stakelbl{font-size:11px;color:var(--faint);text-transform:uppercase;letter-spacing:.5px;margin:0 0 9px}
+  .pp-stakelbl{margin-top:14px}
+  .pp-actions{display:flex;gap:8px}.pp-actions .btn{flex:1}
+
   /* Hidden manual-claim fallback — a small unobtrusive pill, only rendered when the keeper
      has left a winning position unpaid (see VolmarketApp surfaceFallback). */
   .claim-fallback{position:fixed;left:18px;bottom:18px;z-index:65;font-family:var(--mono);font-size:12px;font-weight:700;

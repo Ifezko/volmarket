@@ -565,6 +565,20 @@ export function VolmarketApp() {
           isSelected={isSelected}
           onAdd={addPrediction}
           onLiveProb={() => {}}
+          slip={slip}
+          stake={stake}
+          ticket={ticket}
+          placing={placing}
+          placeError={placeError}
+          insufficientFunds={authenticated && usdcBalance != null && usdcBalance < stake}
+          balance={usdcBalance}
+          onRemoveFromSlip={removeFromSlip}
+          onSetStake={setStake}
+          onPlace={place}
+          onOpenDeposit={openDeposit}
+          onCopyCode={copyCode}
+          onMakeGroup={(code) => openGroupCreate(code)}
+          onNewSlip={() => setTicket(null)}
         />
       )}
 

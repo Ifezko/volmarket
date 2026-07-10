@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
+import { createPortal } from 'react-dom'
 
 // Ported verbatim (same math, same canvas calls) from the signal-sim section of
 // frontend/index.html: startSim/stepSig/drawSignal. Re-expressed with useRef/useEffect
@@ -49,6 +50,7 @@ export function SignalChart({
   const canvasRef = useRef<HTMLCanvasElement>(null)
   const sigRef = useRef<Sig | null>(null)
   const timerRef = useRef<ReturnType<typeof setInterval> | null>(null)
+  const [fs, setFs] = useState(false)
   const [pills, setPills] = useState({ r: '—', l: '—', s: '—' })
   // the current simulated line value, refreshed every sim tick — the WINNING/LOSING chips
   // are evaluated against this so they update live as the tape moves toward/away from a call.
@@ -315,6 +317,25 @@ export function SignalChart({
     return () => removeEventListener('resize', drawSignal)
   }, [drawSignal])
 
+  // Toggling fullscreen changes the canvas box; redraw on the next frame so it picks up the
+  // new client width/height. Escape exits fullscreen (and, while fullscreen, is swallowed so
+  // it doesn't also close the whole match — see VolmarketApp's global Escape handler).
+  useEffect(() => {
+    const r = requestAnimationFrame(() => drawSignal())
+    return () => cancelAnimationFrame(r)
+  }, [fs, drawSignal])
+  useEffect(() => {
+    if (!fs) return
+    function onKey(e: KeyboardEvent) {
+      if (e.key === 'Escape') {
+        e.stopImmediatePropagation()
+        setFs(false)
+      }
+    }
+    addEventListener('keydown', onKey)
+    return () => removeEventListener('keydown', onKey)
+  }, [fs])
+
   // One status chip per distinct call on this odd. Placed-but-unresolved calls (and pending
   // slip picks) are judged live against the current line: WINNING once it reaches/holds the
   // level, LOSING otherwise. Already-settled positions show their final WON/LOST instead.
@@ -342,13 +363,16 @@ export function SignalChart({
     lost: 'LOST ✗',
   }
 
-  return (
-    <div className="sig">
+  const panel = (
+    <div className={`sig${fs ? ' fs' : ''}`}>
       <div className="sigh">
         <span className="ttl">{title}</span>
         <span className="sigbadge">VOLUME SIGNAL</span>
         <button className="howbtn" onClick={onOpenHow} style={{ marginLeft: 'auto' }}>
           How it works
+        </button>
+        <button className="fsbtn" onClick={() => setFs((f) => !f)} title={fs ? 'Exit fullscreen' : 'Fullscreen chart'} aria-label={fs ? 'Exit fullscreen' : 'Fullscreen chart'}>
+          {fs ? '✕ Exit' : '⛶'}
         </button>
       </div>
       <canvas ref={canvasRef} height={200}></canvas>
@@ -384,4 +408,9 @@ export function SignalChart({
       )}
     </div>
   )
+
+  // Fullscreen renders through a portal to <body> so no ancestor (a transform/backdrop-filter/
+  // sticky column, etc.) can turn the fixed overlay into a contained box that leaves the nav
+  // showing. Inline otherwise. The fs-change effect above repaints after the re-parent.
+  return fs ? createPortal(panel, document.body) : panel
 }

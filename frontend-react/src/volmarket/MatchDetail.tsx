@@ -2,8 +2,10 @@ import { Sparkline } from './Sparkline'
 import { Flag } from './Flag'
 import { useNow } from './useNow'
 import { SignalChart, type PredictionLine } from './SignalChart'
-import { PredictBuilder, type RealPredictMeta } from './PredictBuilder'
+import { PredictPanel } from './PredictPanel'
+import { type RealPredictMeta } from './PredictBuilder'
 import { matchState, type LiveFixture } from './liveFixtures'
+import type { SlipItem, Ticket } from './Slip'
 
 // Ported from openMatch() in frontend/index.html: the .detail overlay — score header,
 // grouped odds selector (live only), the .sig volume-signal panel, the all-odds list,
@@ -21,6 +23,20 @@ export function MatchDetail({
   isSelected,
   onAdd,
   onLiveProb,
+  slip,
+  stake,
+  ticket,
+  placing,
+  placeError,
+  insufficientFunds,
+  balance,
+  onRemoveFromSlip,
+  onSetStake,
+  onPlace,
+  onOpenDeposit,
+  onCopyCode,
+  onMakeGroup,
+  onNewSlip,
 }: {
   match: LiveFixture
   activeKey: string | null
@@ -33,6 +49,20 @@ export function MatchDetail({
   isSelected: (id: string) => boolean
   onAdd: (id: string, label: string, prob: number, meta: RealPredictMeta) => void
   onLiveProb: (prob: number) => void
+  slip: SlipItem[]
+  stake: number
+  ticket: Ticket | null
+  placing: boolean
+  placeError: string | null
+  insufficientFunds: boolean
+  balance: number | null
+  onRemoveFromSlip: (id: string) => void
+  onSetStake: (amount: number) => void
+  onPlace: () => void
+  onOpenDeposit: () => void
+  onCopyCode: (code: string) => void
+  onMakeGroup: (code: string) => void
+  onNewSlip: () => void
 }) {
   const live = match.status === 'live'
   const curOdds = match.odds
@@ -112,19 +142,43 @@ export function MatchDetail({
               </div>
             ))}
             {activeOdd && (
-              <>
-                <SignalChart
-                  title={`${activeOdd.label} — ${activeOdd.prob.toFixed(1)}%`}
-                  onOpenHow={onOpenHow}
-                  matchId={match.id}
-                  oddKey={activeOdd.key}
-                  prob={activeOdd.prob}
-                  windowSecs={300}
-                  predictionLines={predictionLines}
-                  onLiveProb={onLiveProb}
-                />
-                <PredictBuilder key={activeOdd.key} odd={activeOdd} fixtureId={match.fixtureId} isSelected={isSelected} onAdd={onAdd} />
-              </>
+              <div className="detailgrid">
+                <div className="dg-chart">
+                  <SignalChart
+                    title={`${activeOdd.label} — ${activeOdd.prob.toFixed(1)}%`}
+                    onOpenHow={onOpenHow}
+                    matchId={match.id}
+                    oddKey={activeOdd.key}
+                    prob={activeOdd.prob}
+                    windowSecs={300}
+                    predictionLines={predictionLines}
+                    onLiveProb={onLiveProb}
+                  />
+                </div>
+                <div className="dg-predict">
+                  <PredictPanel
+                    key={activeOdd.key}
+                    odd={activeOdd}
+                    fixtureId={match.fixtureId}
+                    isSelected={isSelected}
+                    onAdd={onAdd}
+                    slip={slip}
+                    stake={stake}
+                    ticket={ticket}
+                    placing={placing}
+                    placeError={placeError}
+                    insufficientFunds={insufficientFunds}
+                    balance={balance}
+                    onRemove={onRemoveFromSlip}
+                    onSetStake={onSetStake}
+                    onPlace={onPlace}
+                    onOpenDeposit={onOpenDeposit}
+                    onCopyCode={onCopyCode}
+                    onMakeGroup={onMakeGroup}
+                    onNewSlip={onNewSlip}
+                  />
+                </div>
+              </div>
             )}
           </>
         ) : match.status === 'soon' ? (
