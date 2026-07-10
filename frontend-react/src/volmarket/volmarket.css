@@ -68,6 +68,11 @@
   .sigline .lab{color:var(--cyan)}
   .mfoot{display:flex;justify-content:space-between;margin-top:10px;color:var(--faint);font-size:12px}.mfoot .vol{font-family:var(--mono)}
 
+  /* The secondary nav (board filters + sort) belongs to the landing/board page only — hide it
+     while a match-detail or groups overlay is open (body.lock). The nav's ResizeObserver then
+     shrinks --nav-h to just the primary row, so the overlay sits flush under it. */
+  body.lock .nav2{display:none}
+
   /* detail */
   .detail{position:fixed;top:var(--nav-h,105px);left:0;right:0;bottom:0;background:var(--bg);z-index:40;overflow-y:auto;display:none}.detail.show{display:block}
   .dhead{position:sticky;top:0;background:rgba(15,19,24,.95);backdrop-filter:blur(10px);border-bottom:1px solid var(--border);z-index:2}
