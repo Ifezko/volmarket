@@ -88,6 +88,25 @@ refresh). So the keeper must be:
   authority in `.treasury.json`). One-shot seed of existing markets: `npx tsx scripts/bootstrap-all.ts`.
   It also needs SOL for tx fees. Monitor the balance; low USDC just makes bootstrap a no-op (logged).
 
+### Container deploy (Docker / Fly.io / Railway)
+
+Ready-made artifacts live in `keeper/`: **`Dockerfile`** (`node:20-slim`, `npm ci` → `npm run build`
+→ `node dist/index.js`), **`.dockerignore`** (keeps `.env`/keypairs/`.treasury.json` out of the
+image), and **`fly.toml`** (single always-on worker, no HTTP port). Both IDLs
+(`signal_markets.idl.json`, `txoracle.idl.json`) are committed, so a git-based build needs no anchor
+workspace.
+
+- **Fly.io:** `cd keeper && fly launch --no-deploy --copy-config` → `fly secrets set …` (see the
+  header of `fly.toml`) → `fly deploy`.
+- **Railway:** new service → set **Root Directory** to `keeper/` (it auto-detects the Dockerfile) →
+  add the env vars in the service settings → deploy.
+- **Bare Docker / VPS:** `docker build -t volmarket-keeper keeper/ && docker run -d --restart=always
+  --env-file keeper/.env volmarket-keeper` (or pass env individually).
+
+`KEEPER_SECRET_KEY` (the keeper keypair as a JSON byte array — the contents of an `id.json`) must be
+set as a **host secret / env var only**, never committed and never baked into the image. Get the
+value with `cat ~/.config/solana/id.json`. The image and repo carry no key material.
+
 ## Keeper key: two load modes
 
 `resolver.ts` loads the signing key in priority order:

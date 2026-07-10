@@ -1,0 +1,10 @@
+# Never ship secrets or local build junk into the image.
+node_modules
+dist
+.env
+.env.*
+!.env.example
+.treasury.json
+*id.json
+*.log
+.demo-state.json

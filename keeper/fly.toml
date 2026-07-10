@@ -1,0 +1,26 @@
+# Fly.io config for the Volmarket keeper — a single always-on WORKER (no HTTP service, so no
+# public port and no health checks; the machine simply runs the process forever and Fly restarts
+# it if it exits).
+#
+# One-time deploy (from this keeper/ directory):
+#   fly launch --no-deploy --copy-config --name volmarket-keeper   # or: fly apps create volmarket-keeper
+#   # non-secret config:
+#   fly secrets set PROGRAM_ID=86hERt8cdRZUBpc1Ng8coX2jwLmWGUcyc9JNfspw39yr \
+#                   SOLANA_RPC_URL=https://api.devnet.solana.com \
+#                   BOOTSTRAP_LIQUIDITY_USDC=10 \
+#                   APP_USDC_MINT=3aakQUJ6vvWphAr18ZoAJfoHs3w148tWJmKsgsnUj12q
+#   # the SECRET — paste the byte array from `cat ~/.config/solana/id.json`:
+#   fly secrets set KEEPER_SECRET_KEY='[12,34,...]'
+#   fly deploy
+#
+# Then fund the keeper wallet with canonical USDC so bootstrap works: npx tsx scripts/fund-keeper.ts
+app = "volmarket-keeper"
+primary_region = "iad"
+
+[build]
+  dockerfile = "Dockerfile"
+
+# Keep exactly one always-on machine; the Dockerfile CMD (node dist/index.js) is the process.
+[[vm]]
+  size = "shared-cpu-1x"
+  memory = "512mb"
