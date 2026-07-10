@@ -95,7 +95,7 @@ const GAS_MIN_LAMPORTS = 50_000_000 // 0.05 SOL
  * RPC (Alchemy / public devnet) can lag, and sending before it sees the balance is exactly what
  * produces that error. If it truly can't be funded, throw a clear, actionable message.
  */
-async function ensureGasReady(connection: Connection, address: string): Promise<void> {
+export async function ensureGasReady(connection: Connection, address: string): Promise<void> {
   const owner = new PublicKey(address)
   const hasGas = async () => {
     try {

@@ -3,6 +3,7 @@ import { TOKEN_PROGRAM_ID, getAssociatedTokenAddressSync } from '@solana/spl-tok
 import type { ConnectedStandardSolanaWallet } from '@privy-io/react-auth/solana'
 import { fetchRealMarkets, getReadonlyProgram, withFailover, type RealMarket } from './onchainMarkets'
 import { PrivyAnchorWallet } from './privyAnchorWallet'
+import { ensureGasReady } from './depositMarkets'
 
 // mirror the on-chain u8 constants (signal_markets/programs/signal_markets/src/lib.rs)
 const SIDE_YES = 1
@@ -53,6 +54,8 @@ export interface ActivePosition {
   marketParams: number
   side: 'hold' | 'break'
   level: number
+  /** unix seconds the trading window opened (prediction placed) */
+  windowStart: number
   /** unix seconds the trading window closes — when the prediction is due to resolve */
   windowEnd: number
   /** the staked amount, in whole USDC */
@@ -103,6 +106,7 @@ export async function fetchWalletState(connection: Connection, owner: PublicKey)
       marketParams: market.marketParams,
       side: market.side,
       level: market.level,
+      windowStart: market.windowStart,
       windowEnd: market.windowEnd,
       stakeUsdc,
       payoutUsdc: status === 'won' ? computePayout(market, stakeUsdc) : 0,
@@ -186,6 +190,11 @@ export async function claimPositions(
   positions: ClaimablePosition[],
 ): Promise<{ signatures: string[] }> {
   if (!positions.length) throw new Error('no positions to claim')
+
+  // Claiming a payout is a signed tx the wallet pays fees for — a gasless external wallet (USDC
+  // but no SOL) would fail the same way placing did, leaving the winnings stuck in the vault and
+  // never credited. Ensure gas (and that this RPC sees it) before claiming.
+  await ensureGasReady(connection, wallet.address)
 
   const signatures: string[] = []
   for (let i = 0; i < positions.length; i += MAX_CLAIMS_PER_TX) {
