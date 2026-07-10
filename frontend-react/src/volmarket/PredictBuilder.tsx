@@ -32,9 +32,9 @@ export function PredictBuilder({
   const [activeWin, setActiveWin] = useState(7) // default 5m
 
   const wl = WINDOWS[activeWin]
-  const pb = Math.max(8, Math.min(92, odd.prob))
-  const sup = Math.round(pb - 6)
-  const res = Math.round(pb + 7)
+  // One level per odd — the two-sided market's threshold. "Holds L%+" bets the signal stays at/above
+  // L (Holds pool); "Breaks L%+" bets it falls below L (Breaks pool). Both are the SAME market.
+  const level = Math.round(Math.max(8, Math.min(92, odd.prob)) - 6)
   const hp = holdProb(activeWin)
   const bp = breakProb(activeWin)
   const b = `${fixtureId}-${odd.oddKey}`
@@ -68,33 +68,33 @@ export function PredictBuilder({
         <button
           className={`sigbtn sup${isSelected(holdId) ? ' sel' : ''}`}
           onClick={() =>
-            onAdd(holdId, `${odd.label}: holds ${sup}%+ within ${wl}`, hp, {
+            onAdd(holdId, `${odd.label}: holds ${level}%+ within ${wl}`, hp, {
               fixtureId,
               oddKey: odd.oddKey,
               marketParams: odd.marketParams,
               side: 'hold',
-              levelRaw: sup * 1000,
+              levelRaw: level * 1000,
               windowSecs: WSECS[activeWin],
             })
           }
         >
-          Holds {sup}%+
+          Holds {level}%+
           <small>within {wl}</small>
         </button>
         <button
           className={`sigbtn res${isSelected(breakId) ? ' sel' : ''}`}
           onClick={() =>
-            onAdd(breakId, `${odd.label}: breaks ${res}% within ${wl}`, bp, {
+            onAdd(breakId, `${odd.label}: breaks ${level}%+ within ${wl}`, bp, {
               fixtureId,
               oddKey: odd.oddKey,
               marketParams: odd.marketParams,
               side: 'break',
-              levelRaw: res * 1000,
+              levelRaw: level * 1000,
               windowSecs: WSECS[activeWin],
             })
           }
         >
-          Breaks {res}%
+          Breaks {level}%+
           <small>within {wl}</small>
         </button>
       </div>

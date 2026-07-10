@@ -17,9 +17,13 @@ import { getReadonlyProgram } from './onchainMarkets'
 import { PrivyAnchorWallet } from './privyAnchorWallet'
 import { USDC_MINT, topUpGas } from './funds'
 
+// Markets are now single two-sided markets: the on-chain `side` is always HOLD, and its two pools
+// are the Holds side (SIDE_YES / total_yes, signal stays >= level) and the Breaks side (SIDE_NO /
+// total_no, signal falls below level). A pick's hold/break selects which POOL to deposit into — NOT
+// a separate market — so Holds and Breaks on the same (odd, level, window) are one market. (lib.rs)
 const SIDE_HOLD = 0
-const SIDE_BREAK = 1
 const SIDE_YES = 1
+const SIDE_NO = 2
 const FEE_BPS = 500
 // Each pick costs 2 instructions (create_market + deposit) plus ~13 account metas. Now that the
 // stake is the user's already-deposited USDC (no per-tx mint setup), a single idempotent ATA
@@ -159,7 +163,10 @@ async function placeBatch(
   // init_if_needed position + additive stake makes topping up an existing market safe (this is
   // the "create whatever markets don't exist yet and deposit on all of them" behavior).
   const derived = picks.map((pick) => {
-    const sideVal = pick.side === 'hold' ? SIDE_HOLD : SIDE_BREAK
+    // The market is always a HOLD market (one two-sided market per odd/level/window); the pick's
+    // hold/break chooses the pool it deposits into.
+    const marketSide = SIDE_HOLD
+    const depositSide = pick.side === 'hold' ? SIDE_YES : SIDE_NO
     const windowStart = new BN(now)
     const windowEnd = new BN(now + pick.windowSecs)
     const fixtureId = new BN(pick.fixtureId)
@@ -173,7 +180,7 @@ async function placeBatch(
         fixtureId.toArrayLike(Buffer, 'le', 8),
         oddKey.toArrayLike(Buffer, 'le', 8),
         marketParams.toArrayLike(Buffer, 'le', 8),
-        Buffer.from([sideVal]),
+        Buffer.from([marketSide]),
         level.toArrayLike(Buffer, 'le', 8),
         windowStart.toArrayLike(Buffer, 'le', 8),
       ],
@@ -181,10 +188,10 @@ async function placeBatch(
     )
     const [vault] = PublicKey.findProgramAddressSync([Buffer.from('vault'), market.toBuffer()], program.programId)
     const [position] = PublicKey.findProgramAddressSync(
-      [Buffer.from('position'), market.toBuffer(), userPublicKey.toBuffer(), Buffer.from([SIDE_YES])],
+      [Buffer.from('position'), market.toBuffer(), userPublicKey.toBuffer(), Buffer.from([depositSide])],
       program.programId,
     )
-    return { pick, sideVal, windowStart, windowEnd, fixtureId, oddKey, marketParams, level, market, vault, position }
+    return { pick, marketSide, depositSide, windowStart, windowEnd, fixtureId, oddKey, marketParams, level, market, vault, position }
   })
 
   const marketInfos = await connection.getMultipleAccountsInfo(derived.map((d) => d.market))
@@ -198,7 +205,7 @@ async function placeBatch(
     if (!exists) {
       willCreate.add(key)
       const createMarketIx = await program.methods
-        .createMarket(d.fixtureId, d.oddKey, d.marketParams, d.sideVal, d.level, d.windowStart, d.windowEnd, FEE_BPS)
+        .createMarket(d.fixtureId, d.oddKey, d.marketParams, d.marketSide, d.level, d.windowStart, d.windowEnd, FEE_BPS)
         .accounts({
           authority: userPublicKey,
           market: d.market,
@@ -213,7 +220,7 @@ async function placeBatch(
     }
 
     const depositIx = await program.methods
-      .deposit(SIDE_YES, new BN(Math.round(d.pick.amountUsdc * 1e6)))
+      .deposit(d.depositSide, new BN(Math.round(d.pick.amountUsdc * 1e6)))
       .accounts({
         user: userPublicKey,
         market: d.market,

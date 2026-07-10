@@ -96,15 +96,21 @@ export async function fetchWalletState(connection: Connection, owner: PublicKey)
     const market = byAddress.get(account.market.toBase58())
     if (!market) continue
     const stakeUsdc = Number(account.amount) / 1e6
+    // A position wins when the market's outcome matches the side it backs: SIDE_YES <-> 'yes',
+    // SIDE_NO <-> 'no'. (Two-sided: a Breaks/SIDE_NO position wins when the market resolves 'no'.)
+    const positionOutcome = account.side === SIDE_YES ? 'yes' : 'no'
     const status: ActivePosition['status'] =
-      market.status !== 'resolved' ? 'pending' : market.outcome === 'yes' ? 'won' : 'lost'
+      market.status !== 'resolved' ? 'pending' : market.outcome === positionOutcome ? 'won' : 'lost'
+    // Display direction in Holds/Breaks terms: SIDE_YES backs the market's predicate. On a HOLD
+    // market that predicate is "holds" (YES=holds, NO=breaks); on a legacy BREAK market it's "breaks".
+    const direction: 'hold' | 'break' = (market.side === 'hold') === (account.side === SIDE_YES) ? 'hold' : 'break'
     active.push({
       market: market.address,
       position: publicKey,
       fixtureId: market.fixtureId,
       oddKey: market.oddKey,
       marketParams: market.marketParams,
-      side: market.side,
+      side: direction,
       level: market.level,
       windowStart: market.windowStart,
       windowEnd: market.windowEnd,
@@ -113,14 +119,14 @@ export async function fetchWalletState(connection: Connection, owner: PublicKey)
       status,
     })
 
-    if (!account.claimed && market.status === 'resolved' && market.outcome === (account.side === SIDE_YES ? 'yes' : 'no')) {
+    if (!account.claimed && market.status === 'resolved' && market.outcome === positionOutcome) {
       claimable.push({
         market: market.address,
         position: publicKey,
         fixtureId: market.fixtureId,
         oddKey: market.oddKey,
         marketParams: market.marketParams,
-        side: market.side,
+        side: direction,
         level: market.level,
         stakeUsdc,
         payoutUsdc: computePayout(market, stakeUsdc),
