@@ -5,7 +5,7 @@
   "type": "module",
   "scripts": {
     "build": "tsc",
-    "start": "node dist/index.js",
+    "start": "tsx src/index.ts",
     "dev": "tsx watch src/index.ts",
     "mock": "tsx src/index.ts --mock",
     "check:worldcup": "tsx scripts/check-worldcup-coverage.ts"

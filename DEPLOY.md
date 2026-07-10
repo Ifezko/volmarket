@@ -90,9 +90,12 @@ refresh). So the keeper must be:
 
 ### Container deploy (Docker / Fly.io / Railway)
 
-Ready-made artifacts live in `keeper/`: **`Dockerfile`** (`node:20-slim`, `npm ci` → `npm run build`
-→ `node dist/index.js`), **`.dockerignore`** (keeps `.env`/keypairs/`.treasury.json` out of the
-image), and **`fly.toml`** (single always-on worker, no HTTP port). Both IDLs
+Ready-made artifacts live in `keeper/`: **`Dockerfile`** (`node:24-slim`, `npm ci --include=dev` →
+run via **`tsx src/index.ts`**), **`.dockerignore`** + **`.railwayignore`** (keep
+`.env`/keypairs/`.treasury.json` out of the image and the upload), and **`fly.toml`** (single
+always-on worker, no HTTP port). The keeper runs via `tsx`, NOT `tsc → node dist/`: native ESM on
+Node can't destructure Anchor's CommonJS named exports (`BN`, …) — it crashes with "Named export
+'BN' not found" — and Node 20's module lexer trips on it even under tsx, so the image pins Node 24. Both IDLs
 (`signal_markets.idl.json`, `txoracle.idl.json`) are committed, so a git-based build needs no anchor
 workspace.
 

@@ -9,17 +9,25 @@
 #   - the on-chain config (PROGRAM_ID, SOLANA_RPC_URL, TXLINE_*, BOOTSTRAP_LIQUIDITY_USDC,
 #                          APP_USDC_MINT) — see keeper/.env.example and DEPLOY.md.
 #   - canonical USDC in the keeper wallet so bootstrap deposits can go through (fund-keeper.ts).
-FROM node:20-slim
+# Node 24 (not 20): Node 20's cjs-module-lexer can't extract Anchor's CJS named exports (BN, …)
+# for a native ESM `import { BN } from "@coral-xyz/anchor"`, so it crashes at startup. Node 24's
+# lexer resolves them — matches the local runtime the keeper is proven on.
+FROM node:24-slim
 
 WORKDIR /app
 
 # Install deps first for layer caching. signal_markets.idl.json + txoracle.idl.json are committed,
 # so they come in with the source copy below (no anchor workspace needed on the host).
 COPY package.json package-lock.json ./
-RUN npm ci
+# --include=dev so tsx/typescript are installed even when the host sets NODE_ENV=production
+# (tsx is the runtime — see CMD below).
+RUN npm ci --include=dev
 
 COPY . .
-RUN npm run build
 
-# Long-running process; no port to expose.
-CMD ["node", "dist/index.js"]
+# Run via tsx (not tsc -> node dist), so Anchor's CommonJS named exports (BN, Program, …) load
+# through esbuild's CJS/ESM interop. Native `node dist/*.js` fails with
+# "Named export 'BN' not found" because the emitted ESM can't destructure Anchor's CJS exports.
+# tsx is installed by `npm ci` (it's how the scripts run) and JIT-compiles TS at startup.
+# Long-running worker; no port to expose.
+CMD ["node_modules/.bin/tsx", "src/index.ts"]
