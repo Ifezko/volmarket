@@ -83,6 +83,56 @@ export async function ensureDevnetSol(connection: Connection, owner: PublicKey, 
   }
 }
 
+// Enough SOL to cover fees + account rent for a place batch. Matches the treasury's gas floor.
+const GAS_MIN_LAMPORTS = 50_000_000 // 0.05 SOL
+
+/**
+ * Guarantees the wallet has gas SOL *as seen by the connection we're about to send on*, before
+ * placing. An external wallet (e.g. Solflare) that only holds app-USDC has 0 SOL, so it can't pay
+ * fees/rent — the tx would fail preflight with "Attempt to debit an account but found no record of
+ * a prior credit". We top it up via the treasury (reliable for any wallet), then POLL this same
+ * connection until the credit is visible: the treasury confirms on its own RPC, but the client's
+ * RPC (Alchemy / public devnet) can lag, and sending before it sees the balance is exactly what
+ * produces that error. If it truly can't be funded, throw a clear, actionable message.
+ */
+async function ensureGasReady(connection: Connection, address: string): Promise<void> {
+  const owner = new PublicKey(address)
+  const hasGas = async () => {
+    try {
+      return (await connection.getBalance(owner, 'confirmed')) >= GAS_MIN_LAMPORTS
+    } catch {
+      return false
+    }
+  }
+  if (await hasGas()) return
+
+  // Prefer the treasury top-up (works for external wallets too); fall back to the rate-limited
+  // devnet airdrop only if the endpoint is unreachable.
+  try {
+    await topUpGas(address)
+  } catch {
+    await ensureDevnetSol(connection, owner)
+  }
+
+  // Wait for THIS connection's RPC to reflect the credit (cross-RPC propagation lag).
+  for (let i = 0; i < 20; i++) {
+    if (await hasGas()) return
+    await new Promise((r) => setTimeout(r, 750))
+  }
+
+  let bal = 0
+  try {
+    bal = await connection.getBalance(owner, 'confirmed')
+  } catch {
+    /* ignore — reported below as best-effort */
+  }
+  throw new Error(
+    `Couldn't get devnet gas SOL to ${address.slice(0, 4)}…${address.slice(-4)} in time ` +
+      `(balance ${(bal / 1e9).toFixed(4)} SOL). Your USDC balance can't pay network fees — ` +
+      `wait a few seconds and try again, or airdrop devnet SOL to this wallet.`,
+  )
+}
+
 async function placeBatch(
   connection: Connection,
   wallet: ConnectedStandardSolanaWallet,
@@ -210,15 +260,11 @@ export async function placeRealPredictions(
 ): Promise<{ signatures: string[] }> {
   if (!picks.length) throw new Error('no picks to place')
 
-  // Placing creates several rent-exempt accounts + pays fees, so the wallet needs SOL. Prefer the
-  // treasury top-up (reliable for external wallets like Solflare too); fall back to the devnet
-  // airdrop only if the treasury endpoint is unreachable. Without this an unfunded external wallet
-  // fails simulation with "Attempt to debit an account but found no record of a prior credit".
-  try {
-    await topUpGas(wallet.address)
-  } catch {
-    await ensureDevnetSol(connection, new PublicKey(wallet.address))
-  }
+  // Placing creates several rent-exempt accounts + pays fees, so the wallet needs SOL. Ensure it's
+  // funded AND that this connection's RPC can see the funds before we send — otherwise an unfunded
+  // external wallet (or one whose top-up hasn't propagated) fails simulation with "Attempt to debit
+  // an account but found no record of a prior credit".
+  await ensureGasReady(connection, wallet.address)
 
   const signatures: string[] = []
   for (let i = 0; i < picks.length; i += MAX_PICKS_PER_TX) {
