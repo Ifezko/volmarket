@@ -71,6 +71,22 @@ Set these on the keeper host (via its secret manager / dashboard env, **not** a 
 | `KEEPER_SECRET_KEY` | keeper keypair as a JSON byte array | **YES** |
 | `KEEPER_KEYPAIR` | keypair file path (local dev only) | path is not secret; the **file** is |
 | `TXLINE_*` | oracle host / program / token / service level | no (API token, if any, is) |
+| `BOOTSTRAP_LIQUIDITY_USDC` | opposing-pool seed per new market (default `10`; `0` disables) | no |
+| `APP_USDC_MINT` | canonical app USDC mint (default matches the frontend) | no |
+
+### Two-sided markets need the keeper running AND funded
+
+Markets are two-sided (Holds/Breaks pools). For the losing side to never be zero — so winners get
+real payouts and the slip's "To win" is truthful — the keeper **bootstraps the empty pool of every
+new market** from its own **canonical USDC** balance (`src/bootstrap.ts`, run at startup and each
+refresh). So the keeper must be:
+
+- **Running** — on an always-on host (above). If it isn't, new user markets stay one-sided and the
+  UI's payout multiplier (which assumes bootstrap liquidity) won't materialize.
+- **Funded with canonical USDC** — it *spends* `BOOTSTRAP_LIQUIDITY_USDC` per empty pool. Top it up:
+  `KEEPER_USDC_TARGET=500 npx tsx scripts/fund-keeper.ts` (devnet: mints via the treasury mint
+  authority in `.treasury.json`). One-shot seed of existing markets: `npx tsx scripts/bootstrap-all.ts`.
+  It also needs SOL for tx fees. Monitor the balance; low USDC just makes bootstrap a no-op (logged).
 
 ## Keeper key: two load modes
 
