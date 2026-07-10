@@ -1,9 +1,11 @@
 import type { Program } from "@coral-xyz/anchor";
+import type { Connection, Keypair } from "@solana/web3.js";
 import { CONFIG, log } from "./config.js";
 import { subscribeStream, getOddsProof, resolveOutcomeValue, type TxEvent, type ProofResult } from "./txline.js";
 import { loadMarkets, crossingResolves, inWindow, oddOutcome, type WatchedMarket } from "./markets.js";
 import { resolveMarket } from "./resolver.js";
 import { claimWinners } from "./claimer.js";
+import { bootstrapOpenMarkets } from "./bootstrap.js";
 import { startMockFeed, mockProof } from "./mockFeed.js";
 
 // The program's post-window timeout branch settles the DEFAULT outcome (HOLD→YES, BREAK→NO)
@@ -11,8 +13,10 @@ import { startMockFeed, mockProof } from "./mockFeed.js";
 // placeholder is all resolve_market needs once now >= window_end.
 const TIMEOUT_PROOF: ProofResult = { value: 0, proofBytes: Buffer.alloc(0), accounts: [] };
 
-export async function runKeeper(program: Program) {
+export async function runKeeper(program: Program, keeper: Keypair, connection: Connection) {
   let byFixture = await loadMarkets(program);
+  // Seed any existing open market that has an empty pool before we start watching.
+  await bootstrapOpenMarkets(program, keeper, connection);
   const inFlight = new Set<string>(); // market pubkeys mid-resolution
 
   const handle = async (m: WatchedMarket, proof: ProofResult) => {
@@ -86,6 +90,8 @@ export async function runKeeper(program: Program) {
   // quickly enough to be verified in-window, not just swept to its default after the window.
   const refresher = setInterval(async () => {
     byFixture = await loadMarkets(program);
+    // Bootstrap liquidity for any newly-created market whose opposing pool is still empty.
+    await bootstrapOpenMarkets(program, keeper, connection);
   }, CONFIG.marketRefreshMs);
 
   let stop: () => void;

@@ -76,6 +76,13 @@ export const CONFIG = {
   // prediction — especially a short-window one — is picked up in time to be verified in-window
   // against the live signal, instead of only being caught by the post-window default sweep.
   marketRefreshMs: Number(process.env.MARKET_REFRESH_MS ?? 8000),
+  // Bootstrap liquidity: when a market has an empty pool, the keeper seeds a small opposing stake
+  // so no market ever has a zero-liquidity losing side (winners always have a real pool to win
+  // from). Whole USDC on the canonical app mint; 0 disables. From its own funded devnet wallet.
+  bootstrapLiquidityUsdc: Number(process.env.BOOTSTRAP_LIQUIDITY_USDC ?? 10),
+  // Canonical app USDC mint (matches frontend-react USDC_MINT) — the mint the keeper deposits
+  // bootstrap liquidity in; only markets on this mint are bootstrapped.
+  appUsdcMint: new PublicKey(process.env.APP_USDC_MINT ?? "3aakQUJ6vvWphAr18ZoAJfoHs3w148tWJmKsgsnUj12q"),
   mock: process.argv.includes("--mock"),
 };
 
