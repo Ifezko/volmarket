@@ -11,6 +11,8 @@ const CODE: Record<string, keyof typeof Flags> = {
   France: 'FR',
   England: 'GB_ENG',
   Spain: 'ES',
+  Switzerland: 'CH',
+  Norway: 'NO',
   Germany: 'DE',
   Portugal: 'PT',
   Netherlands: 'NL',

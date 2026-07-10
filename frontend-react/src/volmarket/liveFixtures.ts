@@ -128,7 +128,10 @@ function fixtureLatest(f: LiveFixture): number {
  * "All" keeps the current sort. This is what makes the nav tabs do something visible.
  */
 export function applyBoardView(fixtures: LiveFixture[], filter: BoardFilter, sort: BoardSort): LiveFixture[] {
-  let list = fixtures
+  // Only surface real TxLINE-seeded fixtures on the user-facing board. The synthetic demo
+  // fixtures (99xxx/77xxx/91xxx) stay in the underlying data (still openable/testable and their
+  // pseudoTeams naming is unchanged) — they're just hidden from what users see here.
+  let list = fixtures.filter((f) => f.fixtureId >= REAL_FIXTURE_MIN)
   if (filter === 'live') list = list.filter((f) => f.status === 'live')
   else if (filter === 'upcoming') list = list.filter((f) => f.status === 'soon')
   else if (filter === 'today') list = list.filter((f) => f.status === 'live' || f.status === 'soon')
