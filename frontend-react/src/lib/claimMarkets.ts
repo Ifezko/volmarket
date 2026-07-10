@@ -33,6 +33,22 @@ export interface ClaimablePosition {
   authority: PublicKey
 }
 
+/**
+ * Prospective payout multiplier for depositing `stake` into one side of a two-sided market, from
+ * the CURRENT live pools — the real number the slip should show instead of the old 100/prob guess.
+ * Mirrors `claim`: your stake joins the winning pool (diluting it), then wins a pro-rata share of
+ * the opposing pool, fee taken on winnings only. So payout = stake + stake*opposing/(sameSide+stake)
+ * - fee, and multiplier = payout/stake. `sameSide`/`opposing` are the pool sizes for the side you're
+ * backing (all whole USDC). Returns 1 when there's nothing to win (empty opposing pool).
+ */
+export function previewMultiplier(sameSide: number, opposing: number, stake: number, feeBps: number): number {
+  if (stake <= 0) return 1
+  const winTotal = sameSide + stake
+  const winnings = winTotal > 0 ? (stake * opposing) / winTotal : 0
+  const fee = (winnings * feeBps) / 10000
+  return (stake + winnings - fee) / stake
+}
+
 // Pro-rata payout, mirroring `claim` in the program: winners split the losing pool in
 // proportion to stake, fee is taken only on the winnings. With an all-YES demo market
 // (no NO stake) the losing pool is 0, so payout == stake — the user gets their vaulted

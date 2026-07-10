@@ -19,12 +19,17 @@ import { ResultModal } from './ResultModal'
 import { initialGroups, type Group } from './groups'
 import { fetchRealMarkets, makeConnection } from '../lib/onchainMarkets'
 import { placeRealPredictions, type PendingPick } from '../lib/depositMarkets'
-import { claimPositions, fetchWalletState, type ClaimablePosition, type ActivePosition } from '../lib/claimMarkets'
+import { claimPositions, fetchWalletState, previewMultiplier, type ClaimablePosition, type ActivePosition } from '../lib/claimMarkets'
 import { resolveMarkets } from '../lib/resolveMarkets'
 import { fundWallet, fetchUsdcBalance, withdrawUsdc, fetchFundingHistory } from '../lib/funds'
 import { buildLiveFixtures, applyBoardView, type LiveFixture, type BoardFilter, type BoardSort } from './liveFixtures'
 import type { PredictionLine } from './SignalChart'
 import type { RealPredictMeta } from './PredictBuilder'
+
+// Assumed opposing-pool liquidity (whole USDC) for a market that isn't open on-chain yet, used to
+// price the slip before placing. Matches the keeper's BOOTSTRAP_LIQUIDITY_USDC default — the
+// minimum opposing stake a fresh market gets once the keeper bootstraps it (see keeper/bootstrap.ts).
+const ASSUMED_BOOTSTRAP_USDC = 10
 
 function genCode(): string {
   const s = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789'
@@ -125,6 +130,36 @@ export function VolmarketApp() {
     () => applyBoardView(fixtures, boardFilter, boardSort),
     [fixtures, boardFilter, boardSort],
   )
+
+  // Every on-chain market currently loaded (flattened from the board data), for pricing the slip.
+  const allMarkets = useMemo(
+    () => fixtures.flatMap((f) => f.odds.flatMap((o) => o.markets)),
+    [fixtures],
+  )
+
+  // The slip priced with the REAL payout multiplier from live pool sizes (replaces the old
+  // 100/prob guess): for each real pick, deposit `perStake` into its side of the HOLD market and
+  // read the current opposing/same-side pools. A market not opened yet has no pools on-chain, so we
+  // assume the keeper's bootstrap liquidity on the opposing side (ASSUMED_BOOTSTRAP_USDC) — the
+  // minimum a fresh market will have once placed. Pasted demo picks (no meta) keep their mult.
+  const pricedSlip = useMemo<SlipItem[]>(() => {
+    const perStake = slip.length ? stake / slip.length : stake
+    return slip.map((s) => {
+      const meta = predMeta[s.id]
+      if (!meta) return s
+      const mkt = allMarkets.find(
+        (m) =>
+          m.fixtureId === meta.fixtureId &&
+          m.oddKey === meta.oddKey &&
+          m.marketParams === meta.marketParams &&
+          m.levelRaw === meta.levelRaw,
+      )
+      const feeBps = mkt?.feeBps ?? 500
+      const sameSide = mkt ? (meta.side === 'hold' ? mkt.totalYes : mkt.totalNo) : 0
+      const opposing = mkt ? (meta.side === 'hold' ? mkt.totalNo : mkt.totalYes) : ASSUMED_BOOTSTRAP_USDC
+      return { ...s, mult: previewMultiplier(sameSide, opposing, perStake, feeBps) }
+    })
+  }, [slip, predMeta, allMarkets, stake])
 
   const refreshMarkets = useCallback(async () => {
     try {
@@ -386,7 +421,8 @@ export function VolmarketApp() {
   // meta) just produce a shareable ticket, same as the original mock.
   async function place() {
     if (!slip.length) return
-    const combo = slip.reduce((a, s) => a * s.mult, 1)
+    // Use the real-pool-priced slip for the combo/ticket so the recorded payout matches the UI.
+    const combo = pricedSlip.reduce((a, s) => a * s.mult, 1)
     const perStake = +(stake / slip.length).toFixed(2)
     const picks: PendingPick[] = slip.flatMap((s) => {
       const m = predMeta[s.id]
@@ -419,7 +455,7 @@ export function VolmarketApp() {
       void refreshUsdc()
     }
 
-    setTicket({ code: genCode(), sel: slip, stake, mult: combo })
+    setTicket({ code: genCode(), sel: pricedSlip, stake, mult: combo })
     setSlip([])
   }
 
@@ -565,7 +601,7 @@ export function VolmarketApp() {
           isSelected={isSelected}
           onAdd={addPrediction}
           onLiveProb={() => {}}
-          slip={slip}
+          slip={pricedSlip}
           stake={stake}
           ticket={ticket}
           placing={placing}
@@ -584,7 +620,7 @@ export function VolmarketApp() {
 
       <Slip
         open={slipOpen}
-        slip={slip}
+        slip={pricedSlip}
         stake={stake}
         ticket={ticket}
         placing={placing}
