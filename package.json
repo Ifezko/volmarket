@@ -1,14 +1,16 @@
 {
   "name": "volmarket-api",
   "private": true,
-  "type": "module",
   "description": "Root package for Vercel serverless functions in /api (the static frontend builds from frontend-react/ — see vercel.json).",
-  "comment": "type:module is REQUIRED: @solana/web3.js pulls rpc-websockets -> uuid@14 (ESM-only). As a CommonJS function, Vercel crashes at import with ERR_REQUIRE_ESM (require() of ESM uuid). Building the function as ESM loads the whole chain via import(), which is fine. Do not remove type:module without re-testing /api/fund on a deploy.",
+  "comment": "overrides.uuid is REQUIRED: @solana/web3.js -> rpc-websockets pulls uuid@14 (ESM-only), whose CJS require() crashes the /api/fund CommonJS serverless function on Vercel with ERR_REQUIRE_ESM. Pin uuid to 9.x (dual CJS/ESM) so require() works. Do NOT set \"type\":\"module\" here — it breaks the frontend vite build (readFile crash). Re-test /api/fund on a deploy before changing.",
   "dependencies": {
     "@solana/spl-token": "^0.4.14",
     "@solana/web3.js": "^1.98.4"
   },
   "devDependencies": {
     "@vercel/node": "^5.1.0"
+  },
+  "overrides": {
+    "uuid": "^9.0.1"
   }
 }
