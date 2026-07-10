@@ -1,5 +1,21 @@
 import { FL, rng } from './data'
 import type { RealMarket } from '../lib/onchainMarkets'
+import realFixtures from './realFixtures.json'
+
+// Real fixtures seeded from the live TxLINE feed carry no team names on-chain, so we keep a
+// fixtureId -> real team names map (written by keeper/scripts/seed-live-fixtures.ts from the
+// fixtures/snapshot response). Consulted ONLY for real TxLINE ids (>= REAL_FIXTURE_MIN); the
+// synthetic demo fixtures (99xxx) fall through to pseudoTeams unchanged.
+const REAL_FIXTURE_MIN = 18_000_000
+const REAL_NAMES = realFixtures as Record<string, { a: string; b: string; comp: string }>
+
+function fixtureIdentity(fixtureId: number): { comp: string; a: string; b: string } {
+  if (fixtureId >= REAL_FIXTURE_MIN) {
+    const real = REAL_NAMES[String(fixtureId)]
+    if (real) return { comp: real.comp, a: real.a, b: real.b }
+  }
+  return pseudoTeams(fixtureId)
+}
 
 const ODD_LABELS: Record<number, { grp: string; base: string }> = {
   0: { grp: 'Match result', base: 'home' },
@@ -174,7 +190,7 @@ export function describeMarket(
   side: 'hold' | 'break',
   level: number,
 ): string {
-  const { a, b } = pseudoTeams(fixtureId)
+  const { a, b } = fixtureIdentity(fixtureId)
   const { label } = oddLabel(oddKey, marketParams, a, b)
   const verb = side === 'hold' ? 'holds' : 'breaks'
   return `${a} v ${b} · ${label}: ${verb} ${level}%`
@@ -198,7 +214,7 @@ export function buildLiveFixtures(markets: RealMarket[]): LiveFixture[] {
   const fixtures: LiveFixture[] = []
 
   for (const [fixtureId, fixtureMarkets] of byFixture) {
-    const { comp, a, b } = pseudoTeams(fixtureId)
+    const { comp, a, b } = fixtureIdentity(fixtureId)
 
     const byOdd = new Map<number, RealMarket[]>()
     for (const m of fixtureMarkets) {

@@ -8,7 +8,8 @@
 // NOTE: team names on the board are still derived from the numeric fixtureId (pseudoTeams in
 // frontend-react/src/volmarket/liveFixtures.ts), so the real names below are logged here for
 // reference but won't appear on the board without a separate frontend change.
-import { readFileSync } from "node:fs";
+import { readFileSync, writeFileSync, existsSync } from "node:fs";
+import { fileURLToPath } from "node:url";
 import { Connection, Keypair, PublicKey, SystemProgram, SYSVAR_RENT_PUBKEY } from "@solana/web3.js";
 import { AnchorProvider, Program, Wallet, BN } from "@coral-xyz/anchor";
 import { TOKEN_PROGRAM_ID } from "@solana/spl-token";
@@ -93,6 +94,16 @@ async function main() {
     created.push({ fixtureId: s.fx.FixtureId, teams: `${s.fx.Participant1} v ${s.fx.Participant2}`, label: s.label, market: market.toBase58(), sig });
     console.log(`  created  #${s.fx.FixtureId}  ${s.label}  ->  ${market.toBase58()}`);
   }
+
+  // Persist the real fixtureId -> team names map the frontend reads (liveFixtures.ts consults it
+  // for ids >= 18000000 so these markets show their true names instead of pseudoTeams). Merge so
+  // earlier seeds are preserved. This is the ONLY frontend-facing artifact this script writes.
+  const mapPath = fileURLToPath(new URL("../../frontend-react/src/volmarket/realFixtures.json", import.meta.url));
+  const existing = existsSync(mapPath) ? JSON.parse(readFileSync(mapPath, "utf8")) : {};
+  for (const f of chosen) existing[f.FixtureId] = { a: f.Participant1, b: f.Participant2, comp: f.Competition };
+  const ordered = Object.fromEntries(Object.keys(existing).sort((a, b) => Number(a) - Number(b)).map((k) => [k, existing[k]]));
+  writeFileSync(mapPath, JSON.stringify(ordered, null, 2) + "\n");
+  console.log(`\nUpdated real-fixture name map: ${mapPath}`);
 
   console.log(`\nDone. Created ${created.length} market(s) on real fixture ids using mint ${APP_USDC_MINT.toBase58()}.`);
   console.log(JSON.stringify(created, null, 2));
