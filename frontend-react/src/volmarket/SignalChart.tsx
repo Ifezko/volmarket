@@ -52,9 +52,6 @@ export function SignalChart({
   const timerRef = useRef<ReturnType<typeof setInterval> | null>(null)
   const [fs, setFs] = useState(false)
   const [pills, setPills] = useState({ r: '—', l: '—', s: '—' })
-  // the current simulated line value, refreshed every sim tick — the WINNING/LOSING chips
-  // are evaluated against this so they update live as the tape moves toward/away from a call.
-  const [liveProb, setLiveProb] = useState<number | null>(null)
 
   const i2p = useCallback((sig: Sig, i: number) => sig.pmin + (i / (BUCKETS - 1)) * (sig.pmax - sig.pmin), [])
   const p2i = useCallback(
@@ -172,9 +169,13 @@ export function SignalChart({
         label = '✗ lost ' + ln.level + '%'
         alpha = 0.5
       } else {
-        col = ln.side === 'hold' ? '#2fc079' : '#f3596b'
-        label = '◆ your call ' + ln.level + '%' + (ln.status === 'pending' ? ' · live' : '')
-        alpha = 0.85
+        // Live status is shown ON the call line itself (no separate chip): the line goes green
+        // WINNING once the tape reaches/holds the level, red LOSING otherwise — evaluated against
+        // the current live value (sig.prob), so it updates every sim tick as the line moves.
+        const winning = sig.prob >= ln.level
+        col = winning ? '#2fc079' : '#f3596b'
+        label = '◆ your call ' + ln.level + '% · ' + (winning ? 'WINNING ▲' : 'LOSING ▼')
+        alpha = 0.9
       }
       ctx.save()
       ctx.setLineDash([4, 3])
@@ -201,7 +202,6 @@ export function SignalChart({
       s: sup ? i2p(sig, sup.i).toFixed(0) + '%' : '—',
       r: res ? i2p(sig, res.i).toFixed(0) + '%' : '—',
     })
-    setLiveProb(sig.prob)
     onLiveProb?.(sig.prob)
 
     // x time axis — reads the market's real window duration
@@ -336,33 +336,6 @@ export function SignalChart({
     return () => removeEventListener('keydown', onKey)
   }, [fs])
 
-  // One status chip per distinct call on this odd. Placed-but-unresolved calls (and pending
-  // slip picks) are judged live against the current line: WINNING once it reaches/holds the
-  // level, LOSING otherwise. Already-settled positions show their final WON/LOST instead.
-  const seenChips = new Set<string>()
-  const chips = predictionLines
-    .filter((ln) => {
-      const tag = ln.side + ':' + ln.level + ':' + (ln.status ?? 'slip')
-      if (seenChips.has(tag)) return false
-      seenChips.add(tag)
-      return true
-    })
-    .map((ln) => {
-      const verb = ln.side === 'hold' ? 'Holds' : 'Breaks'
-      const desc = `${verb} ${ln.level}%`
-      if (ln.status === 'won') return { key: desc + 'w', desc, state: 'won' as const }
-      if (ln.status === 'lost') return { key: desc + 'l', desc, state: 'lost' as const }
-      const winning = liveProb != null && liveProb >= ln.level
-      return { key: desc + (ln.status ?? 's'), desc, state: winning ? ('winning' as const) : ('losing' as const) }
-    })
-
-  const chipText: Record<string, string> = {
-    winning: 'WINNING ▲',
-    losing: 'LOSING ▼',
-    won: 'WON ✓',
-    lost: 'LOST ✗',
-  }
-
   const panel = (
     <div className={`sig${fs ? ' fs' : ''}`}>
       <div className="sigh">
@@ -396,16 +369,6 @@ export function SignalChart({
           </div>
         </div>
       </div>
-      {chips.length > 0 && (
-        <div className="predstat">
-          {chips.map((c) => (
-            <span key={c.key} className={`pchip ${c.state}`}>
-              <span className="pd">◆ {c.desc}</span>
-              <span className="ps">{chipText[c.state]}</span>
-            </span>
-          ))}
-        </div>
-      )}
     </div>
   )
 
