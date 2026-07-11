@@ -15,11 +15,19 @@ const STATUS_OPEN = 0;
  * a pool that already has stake is left alone, so repeated passes never double-seed. Returns the
  * signatures of any deposits made.
  */
+// Fixed decimal odds implied by a market level (mirrors the frontend). p = level/100000 (the
+// demargined probability the level encodes); Holds pays 1/p, Breaks pays 1/(1-p). p is clamped so
+// odds stay in a sane band.
+export function oddsFromLevel(level: number): { hold: number; break: number } {
+  const p = Math.min(0.98, Math.max(0.02, level / 100000));
+  return { hold: 1 / p, break: 1 / (1 - p) };
+}
+
 export async function bootstrapMarket(
   program: Program,
   keeper: Keypair,
   marketPubkey: PublicKey,
-  marketAccount: { totalYes: BN | number; totalNo: BN | number; usdcMint: PublicKey },
+  marketAccount: { totalYes: BN | number; totalNo: BN | number; usdcMint: PublicKey; level: BN | number },
 ): Promise<string[]> {
   // Only markets on the canonical app mint — the keeper deposits app USDC, so a market on a
   // different mint would fail the deposit's mint constraint.
@@ -27,7 +35,6 @@ export async function bootstrapMarket(
 
   const floor = CONFIG.bootstrapLiquidityUsdc;
   const cap = CONFIG.bootstrapMaxUsdc;
-  const ratio = CONFIG.bootstrapRatio;
   if (floor <= 0) return [];
 
   const keeperUsdc = getAssociatedTokenAddressSync(CONFIG.appUsdcMint, keeper.publicKey);
@@ -35,26 +42,28 @@ export async function bootstrapMarket(
 
   const holdsUsdc = Number(marketAccount.totalYes) / 1e6;
   const breaksUsdc = Number(marketAccount.totalNo) / 1e6;
+  const odds = oddsFromLevel(Number(marketAccount.level));
 
   const sigs: string[] = [];
-  // For each EMPTY pool, seed an opposing stake sized to the filled (other) side × ratio, so the
-  // payout multiplier is ~constant regardless of the user's stake. Clamp to [floor, cap]. If the
-  // other side is also empty, fall back to the floor.
-  const pools: { side: number; mine: number; other: number; label: string }[] = [
-    { side: SIDE_YES, mine: holdsUsdc, other: breaksUsdc, label: "Holds" },
-    { side: SIDE_NO, mine: breaksUsdc, other: holdsUsdc, label: "Breaks" },
+  // House seeding: to pay the FILLED side its fixed odds O, seed the EMPTY (opposing) pool with
+  // filledStake*(O-1) — then the contract's pro-rata claim pays filledStake*O. Seeding Holds
+  // backs a Breaks bet (odds = break); seeding Breaks backs a Holds bet (odds = hold). Both empty
+  // (no user stake) => the floor on each side. Capped at `cap` per pool.
+  const seeds: { side: number; empty: boolean; filled: number; odds: number; label: string }[] = [
+    { side: SIDE_YES, empty: holdsUsdc === 0, filled: breaksUsdc, odds: odds.break, label: "Holds" },
+    { side: SIDE_NO, empty: breaksUsdc === 0, filled: holdsUsdc, odds: odds.hold, label: "Breaks" },
   ];
-  for (const p of pools) {
-    if (p.mine > 0) continue; // pool already has liquidity — leave it
-    const targetUsdc = p.other > 0 ? Math.min(cap, Math.max(floor, p.other * ratio)) : floor;
+  for (const s of seeds) {
+    if (!s.empty) continue; // pool already has liquidity — leave it
+    const targetUsdc = Math.min(cap, s.filled > 0 ? s.filled * (s.odds - 1) : floor);
     const amount = Math.round(targetUsdc * 1e6);
     if (amount <= 0) continue;
     const [position] = PublicKey.findProgramAddressSync(
-      [Buffer.from("position"), marketPubkey.toBuffer(), keeper.publicKey.toBuffer(), Buffer.from([p.side])],
+      [Buffer.from("position"), marketPubkey.toBuffer(), keeper.publicKey.toBuffer(), Buffer.from([s.side])],
       program.programId,
     );
     const sig: string = await (program.methods as any)
-      .deposit(p.side, new BN(amount))
+      .deposit(s.side, new BN(amount))
       .accounts({
         user: keeper.publicKey,
         market: marketPubkey,
@@ -66,7 +75,7 @@ export async function bootstrapMarket(
       })
       .rpc();
     sigs.push(sig);
-    log.info(`bootstrap: +${targetUsdc} USDC into ${p.label} pool of ${marketPubkey.toBase58()}`);
+    log.info(`bootstrap: +${targetUsdc.toFixed(3)} USDC into ${s.label} pool of ${marketPubkey.toBase58()} (backs ${s.odds.toFixed(2)}x)`);
   }
   return sigs;
 }

@@ -32,9 +32,10 @@ export function PredictBuilder({
   const [activeWin, setActiveWin] = useState(7) // default 5m
 
   const wl = WINDOWS[activeWin]
-  // One level per odd — the two-sided market's threshold. "Holds L%+" bets the signal stays at/above
-  // L (Holds pool); "Breaks L%+" bets it falls below L (Breaks pool). Both are the SAME market.
-  const level = Math.round(Math.max(8, Math.min(92, odd.prob)) - 6)
+  // One level per odd = the odd's implied probability (%). The fixed decimal odds come from it:
+  // Holds pays 1/p, Breaks pays 1/(1-p) with p = level/100 (see VolmarketApp). "Holds L%+" bets the
+  // signal stays at/above L (Holds pool); "Breaks L%+" bets it falls below L. Both are ONE market.
+  const level = Math.round(Math.max(8, Math.min(92, odd.prob)))
   const hp = holdProb(activeWin)
   const bp = breakProb(activeWin)
   const b = `${fixtureId}-${odd.oddKey}`

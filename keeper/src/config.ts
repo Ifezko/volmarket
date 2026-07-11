@@ -76,15 +76,15 @@ export const CONFIG = {
   // prediction — especially a short-window one — is picked up in time to be verified in-window
   // against the live signal, instead of only being caught by the post-window default sweep.
   marketRefreshMs: Number(process.env.MARKET_REFRESH_MS ?? 8000),
-  // Bootstrap liquidity: when a market has an empty pool, the keeper seeds an opposing stake so no
-  // market has a zero-liquidity losing side (winners always have a real pool to win from). The
-  // amount is DYNAMIC — it matches the stake already on the filled side × bootstrapRatio, so the
-  // payout multiplier is ~constant regardless of stake size (ratio 1 => a ~2x market). Clamped to
-  // [bootstrapLiquidityUsdc floor, bootstrapMaxUsdc cap] to protect the keeper from whale stakes.
-  // A market with BOTH pools empty (created without a deposit) just gets the floor. 0 floor disables.
-  bootstrapLiquidityUsdc: Number(process.env.BOOTSTRAP_LIQUIDITY_USDC ?? 10), // floor (min) per pool
-  bootstrapRatio: Number(process.env.BOOTSTRAP_RATIO ?? 1), // opposing seed = filled side × this
-  bootstrapMaxUsdc: Number(process.env.BOOTSTRAP_MAX_USDC ?? 1000), // cap per pool
+  // The keeper is the HOUSE: it seeds a market's empty pool so the winner is paid the FIXED decimal
+  // odds implied by the market level, not a pari-mutuel share. For a bet of `S` on the filled side
+  // at odds `O` (O = 1/p for Holds, 1/(1-p) for Breaks, p = level/100000), it seeds the opposing
+  // pool with S*(O-1) — then the contract's pro-rata claim pays exactly S*O. Capped at
+  // bootstrapMaxUsdc per pool to bound the house's exposure (past the cap, delivered odds fall
+  // below true odds — the frontend caps the shown odds to match). A market with BOTH pools empty
+  // (created without a deposit) just gets bootstrapLiquidityUsdc on each side. 0 disables.
+  bootstrapLiquidityUsdc: Number(process.env.BOOTSTRAP_LIQUIDITY_USDC ?? 10), // both-empty floor
+  bootstrapMaxUsdc: Number(process.env.BOOTSTRAP_MAX_USDC ?? 1000), // cap on the house seed per pool
   // Canonical app USDC mint (matches frontend-react USDC_MINT) — the mint the keeper deposits
   // bootstrap liquidity in; only markets on this mint are bootstrapped.
   appUsdcMint: new PublicKey(process.env.APP_USDC_MINT ?? "3aakQUJ6vvWphAr18ZoAJfoHs3w148tWJmKsgsnUj12q"),
