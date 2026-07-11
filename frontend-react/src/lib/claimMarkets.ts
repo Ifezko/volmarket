@@ -49,16 +49,20 @@ export function previewMultiplier(sameSide: number, opposing: number, stake: num
   return (stake + winnings - fee) / stake
 }
 
-// Pro-rata payout, mirroring `claim` in the program: winners split the losing pool in
-// proportion to stake, fee is taken only on the winnings. With an all-YES demo market
-// (no NO stake) the losing pool is 0, so payout == stake — the user gets their vaulted
-// USDC back. Computed here for display only; the on-chain instruction is authoritative.
-function computePayout(market: RealMarket, stakeUsdc: number): number {
+// Net wallet delta from a winning claim, mirroring `claim` in the program: winners split the
+// losing pool in proportion to stake, and the protocol fee (taken only on the winnings) is paid to
+// the market authority's token account. In this app the placer IS the market authority (see
+// depositMarkets.ts), so that fee lands right back in their own wallet — a wash — and the real
+// credited amount is stake + winnings, fee-free. `feeReturnsToOwner` captures that: when the fee's
+// recipient (authority) is the position owner, don't subtract it. This keeps the settled amount
+// equal to the slip's fee-free preview. With an all-YES demo market (no NO stake) the losing pool
+// is 0, so payout == stake. Display only; the on-chain instruction is authoritative.
+function computePayout(market: RealMarket, stakeUsdc: number, feeReturnsToOwner: boolean): number {
   const winTotal = market.outcome === 'yes' ? market.totalYes : market.totalNo
   const loseTotal = market.outcome === 'yes' ? market.totalNo : market.totalYes
   if (winTotal <= 0) return stakeUsdc
   const winnings = (stakeUsdc * loseTotal) / winTotal
-  const fee = (winnings * market.feeBps) / 10000
+  const fee = feeReturnsToOwner ? 0 : (winnings * market.feeBps) / 10000
   return +(stakeUsdc + winnings - fee).toFixed(6)
 }
 
@@ -115,6 +119,9 @@ export async function fetchWalletState(connection: Connection, owner: PublicKey)
     // A position wins when the market's outcome matches the side it backs: SIDE_YES <-> 'yes',
     // SIDE_NO <-> 'no'. (Two-sided: a Breaks/SIDE_NO position wins when the market resolves 'no'.)
     const positionOutcome = account.side === SIDE_YES ? 'yes' : 'no'
+    // The placer is the market authority, so the claim fee (paid to the authority) returns to this
+    // same wallet — a wash. Payout is then fee-free, matching the slip's preview.
+    const feeReturnsToOwner = market.authority.equals(owner)
     const status: ActivePosition['status'] =
       market.status !== 'resolved' ? 'pending' : market.outcome === positionOutcome ? 'won' : 'lost'
     // Display direction in Holds/Breaks terms: SIDE_YES backs the market's predicate. On a HOLD
@@ -131,7 +138,7 @@ export async function fetchWalletState(connection: Connection, owner: PublicKey)
       windowStart: market.windowStart,
       windowEnd: market.windowEnd,
       stakeUsdc,
-      payoutUsdc: status === 'won' ? computePayout(market, stakeUsdc) : 0,
+      payoutUsdc: status === 'won' ? computePayout(market, stakeUsdc, feeReturnsToOwner) : 0,
       status,
     })
 
@@ -145,7 +152,7 @@ export async function fetchWalletState(connection: Connection, owner: PublicKey)
         side: direction,
         level: market.level,
         stakeUsdc,
-        payoutUsdc: computePayout(market, stakeUsdc),
+        payoutUsdc: computePayout(market, stakeUsdc, feeReturnsToOwner),
         usdcMint: market.usdcMint,
         vault: market.vault,
         authority: market.authority,
