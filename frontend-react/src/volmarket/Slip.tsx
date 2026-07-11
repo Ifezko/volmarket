@@ -1,4 +1,5 @@
 import { useState, type ReactNode } from 'react'
+import { StakePicker } from './StakePicker'
 
 export interface SlipItem {
   id: string
@@ -12,8 +13,6 @@ export interface Ticket {
   stake: number
   mult: number
 }
-
-const STAKE_OPTIONS = [5, 25, 100]
 
 // Ported from the .fab / .scrim / .slip markup and renderSlip()/place()/pasteCode() in
 // frontend/index.html. Group-creation and deposit reuse this same drawer in the
@@ -161,13 +160,7 @@ export function Slip({
                   </button>
                 </div>
               ))}
-              <div className="stake">
-                {STAKE_OPTIONS.map((a) => (
-                  <button key={a} className={stake === a ? 'on' : ''} onClick={() => onSetStake(a)}>
-                    {a}
-                  </button>
-                ))}
-              </div>
+              <StakePicker stake={stake} onSetStake={onSetStake} />
               <div className="summary">
                 <span>{slip.length > 1 ? 'Combined' : 'Pays'} {combo.toFixed(2)}×</span>
                 <span>

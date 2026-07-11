@@ -1,8 +1,7 @@
 import { PredictBuilder, type RealPredictMeta } from './PredictBuilder'
+import { StakePicker } from './StakePicker'
 import type { LiveOdd } from './liveFixtures'
 import type { SlipItem, Ticket } from './Slip'
-
-const STAKE_OPTIONS = [5, 25, 100]
 
 // The desktop match-detail right column: the prediction builder (window + Holds/Breaks) stacked
 // over the live slip, so a user reads the signal on the left and builds + places from here without
@@ -119,13 +118,7 @@ export function PredictPanel({
                   </div>
                 ))}
                 <div className="pp-stakelbl">Stake · USDC</div>
-                <div className="stake">
-                  {STAKE_OPTIONS.map((a) => (
-                    <button key={a} className={stake === a ? 'on' : ''} onClick={() => onSetStake(a)}>
-                      {a}
-                    </button>
-                  ))}
-                </div>
+                <StakePicker stake={stake} onSetStake={onSetStake} />
                 <div className="summary">
                   <span>
                     {slip.length > 1 ? 'Combined' : 'Pays'} {combo.toFixed(2)}×

@@ -26,10 +26,14 @@ import { buildLiveFixtures, applyBoardView, type LiveFixture, type BoardFilter, 
 import type { PredictionLine } from './SignalChart'
 import type { RealPredictMeta } from './PredictBuilder'
 
-// Assumed opposing-pool liquidity (whole USDC) for a market that isn't open on-chain yet, used to
-// price the slip before placing. Matches the keeper's BOOTSTRAP_LIQUIDITY_USDC default — the
-// minimum opposing stake a fresh market gets once the keeper bootstraps it (see keeper/bootstrap.ts).
-const ASSUMED_BOOTSTRAP_USDC = 10
+// Keeper bootstrap params — MUST match keeper/src/config.ts. The keeper seeds a fresh market's
+// opposing pool = your stake × ratio, clamped to [floor, cap], so the payout multiplier is ~constant
+// regardless of stake (ratio 1 => ~2×). Used to price the slip before placing (see keeper/bootstrap.ts).
+const BOOTSTRAP_RATIO = 1
+const BOOTSTRAP_FLOOR_USDC = 10
+const BOOTSTRAP_CAP_USDC = 1000
+const opposingBootstrap = (stake: number) =>
+  Math.min(BOOTSTRAP_CAP_USDC, Math.max(BOOTSTRAP_FLOOR_USDC, stake * BOOTSTRAP_RATIO))
 
 function genCode(): string {
   const s = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789'
@@ -136,7 +140,7 @@ export function VolmarketApp() {
   // PDA is keyed by window_start = now, so a prediction never deposits into an existing pool
   // (and the odd's level is deterministic, so other bettors' markets on the same line are separate
   // window_starts). The opposing liquidity a fresh market gets is the keeper's bootstrap deposit,
-  // so a winner takes their `perStake` share of ASSUMED_BOOTSTRAP_USDC on the other side.
+  // so a winner takes their `perStake` share of the keeper's opposing seed (opposingBootstrap).
   // Fee is 0 here on purpose: the placer is the market's `authority`, so the protocol fee routes
   // back to their own wallet on claim — it's a wash. Net payout = stake + winnings, verified
   // on-chain to the cent. (Replaces the old 100/prob guess and an earlier version that mis-priced
@@ -146,7 +150,7 @@ export function VolmarketApp() {
     return slip.map((s) => {
       const meta = predMeta[s.id]
       if (!meta) return s
-      return { ...s, mult: previewMultiplier(0, ASSUMED_BOOTSTRAP_USDC, perStake, 0) }
+      return { ...s, mult: previewMultiplier(0, opposingBootstrap(perStake), perStake, 0) }
     })
   }, [slip, predMeta, stake])
 
