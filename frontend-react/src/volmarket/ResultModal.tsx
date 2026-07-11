@@ -17,7 +17,9 @@ export function ResultModal({
   if (!open || !results.length) return null
   const wins = results.filter((r) => r.status === 'won')
   const anyWin = wins.length > 0
-  const credited = wins.reduce((sum, r) => sum + r.stakeUsdc, 0)
+  // Total winnings = full payout (stake + winnings at the market's fixed odds), NOT just the
+  // stake back — this is what the auto-claim actually credited to the balance.
+  const credited = wins.reduce((sum, r) => sum + r.payoutUsdc, 0)
 
   return (
     <div className="setmodal show" onClick={onClose}>
@@ -32,7 +34,7 @@ export function ResultModal({
           <div className="setrow" key={r.position.toBase58()}>
             <span>{describeMarket(r.fixtureId, r.oddKey, r.marketParams, r.side, r.level)}</span>
             <span className={r.status === 'won' ? 'pg' : 'pr'}>
-              {r.status === 'won' ? `+${r.stakeUsdc.toFixed(2)}` : 'LOST'}
+              {r.status === 'won' ? `+${r.payoutUsdc.toFixed(2)}` : 'LOST'}
             </span>
           </div>
         ))}
