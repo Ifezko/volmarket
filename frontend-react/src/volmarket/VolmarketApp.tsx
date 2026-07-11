@@ -18,7 +18,7 @@ import { SettleModal } from './SettleModal'
 import { ResultModal } from './ResultModal'
 import { initialGroups, type Group } from './groups'
 import { fetchRealMarkets, makeConnection } from '../lib/onchainMarkets'
-import { placeRealPredictions, type PendingPick } from '../lib/depositMarkets'
+import { placeRealPredictions, FEE_BPS, type PendingPick } from '../lib/depositMarkets'
 import { claimPositions, fetchWalletState, previewMultiplier, type ClaimablePosition, type ActivePosition } from '../lib/claimMarkets'
 import { resolveMarkets } from '../lib/resolveMarkets'
 import { fundWallet, fetchUsdcBalance, withdrawUsdc, fetchFundingHistory } from '../lib/funds'
@@ -143,11 +143,12 @@ export function VolmarketApp() {
   // (and the odd's level is deterministic, so other bettors' markets on the same line are separate
   // window_starts). Each leg's odds are the FIXED decimal odds from its level (oddsFromLevelRaw) —
   // the keeper seeds the opposing pool with perStake×(odds−1), capped at BOOTSTRAP_CAP_USDC, so the
-  // pro-rata claim pays exactly perStake×odds. previewMultiplier mirrors that claim math. Beyond the
-  // cap the house can't fully back the odds, so the delivered multiplier drops accordingly (kept in
-  // lock-step with the keeper). Fee is 0 here on purpose: the placer is the market's `authority`, so
-  // the protocol fee routes back to their own wallet on claim — it's a wash. Net payout = stake +
-  // winnings, verified on-chain to the cent. Pasted demo picks (no meta) keep their placeholder mult.
+  // pro-rata claim pays perStake×odds minus the protocol fee. previewMultiplier mirrors that claim
+  // math. Beyond the cap the house can't fully back the odds, so the delivered multiplier drops
+  // accordingly (kept in lock-step with the keeper). The FEE_BPS protocol fee is priced in here: it
+  // is taken on the winnings and routes to the dedicated fee wallet (create_market's fee_recipient),
+  // so — unlike before — it does NOT wash back to the placer. computePayout subtracts the same fee,
+  // so the settled amount matches this preview. Pasted demo picks (no meta) keep their placeholder.
   const pricedSlip = useMemo<SlipItem[]>(() => {
     const perStake = slip.length ? stake / slip.length : stake
     return slip.map((s) => {
@@ -155,7 +156,7 @@ export function VolmarketApp() {
       if (!meta) return s
       const odds = oddsFromLevelRaw(meta.levelRaw, meta.side)
       const seed = Math.min(BOOTSTRAP_CAP_USDC, perStake * (odds - 1))
-      return { ...s, mult: previewMultiplier(0, seed, perStake, 0) }
+      return { ...s, mult: previewMultiplier(0, seed, perStake, FEE_BPS) }
     })
   }, [slip, predMeta, stake])
 

@@ -88,6 +88,11 @@ export const CONFIG = {
   // Canonical app USDC mint (matches frontend-react USDC_MINT) — the mint the keeper deposits
   // bootstrap liquidity in; only markets on this mint are bootstrapped.
   appUsdcMint: new PublicKey(process.env.APP_USDC_MINT ?? "3aakQUJ6vvWphAr18ZoAJfoHs3w148tWJmKsgsnUj12q"),
+  // Dedicated house wallet that collects the protocol fee. Passed as create_market's fee_recipient
+  // (stored into market.authority) by any script that creates markets, so claims pay the fee here
+  // instead of back to the creator. Must match frontend FEE_RECIPIENT. Its USDC ATA must exist for
+  // claims to succeed. Only the pubkey is needed here; the secret is held off-repo (.fee-wallet.json).
+  feeRecipient: new PublicKey(process.env.FEE_RECIPIENT ?? "3NZbJWxuUp95jB8ULaeH2Lk1hfnUREdkjpUK9CWAJW2X"),
   mock: process.argv.includes("--mock"),
 };
 

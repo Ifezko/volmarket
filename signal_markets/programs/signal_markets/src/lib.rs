@@ -54,6 +54,11 @@ pub mod signal_markets {
         window_start: i64,
         window_end: i64,
         fee_bps: u16,
+        // Where the protocol fee is paid on claim. Stored into `market.authority`, which the
+        // Claim ix constrains `fee_token.owner` against. Passed as data (NOT a signer/account) so
+        // the market creator — user or keeper — can direct fees to a dedicated house wallet without
+        // that wallet co-signing or paying rent. The signer/rent-payer stays the `authority` account.
+        fee_recipient: Pubkey,
     ) -> Result<()> {
         require!(
             side == MARKET_SIDE_HOLD || side == MARKET_SIDE_BREAK,
@@ -72,7 +77,10 @@ pub mod signal_markets {
         m.window_end = window_end;
         m.usdc_mint = ctx.accounts.usdc_mint.key();
         m.vault = ctx.accounts.vault.key();
-        m.authority = ctx.accounts.authority.key();
+        // The fee recipient (see the `fee_recipient` arg) — NOT necessarily the creator. The
+        // account struct is unchanged (still a Pubkey at the same offset), so existing markets stay
+        // readable across this upgrade; only newly created markets route fees to the house wallet.
+        m.authority = fee_recipient;
         m.fee_bps = fee_bps;
         m.status = STATUS_OPEN;
         m.outcome = OUTCOME_UNSET;

@@ -15,7 +15,7 @@ import { BN } from '@coral-xyz/anchor'
 import type { ConnectedStandardSolanaWallet } from '@privy-io/react-auth/solana'
 import { getReadonlyProgram } from './onchainMarkets'
 import { PrivyAnchorWallet } from './privyAnchorWallet'
-import { USDC_MINT, topUpGas } from './funds'
+import { USDC_MINT, FEE_RECIPIENT, topUpGas } from './funds'
 
 // Markets are now single two-sided markets: the on-chain `side` is always HOLD, and its two pools
 // are the Holds side (SIDE_YES / total_yes, signal stays >= level) and the Breaks side (SIDE_NO /
@@ -24,7 +24,7 @@ import { USDC_MINT, topUpGas } from './funds'
 const SIDE_HOLD = 0
 const SIDE_YES = 1
 const SIDE_NO = 2
-const FEE_BPS = 500
+export const FEE_BPS = 500
 // Each pick costs 2 instructions (create_market + deposit) plus ~13 account metas. Now that the
 // stake is the user's already-deposited USDC (no per-tx mint setup), a single idempotent ATA
 // instruction plus 3 picks fits comfortably under the 1232-byte legacy limit; larger combos are
@@ -205,7 +205,7 @@ async function placeBatch(
     if (!exists) {
       willCreate.add(key)
       const createMarketIx = await program.methods
-        .createMarket(d.fixtureId, d.oddKey, d.marketParams, d.marketSide, d.level, d.windowStart, d.windowEnd, FEE_BPS)
+        .createMarket(d.fixtureId, d.oddKey, d.marketParams, d.marketSide, d.level, d.windowStart, d.windowEnd, FEE_BPS, FEE_RECIPIENT)
         .accounts({
           authority: userPublicKey,
           market: d.market,

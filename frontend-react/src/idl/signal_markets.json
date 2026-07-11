@@ -261,6 +261,10 @@
         {
           "name": "fee_bps",
           "type": "u16"
+        },
+        {
+          "name": "fee_recipient",
+          "type": "pubkey"
         }
       ]
     },

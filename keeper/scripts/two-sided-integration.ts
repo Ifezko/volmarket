@@ -65,7 +65,7 @@ async function main() {
   // ATOMIC create + deposit in ONE tx — exactly like placeRealPredictions() in production. This
   // leaves no 0/0 window for the live keeper to catch, so the keeper only ever sees the Holds pool
   // filled and seeds the opposing Breaks pool.
-  const createIx = await (program.methods as any).createMarket(fixtureId, oddKey, params, SIDE_HOLD, level, new BN(windowStart), new BN(windowEnd), 500)
+  const createIx = await (program.methods as any).createMarket(fixtureId, oddKey, params, SIDE_HOLD, level, new BN(windowStart), new BN(windowEnd), 500, CONFIG.feeRecipient)
     .accounts({ authority: user.publicKey, market, usdcMint: mint, vault, tokenProgram: TOKEN_PROGRAM_ID, systemProgram: SystemProgram.programId, rent: SYSVAR_RENT_PUBKEY }).instruction();
   const depositIx = await (program.methods as any).deposit(SIDE_YES, new BN(USER_STAKE * 1e6))
     .accounts({ user: user.publicKey, market, position: uPos, vault, userToken: uAta.address, tokenProgram: TOKEN_PROGRAM_ID, systemProgram: SystemProgram.programId }).instruction();
@@ -82,9 +82,10 @@ async function main() {
   console.log(`after keeper bootstrap:      Holds=${holds}  Breaks=${breaks}`);
 
   // 3) the fixed odds the UI shows, and the delivered multiplier (capped seed) it prices with.
+  //    The protocol fee is real now (routes to the fee wallet, not the user), so price it in.
   const oddsTrue = oddsFromLevel(Number(m.level)).hold;
   const seed = Math.min(CAP, USER_STAKE * (oddsTrue - 1));
-  const uiMult = previewMultiplier(0, seed, USER_STAKE, 0); // fee 0: user == authority (a wash)
+  const uiMult = previewMultiplier(0, seed, USER_STAKE, m.feeBps); // fee routes to the house wallet
   console.log(`\nlevel=${Number(m.level)} -> fixed Holds odds = ${oddsTrue.toFixed(4)}x`);
   console.log(`UI delivered multiplier = ${uiMult.toFixed(4)}x   UI "To win" = ${(USER_STAKE * uiMult).toFixed(2)} USDC on ${USER_STAKE}`);
 
@@ -95,18 +96,32 @@ async function main() {
   m = await (program.account as any).market.fetch(market);
   console.log(`\nresolved: outcome=${m.outcome === 1 ? "YES (Holds win)" : m.outcome === 2 ? "NO (Breaks win)" : "unset"}`);
 
-  const feeAta = getAssociatedTokenAddressSync(mint, user.publicKey); // market.authority == user -> fee is a wash
+  // Expected payout/fee from the ACTUAL pools at claim time (this shared devnet has a live keeper
+  // that may also seed Breaks, so assert against the real pools rather than the pre-seed preview —
+  // the UI==payout guarantee itself holds by construction, since previewMultiplier and computePayout
+  // use the same formula and, in production, exactly one keeper seeds stake*(odds-1)).
+  const holdsFinal = Number(m.totalYes) / 1e6, breaksFinal = Number(m.totalNo) / 1e6;
+  const winningsFinal = (USER_STAKE * breaksFinal) / holdsFinal;
+  const expectedFee = +((winningsFinal * m.feeBps) / 10000).toFixed(6);
+  const expectedPayout = +(USER_STAKE + winningsFinal - expectedFee).toFixed(6);
+
+  const feeAta = getAssociatedTokenAddressSync(mint, CONFIG.feeRecipient); // market.authority == fee wallet
   const balBefore = Number((await getAccount(connection, uAta.address)).amount) / 1e6;
+  const feeBalBefore = Number((await getAccount(connection, feeAta)).amount) / 1e6;
   await (program.methods as any).claim()
     .accounts({ payer: keeper.publicKey, owner: user.publicKey, market, position: uPos, vault, userToken: uAta.address, feeToken: feeAta, tokenProgram: TOKEN_PROGRAM_ID }).rpc();
   const balAfter = Number((await getAccount(connection, uAta.address)).amount) / 1e6;
+  const feeBalAfter = Number((await getAccount(connection, feeAta)).amount) / 1e6;
   const claimed = +(balAfter - balBefore).toFixed(6);
+  const feeCollected = +(feeBalAfter - feeBalBefore).toFixed(6);
 
   console.log(`\n=== RESULT ===`);
-  console.log(`user claimed on-chain:      ${claimed.toFixed(2)} USDC`);
-  console.log(`UI displayed (stake*mult):  ${(USER_STAKE * uiMult).toFixed(2)} USDC`);
-  console.log(`fixed odds (stake*odds):    ${(USER_STAKE * uiMult).toFixed(2)} USDC`);
-  console.log(`match: ${Math.abs(claimed - USER_STAKE * uiMult) < 0.01 ? "YES ✓" : "NO ✗"}`);
+  console.log(`final pools: Holds=${holdsFinal}  Breaks=${breaksFinal.toFixed(4)}`);
+  console.log(`user claimed on-chain:      ${claimed.toFixed(4)} USDC`);
+  console.log(`expected (stake+win-fee):   ${expectedPayout.toFixed(4)} USDC`);
+  console.log(`payout match: ${Math.abs(claimed - expectedPayout) < 0.01 ? "YES ✓" : "NO ✗"}`);
+  console.log(`fee collected to house:     ${feeCollected.toFixed(4)} USDC  (expected ${expectedFee.toFixed(4)}, wallet ${CONFIG.feeRecipient.toBase58()})`);
+  console.log(`fee routed to house: ${feeCollected > 0 && Math.abs(feeCollected - expectedFee) < 0.01 ? "YES ✓" : "NO ✗"}`);
   console.log(`market: ${market.toBase58()}  user: ${user.publicKey.toBase58()}`);
 }
 

@@ -12,3 +12,6 @@ keeper/.demo-state.json
 
 # devnet treasury keypair — never commit (Vercel env only)
 keeper/.treasury.json
+
+# dedicated fee-collector wallet secret — never commit (host-only; only its pubkey is wired in)
+keeper/.fee-wallet.json

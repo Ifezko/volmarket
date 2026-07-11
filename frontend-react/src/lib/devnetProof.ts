@@ -94,7 +94,9 @@ export async function runDevnetProof(
     null,
   )
   const createMarketIx = await program.methods
-    .createMarket(fixtureId, oddKey, marketParams, side, level, windowStart, windowEnd, feeBps)
+    // Self-contained proof: fee_recipient = the user itself (its own ephemeral mint), so no
+    // separate fee-wallet ATA is needed. The live app routes fees to FEE_RECIPIENT (see funds.ts).
+    .createMarket(fixtureId, oddKey, marketParams, side, level, windowStart, windowEnd, feeBps, userPublicKey)
     .accounts({
       authority: userPublicKey,
       market,

@@ -15,6 +15,14 @@ export const USDC_MINT = new PublicKey(
   import.meta.env.VITE_USDC_MINT ?? '3aakQUJ6vvWphAr18ZoAJfoHs3w148tWJmKsgsnUj12q',
 )
 
+// Dedicated house wallet that collects the protocol fee. Passed as create_market's fee_recipient
+// (stored into market.authority), so the fee on every claim routes here instead of washing back to
+// the placer. Only its pubkey is needed by the app; the secret is held off-repo. Override per-env
+// via VITE_FEE_RECIPIENT.
+export const FEE_RECIPIENT = new PublicKey(
+  import.meta.env.VITE_FEE_RECIPIENT ?? '3NZbJWxuUp95jB8ULaeH2Lk1hfnUREdkjpUK9CWAJW2X',
+)
+
 const FUND_ENDPOINT = import.meta.env.VITE_FUND_ENDPOINT ?? '/api/fund'
 
 export interface FundResult {
