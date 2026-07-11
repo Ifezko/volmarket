@@ -21,28 +21,40 @@ export async function bootstrapMarket(
   marketPubkey: PublicKey,
   marketAccount: { totalYes: BN | number; totalNo: BN | number; usdcMint: PublicKey },
 ): Promise<string[]> {
-  const amount = Math.round(CONFIG.bootstrapLiquidityUsdc * 1e6);
-  if (amount <= 0) return [];
   // Only markets on the canonical app mint — the keeper deposits app USDC, so a market on a
   // different mint would fail the deposit's mint constraint.
   if (marketAccount.usdcMint.toBase58() !== CONFIG.appUsdcMint.toBase58()) return [];
 
+  const floor = CONFIG.bootstrapLiquidityUsdc;
+  const cap = CONFIG.bootstrapMaxUsdc;
+  const ratio = CONFIG.bootstrapRatio;
+  if (floor <= 0) return [];
+
   const keeperUsdc = getAssociatedTokenAddressSync(CONFIG.appUsdcMint, keeper.publicKey);
   const [vault] = PublicKey.findProgramAddressSync([Buffer.from("vault"), marketPubkey.toBuffer()], program.programId);
 
+  const holdsUsdc = Number(marketAccount.totalYes) / 1e6;
+  const breaksUsdc = Number(marketAccount.totalNo) / 1e6;
+
   const sigs: string[] = [];
-  const pools: [number, number, string][] = [
-    [SIDE_YES, Number(marketAccount.totalYes), "Holds"],
-    [SIDE_NO, Number(marketAccount.totalNo), "Breaks"],
+  // For each EMPTY pool, seed an opposing stake sized to the filled (other) side × ratio, so the
+  // payout multiplier is ~constant regardless of the user's stake. Clamp to [floor, cap]. If the
+  // other side is also empty, fall back to the floor.
+  const pools: { side: number; mine: number; other: number; label: string }[] = [
+    { side: SIDE_YES, mine: holdsUsdc, other: breaksUsdc, label: "Holds" },
+    { side: SIDE_NO, mine: breaksUsdc, other: holdsUsdc, label: "Breaks" },
   ];
-  for (const [side, total, label] of pools) {
-    if (total > 0) continue; // pool already has liquidity — leave it
+  for (const p of pools) {
+    if (p.mine > 0) continue; // pool already has liquidity — leave it
+    const targetUsdc = p.other > 0 ? Math.min(cap, Math.max(floor, p.other * ratio)) : floor;
+    const amount = Math.round(targetUsdc * 1e6);
+    if (amount <= 0) continue;
     const [position] = PublicKey.findProgramAddressSync(
-      [Buffer.from("position"), marketPubkey.toBuffer(), keeper.publicKey.toBuffer(), Buffer.from([side])],
+      [Buffer.from("position"), marketPubkey.toBuffer(), keeper.publicKey.toBuffer(), Buffer.from([p.side])],
       program.programId,
     );
     const sig: string = await (program.methods as any)
-      .deposit(side, new BN(amount))
+      .deposit(p.side, new BN(amount))
       .accounts({
         user: keeper.publicKey,
         market: marketPubkey,
@@ -54,7 +66,7 @@ export async function bootstrapMarket(
       })
       .rpc();
     sigs.push(sig);
-    log.info(`bootstrap: +${CONFIG.bootstrapLiquidityUsdc} USDC into ${label} pool of ${marketPubkey.toBase58()}`);
+    log.info(`bootstrap: +${targetUsdc} USDC into ${p.label} pool of ${marketPubkey.toBase58()}`);
   }
   return sigs;
 }
