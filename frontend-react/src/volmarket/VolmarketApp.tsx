@@ -132,34 +132,23 @@ export function VolmarketApp() {
   )
 
   // Every on-chain market currently loaded (flattened from the board data), for pricing the slip.
-  const allMarkets = useMemo(
-    () => fixtures.flatMap((f) => f.odds.flatMap((o) => o.markets)),
-    [fixtures],
-  )
-
-  // The slip priced with the REAL payout multiplier from live pool sizes (replaces the old
-  // 100/prob guess): for each real pick, deposit `perStake` into its side of the HOLD market and
-  // read the current opposing/same-side pools. A market not opened yet has no pools on-chain, so we
-  // assume the keeper's bootstrap liquidity on the opposing side (ASSUMED_BOOTSTRAP_USDC) — the
-  // minimum a fresh market will have once placed. Pasted demo picks (no meta) keep their mult.
+  // The slip priced with the REAL payout multiplier. Placing ALWAYS opens a fresh market — its
+  // PDA is keyed by window_start = now, so a prediction never deposits into an existing pool
+  // (and the odd's level is deterministic, so other bettors' markets on the same line are separate
+  // window_starts). The opposing liquidity a fresh market gets is the keeper's bootstrap deposit,
+  // so a winner takes their `perStake` share of ASSUMED_BOOTSTRAP_USDC on the other side.
+  // Fee is 0 here on purpose: the placer is the market's `authority`, so the protocol fee routes
+  // back to their own wallet on claim — it's a wash. Net payout = stake + winnings, verified
+  // on-chain to the cent. (Replaces the old 100/prob guess and an earlier version that mis-priced
+  // off stale/resolved markets.) Pasted demo picks (no meta) keep their placeholder mult.
   const pricedSlip = useMemo<SlipItem[]>(() => {
     const perStake = slip.length ? stake / slip.length : stake
     return slip.map((s) => {
       const meta = predMeta[s.id]
       if (!meta) return s
-      const mkt = allMarkets.find(
-        (m) =>
-          m.fixtureId === meta.fixtureId &&
-          m.oddKey === meta.oddKey &&
-          m.marketParams === meta.marketParams &&
-          m.levelRaw === meta.levelRaw,
-      )
-      const feeBps = mkt?.feeBps ?? 500
-      const sameSide = mkt ? (meta.side === 'hold' ? mkt.totalYes : mkt.totalNo) : 0
-      const opposing = mkt ? (meta.side === 'hold' ? mkt.totalNo : mkt.totalYes) : ASSUMED_BOOTSTRAP_USDC
-      return { ...s, mult: previewMultiplier(sameSide, opposing, perStake, feeBps) }
+      return { ...s, mult: previewMultiplier(0, ASSUMED_BOOTSTRAP_USDC, perStake, 0) }
     })
-  }, [slip, predMeta, allMarkets, stake])
+  }, [slip, predMeta, stake])
 
   const refreshMarkets = useCallback(async () => {
     try {
