@@ -204,17 +204,24 @@ export function SignalChart({
     })
     onLiveProb?.(sig.prob)
 
-    // x time axis - reads the market's real window duration
+    // x time axis - real clock time, advancing left-to-right with the tape (no negative offsets).
+    // The tape's right tip is the current moment; the axis spans the selected window before it. A
+    // Holds/Breaks placed now settles one window later (now + windowSecs), shown top-right.
     const wsecs = windowSecs || 300
-    const ft = (s: number) => (s < 60 ? s + 's' : s % 3600 === 0 ? s / 3600 + 'h' : s % 60 === 0 ? s / 60 + 'm' : (s / 60).toFixed(1) + 'm')
+    const clock = (ms: number) =>
+      new Date(ms).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: false })
+    const nowMs = Date.now()
     ctx.fillStyle = '#5a6573'
     ctx.font = '9px "JetBrains Mono"'
     ctx.textAlign = 'left'
-    ctx.fillText('-' + ft(wsecs), padL, h - 3)
+    ctx.fillText(clock(nowMs - wsecs * 1000), padL, h - 3)
     ctx.textAlign = 'center'
-    ctx.fillText('-' + ft(Math.round(wsecs / 2)), (padL + plotR) / 2, h - 3)
+    ctx.fillText(clock(nowMs - wsecs * 500), (padL + plotR) / 2, h - 3)
     ctx.textAlign = 'right'
-    ctx.fillText('now', plotR, h - 3)
+    ctx.fillText(clock(nowMs), plotR, h - 3)
+    // when a Holds/Breaks over the selected window would settle
+    ctx.fillStyle = '#8b95a2'
+    ctx.fillText('settles ' + clock(nowMs + wsecs * 1000), plotR, padT + 9)
     ctx.textAlign = 'left'
 
     // live % value pinned at the tip of the tape - drawn LAST so nothing overpaints it. Solid
