@@ -833,32 +833,12 @@
         {
           "name": "group_member",
           "docs": [
-            "The caller's membership in `group` — must exist and be approved. The seed ties it to",
-            "`member`, so only the signer's own membership can authorize their deposit."
+            "The caller's membership in `group`. OPTIONAL: the group owner is the implicit first member",
+            "and has no GroupMember account, so they pass None; every other depositor passes their own",
+            "approved membership. Ownership of the passed account (group + member match) and approval are",
+            "validated in the handler."
           ],
-          "pda": {
-            "seeds": [
-              {
-                "kind": "const",
-                "value": [
-                  109,
-                  101,
-                  109,
-                  98,
-                  101,
-                  114
-                ]
-              },
-              {
-                "kind": "account",
-                "path": "group"
-              },
-              {
-                "kind": "account",
-                "path": "member"
-              }
-            ]
-          }
+          "optional": true
         },
         {
           "name": "market",

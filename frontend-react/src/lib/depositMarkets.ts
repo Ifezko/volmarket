@@ -300,10 +300,13 @@ async function placeGroupBatch(
   tx.add(createAssociatedTokenAccountIdempotentInstruction(userPublicKey, userToken, userPublicKey, USDC_MINT))
 
   const now = Math.floor(Date.now() / 1000)
-  const [groupMember] = PublicKey.findProgramAddressSync(
+  // The group owner has no GroupMember account and passes null (allowed on-chain); approved members
+  // pass theirs. Same (group, member) across the whole batch, so resolve it once.
+  const [groupMemberKey] = PublicKey.findProgramAddressSync(
     [Buffer.from('member'), group.toBuffer(), userPublicKey.toBuffer()],
     program.programId,
   )
+  const groupMember = (await connection.getAccountInfo(groupMemberKey)) ? groupMemberKey : null
 
   const derived = picks.map((pick) => {
     const marketSide = SIDE_HOLD

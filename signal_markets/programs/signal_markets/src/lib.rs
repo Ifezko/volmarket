@@ -416,10 +416,22 @@ pub mod signal_markets {
     pub fn group_deposit(ctx: Context<GroupDeposit>, side: u8, amount: u64) -> Result<()> {
         require!(side == SIDE_YES || side == SIDE_NO, MarketError::InvalidSide);
         require!(amount > 0, MarketError::ZeroAmount);
-        require!(
-            ctx.accounts.group_member.approved,
-            MarketError::MemberNotApproved
-        );
+
+        // Authorization: the group owner is the implicit first member and has NO GroupMember
+        // account (see create_group), so they deposit without one. Everyone else must present
+        // their own approved GroupMember for this group. `group_member` is optional precisely so
+        // the owner can pass None.
+        let signer = ctx.accounts.member.key();
+        if signer != ctx.accounts.group.owner {
+            let gm = ctx
+                .accounts
+                .group_member
+                .as_ref()
+                .ok_or(error!(MarketError::MemberNotApproved))?;
+            require_keys_eq!(gm.group, ctx.accounts.group.key(), MarketError::Unauthorized);
+            require_keys_eq!(gm.member, signer, MarketError::Unauthorized);
+            require!(gm.approved, MarketError::MemberNotApproved);
+        }
 
         token::transfer(
             CpiContext::new(
@@ -849,14 +861,11 @@ pub struct GroupDeposit<'info> {
 
     pub group: Account<'info, Group>,
 
-    /// The caller's membership in `group` — must exist and be approved. The seed ties it to
-    /// `member`, so only the signer's own membership can authorize their deposit.
-    #[account(
-        seeds = [b"member", group.key().as_ref(), member.key().as_ref()],
-        bump = group_member.bump,
-        constraint = group_member.group == group.key() @ MarketError::Unauthorized,
-    )]
-    pub group_member: Account<'info, GroupMember>,
+    /// The caller's membership in `group`. OPTIONAL: the group owner is the implicit first member
+    /// and has no GroupMember account, so they pass None; every other depositor passes their own
+    /// approved membership. Ownership of the passed account (group + member match) and approval are
+    /// validated in the handler.
+    pub group_member: Option<Account<'info, GroupMember>>,
 
     #[account(
         mut,

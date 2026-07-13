@@ -230,7 +230,10 @@ export async function groupDepositOnchain(
   const depositSide = opts.side === 'hold' ? SIDE_YES : SIDE_NO
   return signSend(connection, wallet, sign, async (program) => {
     const pid = program.programId
-    const groupMember = memberPda(group, member, pid)
+    // The group owner has no GroupMember account and passes null (allowed on-chain); everyone else
+    // passes their approved membership. Check existence so either path works.
+    const groupMemberKey = memberPda(group, member, pid)
+    const groupMember = (await connection.getAccountInfo(groupMemberKey)) ? groupMemberKey : null
     const [vault] = PublicKey.findProgramAddressSync([Buffer.from('vault'), market.toBuffer()], pid)
     const [groupPool] = PublicKey.findProgramAddressSync([Buffer.from('grouppool'), group.toBuffer(), market.toBuffer()], pid)
     const [groupPosition] = PublicKey.findProgramAddressSync(
