@@ -406,6 +406,57 @@ pub mod signal_markets {
         g.member_count = g.member_count.checked_add(1).ok_or(MarketError::Overflow)?;
         Ok(())
     }
+
+    /// An approved group member stakes into a market *as part of the group*. Mechanically this is
+    /// the individual `deposit` — funds go into the same market vault and bump `market.total_*`, so
+    /// group money competes in the market's pool like everyone else's — but the per-member
+    /// accounting lives in group-scoped PDAs instead of a `Position`: a shared `GroupPool`
+    /// (group+market) aggregate and a per-member `GroupPosition`. `claim_group` (Slice 4) pays each
+    /// member out of the market pro-rata from their `GroupPosition`, applying the *group's* fee.
+    pub fn group_deposit(ctx: Context<GroupDeposit>, side: u8, amount: u64) -> Result<()> {
+        require!(side == SIDE_YES || side == SIDE_NO, MarketError::InvalidSide);
+        require!(amount > 0, MarketError::ZeroAmount);
+        require!(
+            ctx.accounts.group_member.approved,
+            MarketError::MemberNotApproved
+        );
+
+        token::transfer(
+            CpiContext::new(
+                ctx.accounts.token_program.to_account_info(),
+                Transfer {
+                    from: ctx.accounts.member_token.to_account_info(),
+                    to: ctx.accounts.vault.to_account_info(),
+                    authority: ctx.accounts.member.to_account_info(),
+                },
+            ),
+            amount,
+        )?;
+
+        let gp = &mut ctx.accounts.group_position;
+        gp.group = ctx.accounts.group.key();
+        gp.market = ctx.accounts.market.key();
+        gp.member = ctx.accounts.member.key();
+        gp.side = side;
+        gp.amount = gp.amount.checked_add(amount).ok_or(MarketError::Overflow)?;
+        gp.claimed = false;
+        gp.bump = ctx.bumps.group_position;
+
+        let pool = &mut ctx.accounts.group_pool;
+        pool.group = ctx.accounts.group.key();
+        pool.market = ctx.accounts.market.key();
+        pool.bump = ctx.bumps.group_pool;
+
+        let m = &mut ctx.accounts.market;
+        if side == SIDE_YES {
+            pool.total_yes = pool.total_yes.checked_add(amount).ok_or(MarketError::Overflow)?;
+            m.total_yes = m.total_yes.checked_add(amount).ok_or(MarketError::Overflow)?;
+        } else {
+            pool.total_no = pool.total_no.checked_add(amount).ok_or(MarketError::Overflow)?;
+            m.total_no = m.total_no.checked_add(amount).ok_or(MarketError::Overflow)?;
+        }
+        Ok(())
+    }
 }
 
 // ---- TxLINE CPI helper (the single swappable integration seam) ----
@@ -691,6 +742,73 @@ pub struct ApproveMember<'info> {
     pub group_member: Account<'info, GroupMember>,
 }
 
+#[derive(Accounts)]
+#[instruction(side: u8)]
+pub struct GroupDeposit<'info> {
+    #[account(mut)]
+    pub member: Signer<'info>,
+
+    pub group: Account<'info, Group>,
+
+    /// The caller's membership in `group` — must exist and be approved. The seed ties it to
+    /// `member`, so only the signer's own membership can authorize their deposit.
+    #[account(
+        seeds = [b"member", group.key().as_ref(), member.key().as_ref()],
+        bump = group_member.bump,
+        constraint = group_member.group == group.key() @ MarketError::Unauthorized,
+    )]
+    pub group_member: Account<'info, GroupMember>,
+
+    #[account(
+        mut,
+        seeds = [
+            b"market",
+            market.fixture_id.to_le_bytes().as_ref(),
+            market.odd_key.to_le_bytes().as_ref(),
+            market.market_params.to_le_bytes().as_ref(),
+            market.side.to_le_bytes().as_ref(),
+            market.level.to_le_bytes().as_ref(),
+            market.window_start.to_le_bytes().as_ref(),
+        ],
+        bump = market.bump,
+        constraint = market.status == STATUS_OPEN @ MarketError::MarketNotOpen,
+    )]
+    pub market: Account<'info, Market>,
+
+    /// Shared per-(group, market) aggregate — the "group pool" that fills as members deposit.
+    #[account(
+        init_if_needed,
+        payer = member,
+        space = 8 + GroupPool::INIT_SPACE,
+        seeds = [b"grouppool", group.key().as_ref(), market.key().as_ref()],
+        bump
+    )]
+    pub group_pool: Account<'info, GroupPool>,
+
+    /// This member's contribution to (group, market) on `side`. Mirrors an individual Position.
+    #[account(
+        init_if_needed,
+        payer = member,
+        space = 8 + GroupPosition::INIT_SPACE,
+        seeds = [b"grouppos", group.key().as_ref(), market.key().as_ref(), member.key().as_ref(), &[side]],
+        bump
+    )]
+    pub group_position: Account<'info, GroupPosition>,
+
+    #[account(mut, address = market.vault)]
+    pub vault: Account<'info, TokenAccount>,
+
+    #[account(
+        mut,
+        constraint = member_token.mint == market.usdc_mint @ MarketError::WrongMint,
+        constraint = member_token.owner == member.key() @ MarketError::Unauthorized,
+    )]
+    pub member_token: Account<'info, TokenAccount>,
+
+    pub token_program: Program<'info, Token>,
+    pub system_program: Program<'info, System>,
+}
+
 // =========================== State ===========================
 
 #[account]
@@ -760,6 +878,32 @@ pub struct GroupMember {
     pub bump: u8,
 }
 
+/// Shared aggregate of a group's stake in one market — the "group pool". Sum of all members'
+/// group_deposits on each side. Display + a cross-check on the per-member GroupPositions.
+#[account]
+#[derive(InitSpace)]
+pub struct GroupPool {
+    pub group: Pubkey,
+    pub market: Pubkey,
+    pub total_yes: u64,
+    pub total_no: u64,
+    pub bump: u8,
+}
+
+/// One member's contribution to a (group, market) on a given side. The unit `claim_group` pays
+/// out pro-rata (mirrors an individual Position, but settled through the group with the group fee).
+#[account]
+#[derive(InitSpace)]
+pub struct GroupPosition {
+    pub group: Pubkey,
+    pub market: Pubkey,
+    pub member: Pubkey,
+    pub side: u8, // SIDE_YES | SIDE_NO
+    pub amount: u64,
+    pub claimed: bool,
+    pub bump: u8,
+}
+
 // =========================== Errors ===========================
 
 #[error_code]
@@ -806,4 +950,6 @@ pub enum MarketError {
     NotGroupOwner,
     #[msg("member is already approved")]
     AlreadyApproved,
+    #[msg("group member is not approved")]
+    MemberNotApproved,
 }

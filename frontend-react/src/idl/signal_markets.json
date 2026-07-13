@@ -684,6 +684,182 @@
       ]
     },
     {
+      "name": "group_deposit",
+      "docs": [
+        "An approved group member stakes into a market *as part of the group*. Mechanically this is",
+        "the individual `deposit` — funds go into the same market vault and bump `market.total_*`, so",
+        "group money competes in the market's pool like everyone else's — but the per-member",
+        "accounting lives in group-scoped PDAs instead of a `Position`: a shared `GroupPool`",
+        "(group+market) aggregate and a per-member `GroupPosition`. `claim_group` (Slice 4) pays each",
+        "member out of the market pro-rata from their `GroupPosition`, applying the *group's* fee."
+      ],
+      "discriminator": [
+        178,
+        141,
+        166,
+        235,
+        123,
+        20,
+        145,
+        131
+      ],
+      "accounts": [
+        {
+          "name": "member",
+          "writable": true,
+          "signer": true
+        },
+        {
+          "name": "group"
+        },
+        {
+          "name": "group_member",
+          "docs": [
+            "The caller's membership in `group` — must exist and be approved. The seed ties it to",
+            "`member`, so only the signer's own membership can authorize their deposit."
+          ],
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  109,
+                  101,
+                  109,
+                  98,
+                  101,
+                  114
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "group"
+              },
+              {
+                "kind": "account",
+                "path": "member"
+              }
+            ]
+          }
+        },
+        {
+          "name": "market",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  109,
+                  97,
+                  114,
+                  107,
+                  101,
+                  116
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "market.fixture_id",
+                "account": "Market"
+              },
+              {
+                "kind": "account",
+                "path": "market.odd_key",
+                "account": "Market"
+              },
+              {
+                "kind": "account",
+                "path": "market.market_params",
+                "account": "Market"
+              },
+              {
+                "kind": "account",
+                "path": "market.side",
+                "account": "Market"
+              },
+              {
+                "kind": "account",
+                "path": "market.level",
+                "account": "Market"
+              },
+              {
+                "kind": "account",
+                "path": "market.window_start",
+                "account": "Market"
+              }
+            ]
+          }
+        },
+        {
+          "name": "group_pool",
+          "docs": [
+            "Shared per-(group, market) aggregate — the \"group pool\" that fills as members deposit."
+          ],
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  103,
+                  114,
+                  111,
+                  117,
+                  112,
+                  112,
+                  111,
+                  111,
+                  108
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "group"
+              },
+              {
+                "kind": "account",
+                "path": "market"
+              }
+            ]
+          }
+        },
+        {
+          "name": "group_position",
+          "docs": [
+            "This member's contribution to (group, market) on `side`. Mirrors an individual Position."
+          ],
+          "writable": true
+        },
+        {
+          "name": "vault",
+          "writable": true
+        },
+        {
+          "name": "member_token",
+          "writable": true
+        },
+        {
+          "name": "token_program",
+          "address": "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA"
+        },
+        {
+          "name": "system_program",
+          "address": "11111111111111111111111111111111"
+        }
+      ],
+      "args": [
+        {
+          "name": "side",
+          "type": "u8"
+        },
+        {
+          "name": "amount",
+          "type": "u64"
+        }
+      ]
+    },
+    {
       "name": "request_join",
       "docs": [
         "A wallet asks to join a group: mints its `GroupMember` in the pending (`approved = false`)",
@@ -866,6 +1042,32 @@
       ]
     },
     {
+      "name": "GroupPool",
+      "discriminator": [
+        124,
+        52,
+        1,
+        119,
+        193,
+        210,
+        149,
+        119
+      ]
+    },
+    {
+      "name": "GroupPosition",
+      "discriminator": [
+        81,
+        128,
+        90,
+        58,
+        22,
+        247,
+        156,
+        86
+      ]
+    },
+    {
       "name": "Market",
       "discriminator": [
         219,
@@ -997,6 +1199,11 @@
       "code": 6020,
       "name": "AlreadyApproved",
       "msg": "member is already approved"
+    },
+    {
+      "code": 6021,
+      "name": "MemberNotApproved",
+      "msg": "group member is not approved"
     }
   ],
   "types": [
@@ -1062,6 +1269,78 @@
           },
           {
             "name": "approved",
+            "type": "bool"
+          },
+          {
+            "name": "bump",
+            "type": "u8"
+          }
+        ]
+      }
+    },
+    {
+      "name": "GroupPool",
+      "docs": [
+        "Shared aggregate of a group's stake in one market — the \"group pool\". Sum of all members'",
+        "group_deposits on each side. Display + a cross-check on the per-member GroupPositions."
+      ],
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "group",
+            "type": "pubkey"
+          },
+          {
+            "name": "market",
+            "type": "pubkey"
+          },
+          {
+            "name": "total_yes",
+            "type": "u64"
+          },
+          {
+            "name": "total_no",
+            "type": "u64"
+          },
+          {
+            "name": "bump",
+            "type": "u8"
+          }
+        ]
+      }
+    },
+    {
+      "name": "GroupPosition",
+      "docs": [
+        "One member's contribution to a (group, market) on a given side. The unit `claim_group` pays",
+        "out pro-rata (mirrors an individual Position, but settled through the group with the group fee)."
+      ],
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "group",
+            "type": "pubkey"
+          },
+          {
+            "name": "market",
+            "type": "pubkey"
+          },
+          {
+            "name": "member",
+            "type": "pubkey"
+          },
+          {
+            "name": "side",
+            "type": "u8"
+          },
+          {
+            "name": "amount",
+            "type": "u64"
+          },
+          {
+            "name": "claimed",
             "type": "bool"
           },
           {
