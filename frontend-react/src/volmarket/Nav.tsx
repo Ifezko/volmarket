@@ -51,7 +51,8 @@ export function Nav({
       <div className="wrap">
         <div className="nav1">
           <div className="logo" onClick={onLogoClick}>
-            <span className="dot"></span>Volmarket
+            <img className="logomark" src="/favicon.svg" alt="Volmarket" width={24} height={24} />
+            Volmarket
           </div>
           <div className="search">
             <span>⌕</span>

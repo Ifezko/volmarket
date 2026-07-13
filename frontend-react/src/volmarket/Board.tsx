@@ -45,11 +45,20 @@ export function Board({
 
       <div className="grid" id="grid">
         {fixtures.length === 0 ? (
-          <p className="empty">
-            {hasAnyMarkets
-              ? 'No matches in this view — try another filter.'
-              : 'No real markets on devnet yet — seed some with keeper/scripts/seed-devnet.ts.'}
-          </p>
+          <div className="empty" style={{ display: 'grid', justifyItems: 'center', gap: 12 }}>
+            <img
+              src="/favicon.svg"
+              alt=""
+              width={44}
+              height={44}
+              style={{ opacity: 0.85, filter: 'drop-shadow(0 0 16px rgba(134,59,255,.4))' }}
+            />
+            <span>
+              {hasAnyMarkets
+                ? 'No matches in this view — try another filter.'
+                : 'No real markets on devnet yet — seed some with keeper/scripts/seed-devnet.ts.'}
+            </span>
+          </div>
         ) : (
           fixtures.map((m) => <MatchCard key={m.id} m={m} now={now} onOpen={onOpenMatch} />)
         )}
