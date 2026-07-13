@@ -2,6 +2,14 @@ import { useEffect, useState } from 'react'
 import type { ActivePosition } from '../lib/claimMarkets'
 import type { FundingEvent } from '../lib/funds'
 import { describeMarket } from './liveFixtures'
+import { feeLabel } from './groups'
+
+export interface MyGroup {
+  name: string
+  feeBps: number
+  role: 'Owner' | 'Member'
+  members: number
+}
 
 // Rendered in the Slip drawer's `override` slot (same pattern as Deposit). Two views via a
 // segmented control: "Account" (wallet address + withdraw) and "History" (recent on-chain
@@ -15,6 +23,8 @@ export function ProfilePanel({
   onWithdraw,
   onLogout,
   positions,
+  myGroups,
+  onOpenGroups,
   loadFunding,
 }: {
   walletAddress: string | undefined
@@ -24,6 +34,8 @@ export function ProfilePanel({
   onWithdraw: (destination: string, amount: number) => Promise<void>
   onLogout: () => Promise<void>
   positions: ActivePosition[]
+  myGroups: MyGroup[]
+  onOpenGroups: () => void
   loadFunding: () => Promise<FundingEvent[]>
 }) {
   const [view, setView] = useState<'account' | 'history'>('account')
@@ -119,6 +131,37 @@ export function ProfilePanel({
             <div className="mono" style={{ fontSize: 22, fontWeight: 700, color: 'var(--green)' }}>
               ${balance.toFixed(2)}
             </div>
+          </div>
+
+          <div className="gfield">
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline' }}>
+              <label className="flbl">My groups</label>
+              <button
+                className="s"
+                onClick={onOpenGroups}
+                style={{ background: 'none', border: 'none', color: 'var(--blue)', cursor: 'pointer', padding: 0 }}
+              >
+                Browse all →
+              </button>
+            </div>
+            {myGroups.length === 0 ? (
+              <div className="s" style={{ color: 'var(--dim)' }}>
+                You're not in any group yet. Open Groups to create or join one.
+              </div>
+            ) : (
+              <div style={{ display: 'grid', gap: 8 }}>
+                {myGroups.map((g, i) => (
+                  <div className="selrow" key={i}>
+                    <div style={{ minWidth: 0 }}>
+                      <div className="l">{g.name}</div>
+                      <div className="s" style={{ color: 'var(--dim)' }}>
+                        {g.role} · {g.members} {g.members === 1 ? 'member' : 'members'} · Group fee: {feeLabel(g.feeBps)}
+                      </div>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
           </div>
 
           <div className="gfield">

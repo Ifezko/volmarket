@@ -6,14 +6,12 @@ function genShort(): string {
   return Array.from({ length: 4 }, () => s[Math.floor(Math.random() * s.length)]).join('')
 }
 
-// Fee presets the creator picks from — "Free" (0%) plus a few common cuts. Stored on-chain as
-// fee_bps (× 100), the group's cut on winnings at claim_group.
-const FEE_OPTIONS: { label: string; bps: number }[] = [
-  { label: 'Free', bps: 0 },
-  { label: '1%', bps: 100 },
-  { label: '2.5%', bps: 250 },
-  { label: '5%', bps: 500 },
-]
+// A percent string ("0", "2.5", …) -> on-chain fee_bps (× 100), clamped to 0–100%.
+function pctToBps(pct: string): number {
+  const n = parseFloat(pct)
+  if (!Number.isFinite(n) || n <= 0) return 0
+  return Math.min(10_000, Math.round(n * 100))
+}
 
 // Ported from openGroups()/gVis()/gJoin()/gSlug()/createGroup() in frontend/index.html —
 // rendered inside the Slip drawer's `override` slot (see Slip.tsx), same as the
@@ -35,7 +33,9 @@ export function GroupCreatePanel({
   const [name, setName] = useState('')
   const [visibility, setVisibility] = useState<'Public' | 'Private'>('Private')
   const [joinMode, setJoinMode] = useState<'link' | 'invite'>('link')
-  const [feeBps, setFeeBps] = useState(0)
+  // Free-form percent buffer so the field edits cleanly (like StakePicker's custom amount).
+  const [feePct, setFeePct] = useState('0')
+  const feeBps = pctToBps(feePct)
   const [created, setCreated] = useState(false)
 
   const slug = name.trim().toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '') || 'group'
@@ -123,15 +123,28 @@ export function GroupCreatePanel({
       </div>
       <div className="gfield">
         <label className="flbl">Group fee</label>
-        <div className="seg">
-          {FEE_OPTIONS.map((o) => (
-            <button key={o.bps} className={`segbtn${feeBps === o.bps ? ' on' : ''}`} onClick={() => setFeeBps(o.bps)}>
-              {o.label}
-            </button>
-          ))}
+        <div className="cprow">
+          <input
+            className="tinput"
+            type="number"
+            min="0"
+            max="100"
+            step="0.1"
+            inputMode="decimal"
+            value={feePct}
+            onChange={(e) => setFeePct(e.target.value)}
+            onFocus={(e) => e.target.select()}
+            placeholder="0"
+            style={{ flex: 1 }}
+          />
+          <span style={{ alignSelf: 'center', color: 'var(--dim)', minWidth: 56, textAlign: 'right' }}>
+            % · {feeLabel(feeBps)}
+          </span>
         </div>
         <div className="s" style={{ color: 'var(--dim)', marginTop: 6 }}>
-          {feeBps === 0 ? 'No cut — members keep all winnings.' : `Your cut on members' winnings at settlement (${feeLabel(feeBps)}).`}
+          {feeBps === 0
+            ? 'No cut — members keep all winnings.'
+            : `Your cut on members' winnings at settlement (${feeLabel(feeBps)}). Set any amount, 0 = Free.`}
         </div>
       </div>
       <div className="linkbox">{link}</div>
