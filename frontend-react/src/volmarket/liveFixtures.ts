@@ -1,5 +1,6 @@
 import { FL, rng } from './data'
 import type { RealMarket } from '../lib/onchainMarkets'
+import { USDC_MINT } from '../lib/funds'
 import realFixtures from './realFixtures.json'
 
 // Real fixtures seeded from the live TxLINE feed carry no team names on-chain, so we keep a
@@ -208,6 +209,12 @@ export function describeMarket(
 export function buildLiveFixtures(markets: RealMarket[]): LiveFixture[] {
   const byFixture = new Map<number, RealMarket[]>()
   for (const m of markets) {
+    // Only surface markets on the app's canonical USDC mint. `market.all()` returns EVERY market
+    // on the program regardless of mint, so markets created on throwaway/ephemeral mints (the
+    // self-contained devnetProof flow, backend verification scripts, etc.) would otherwise show up
+    // as stray board cards with pseudo team names. Their fixture ids clear REAL_FIXTURE_MIN but
+    // they aren't real tradeable fixtures for this app.
+    if (!m.usdcMint.equals(USDC_MINT)) continue
     const arr = byFixture.get(m.fixtureId) ?? []
     arr.push(m)
     byFixture.set(m.fixtureId, arr)
