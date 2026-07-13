@@ -194,7 +194,11 @@ async function placeBatch(
     return { pick, marketSide, depositSide, windowStart, windowEnd, fixtureId, oddKey, marketParams, level, market, vault, position }
   })
 
-  const marketInfos = await connection.getMultipleAccountsInfo(derived.map((d) => d.market))
+  // Fetch market-existence and a recent blockhash concurrently to shave a round trip off placing.
+  const [marketInfos, latest] = await Promise.all([
+    connection.getMultipleAccountsInfo(derived.map((d) => d.market)),
+    connection.getLatestBlockhash(),
+  ])
   const willCreate = new Set<string>() // guard against two picks in one batch sharing a market
 
   for (let i = 0; i < derived.length; i++) {
@@ -236,13 +240,21 @@ async function placeBatch(
 
   const anchorWallet = new PrivyAnchorWallet(wallet, privySignTransaction)
   tx.feePayer = userPublicKey
-  const { blockhash, lastValidBlockHeight } = await connection.getLatestBlockhash()
-  tx.recentBlockhash = blockhash
+  tx.recentBlockhash = latest.blockhash
 
   const signedTx = await anchorWallet.signTransaction(tx)
   try {
-    const signature = await connection.sendRawTransaction(signedTx.serialize())
-    await connection.confirmTransaction({ signature, blockhash, lastValidBlockHeight }, 'confirmed')
+    const signature = await connection.sendRawTransaction(signedTx.serialize(), { maxRetries: 5 })
+    // Optimistic: resolve as soon as the RPC accepts the tx (send runs preflight simulation, so a
+    // bad tx still throws here), and confirm in the background. Placing feels instant instead of
+    // blocking seconds on cluster confirmation; the periodic wallet-state refresh reconciles the
+    // rare case where an accepted tx fails to land.
+    void connection
+      .confirmTransaction(
+        { signature, blockhash: latest.blockhash, lastValidBlockHeight: latest.lastValidBlockHeight },
+        'confirmed',
+      )
+      .catch((e) => console.warn('place confirm (background) failed', signature, e))
     return signature
   } catch (err) {
     throw await explainSendError(err, connection)
@@ -341,7 +353,10 @@ async function placeGroupBatch(
     return { pick, marketSide, depositSide, windowStart, windowEnd, fixtureId, oddKey, marketParams, level, market, vault, groupPool, groupPosition }
   })
 
-  const marketInfos = await connection.getMultipleAccountsInfo(derived.map((d) => d.market))
+  const [marketInfos, latest] = await Promise.all([
+    connection.getMultipleAccountsInfo(derived.map((d) => d.market)),
+    connection.getLatestBlockhash(),
+  ])
   const willCreate = new Set<string>()
 
   for (let i = 0; i < derived.length; i++) {
@@ -384,12 +399,17 @@ async function placeGroupBatch(
 
   const anchorWallet = new PrivyAnchorWallet(wallet, privySignTransaction)
   tx.feePayer = userPublicKey
-  const { blockhash, lastValidBlockHeight } = await connection.getLatestBlockhash()
-  tx.recentBlockhash = blockhash
+  tx.recentBlockhash = latest.blockhash
   const signedTx = await anchorWallet.signTransaction(tx)
   try {
-    const signature = await connection.sendRawTransaction(signedTx.serialize())
-    await connection.confirmTransaction({ signature, blockhash, lastValidBlockHeight }, 'confirmed')
+    const signature = await connection.sendRawTransaction(signedTx.serialize(), { maxRetries: 5 })
+    // Optimistic (same as placeBatch): resolve on RPC accept, confirm in the background.
+    void connection
+      .confirmTransaction(
+        { signature, blockhash: latest.blockhash, lastValidBlockHeight: latest.lastValidBlockHeight },
+        'confirmed',
+      )
+      .catch((e) => console.warn('group send confirm (background) failed', signature, e))
     return signature
   } catch (err) {
     throw await explainSendError(err, connection)
