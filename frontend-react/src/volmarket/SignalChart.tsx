@@ -8,8 +8,8 @@ import { createPortal } from 'react-dom'
 // simulated tape, same as the original (there's no live TxLINE feed wired into the
 // browser) - but it's now seeded from a real on-chain market's level, and "your call"
 // lines are real deposited positions instead of pending slip picks. The window selector
-// and Holds/Breaks buttons that used to live here moved to RealPredictPanel, since a real
-// market's window is fixed at creation, not a UI choice.
+// and Holds/Breaks buttons live in the predict panel; the selected window is passed in as
+// `windowSecs` so the x time axis matches the window you're about to predict on.
 
 const BUCKETS = 34
 

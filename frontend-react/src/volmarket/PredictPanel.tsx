@@ -15,6 +15,8 @@ export function PredictPanel({
   fixtureId,
   isSelected,
   onAdd,
+  activeWin,
+  onWindowChange,
   slip,
   stake,
   ticket,
@@ -37,6 +39,8 @@ export function PredictPanel({
   fixtureId: number
   isSelected: (id: string) => boolean
   onAdd: (id: string, label: string, prob: number, meta: RealPredictMeta) => void
+  activeWin: number
+  onWindowChange: (i: number) => void
   slip: SlipItem[]
   stake: number
   ticket: Ticket | null
@@ -102,7 +106,7 @@ export function PredictPanel({
             <h3>Predict</h3>
             {slip.length > 0 && <span className="pp-count">{slip.length} in slip</span>}
           </div>
-          <PredictBuilder odd={odd} fixtureId={fixtureId} isSelected={isSelected} onAdd={onAdd} />
+          <PredictBuilder odd={odd} fixtureId={fixtureId} isSelected={isSelected} onAdd={onAdd} activeWin={activeWin} onWindowChange={onWindowChange} />
 
           <div className="pp-slip">
             {slip.length === 0 ? (

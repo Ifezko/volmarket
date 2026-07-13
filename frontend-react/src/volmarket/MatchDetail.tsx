@@ -1,9 +1,11 @@
+import { useState } from 'react'
 import { Sparkline } from './Sparkline'
 import { Flag } from './Flag'
 import { useNow } from './useNow'
 import { SignalChart, type PredictionLine } from './SignalChart'
 import { PredictPanel } from './PredictPanel'
 import { type RealPredictMeta } from './PredictBuilder'
+import { WSECS } from './predictWindows'
 import { matchState, type LiveFixture } from './liveFixtures'
 import type { SlipItem, Ticket } from './Slip'
 
@@ -70,6 +72,9 @@ export function MatchDetail({
   sending: boolean
   onSendToGroup: (groupAddress: string) => void
 }) {
+  // Selected prediction window (index into WINDOWS/WSECS), lifted here so the chart's time axis
+  // and the window selector stay in sync. Default 7 = 5m, matching the selector's default.
+  const [activeWin, setActiveWin] = useState(7)
   const live = match.status === 'live'
   const curOdds = match.odds
   const activeOdd = curOdds.find((o) => o.key === activeKey)
@@ -156,7 +161,7 @@ export function MatchDetail({
                     matchId={match.id}
                     oddKey={activeOdd.key}
                     prob={activeOdd.prob}
-                    windowSecs={300}
+                    windowSecs={WSECS[activeWin]}
                     predictionLines={predictionLines}
                     onLiveProb={onLiveProb}
                   />
@@ -168,6 +173,8 @@ export function MatchDetail({
                     fixtureId={match.fixtureId}
                     isSelected={isSelected}
                     onAdd={onAdd}
+                    activeWin={activeWin}
+                    onWindowChange={setActiveWin}
                     slip={slip}
                     stake={stake}
                     ticket={ticket}

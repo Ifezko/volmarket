@@ -1,4 +1,3 @@
-import { useState } from 'react'
 import { WINDOWS, WSECS, breakProb, holdProb } from './predictWindows'
 import type { LiveOdd } from './liveFixtures'
 
@@ -23,14 +22,17 @@ export function PredictBuilder({
   fixtureId,
   isSelected,
   onAdd,
+  activeWin,
+  onWindowChange,
 }: {
   odd: LiveOdd
   fixtureId: number
   isSelected: (id: string) => boolean
   onAdd: (id: string, label: string, prob: number, meta: RealPredictMeta) => void
+  // Selected window is owned by MatchDetail so the chart's time axis stays in sync with it.
+  activeWin: number
+  onWindowChange: (i: number) => void
 }) {
-  const [activeWin, setActiveWin] = useState(7) // default 5m
-
   const wl = WINDOWS[activeWin]
   // One level per odd = the odd's implied probability (%). The fixed decimal odds come from it:
   // Holds pays 1/p, Breaks pays 1/(1-p) with p = level/100 (see VolmarketApp). "Holds L%+" bets the
@@ -57,7 +59,7 @@ export function PredictBuilder({
             WSECS[i] < 30 ? null : (
               <span key={w}>
                 {(i === 4 || i === 10) && <span className="wdiv"></span>}
-                <button className={`wchip${i === activeWin ? ' on' : ''}`} onClick={() => setActiveWin(i)}>
+                <button className={`wchip${i === activeWin ? ' on' : ''}`} onClick={() => onWindowChange(i)}>
                   {w}
                 </button>
               </span>
