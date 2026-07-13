@@ -205,7 +205,7 @@ async function placeBatch(
     if (!exists) {
       willCreate.add(key)
       const createMarketIx = await program.methods
-        .createMarket(d.fixtureId, d.oddKey, d.marketParams, d.marketSide, d.level, d.windowStart, d.windowEnd, FEE_BPS, FEE_RECIPIENT)
+        .createMarketV2(d.fixtureId, d.oddKey, d.marketParams, d.marketSide, d.level, d.windowStart, d.windowEnd, FEE_BPS, FEE_RECIPIENT)
         .accounts({
           authority: userPublicKey,
           market: d.market,

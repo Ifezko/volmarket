@@ -54,10 +54,59 @@ pub mod signal_markets {
         window_start: i64,
         window_end: i64,
         fee_bps: u16,
-        // Where the protocol fee is paid on claim. Stored into `market.authority`, which the
-        // Claim ix constrains `fee_token.owner` against. Passed as data (NOT a signer/account) so
-        // the market creator — user or keeper — can direct fees to a dedicated house wallet without
-        // that wallet co-signing or paying rent. The signer/rent-payer stays the `authority` account.
+    ) -> Result<()> {
+        require!(
+            side == MARKET_SIDE_HOLD || side == MARKET_SIDE_BREAK,
+            MarketError::InvalidMarketSide
+        );
+        require!(window_end > window_start, MarketError::InvalidWindow);
+        require!(fee_bps as u64 <= BPS_DENOMINATOR, MarketError::InvalidFee);
+
+        let m = &mut ctx.accounts.market;
+        m.fixture_id = fixture_id;
+        m.odd_key = odd_key;
+        m.market_params = market_params;
+        m.side = side;
+        m.level = level;
+        m.window_start = window_start;
+        m.window_end = window_end;
+        m.usdc_mint = ctx.accounts.usdc_mint.key();
+        m.vault = ctx.accounts.vault.key();
+        // Original behaviour: the market creator (signer) is the authority, so the protocol
+        // fee on claim washes back to them. `create_market_v2` routes fees to a dedicated
+        // house wallet instead. This 8-arg form is preserved unchanged for the callers
+        // (prod/hotfix, keeper seed scripts) that already build 8-arg instruction data.
+        m.authority = ctx.accounts.authority.key();
+        m.fee_bps = fee_bps;
+        m.status = STATUS_OPEN;
+        m.outcome = OUTCOME_UNSET;
+        m.total_yes = 0;
+        m.total_no = 0;
+        m.bump = ctx.bumps.market;
+        m.vault_bump = ctx.bumps.vault;
+        Ok(())
+    }
+
+    /// Same as `create_market`, plus an explicit `fee_recipient`: where the protocol fee is
+    /// paid on claim. Stored into `market.authority`, which the Claim ix constrains
+    /// `fee_token.owner` against. Passed as data (NOT a signer/account) so the market creator —
+    /// user or keeper — can direct fees to a dedicated house wallet without that wallet
+    /// co-signing or paying rent. The signer/rent-payer stays the `authority` account.
+    ///
+    /// Added as a NEW instruction alongside the unchanged 8-arg `create_market` so both wire
+    /// formats coexist on the live program: legacy 8-arg callers keep working, while the
+    /// fee-routing frontend calls this. The account layout and `CreateMarket` context are
+    /// identical, so markets from either path stay mutually readable.
+    pub fn create_market_v2(
+        ctx: Context<CreateMarket>,
+        fixture_id: u64,
+        odd_key: u64,
+        market_params: u64,
+        side: u8,
+        level: i64,
+        window_start: i64,
+        window_end: i64,
+        fee_bps: u16,
         fee_recipient: Pubkey,
     ) -> Result<()> {
         require!(
@@ -77,9 +126,7 @@ pub mod signal_markets {
         m.window_end = window_end;
         m.usdc_mint = ctx.accounts.usdc_mint.key();
         m.vault = ctx.accounts.vault.key();
-        // The fee recipient (see the `fee_recipient` arg) — NOT necessarily the creator. The
-        // account struct is unchanged (still a Pubkey at the same offset), so existing markets stay
-        // readable across this upgrade; only newly created markets route fees to the house wallet.
+        // The fee recipient (see the `fee_recipient` arg) — NOT necessarily the creator.
         m.authority = fee_recipient;
         m.fee_bps = fee_bps;
         m.status = STATUS_OPEN;

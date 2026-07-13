@@ -65,7 +65,7 @@ async function main() {
   // ATOMIC create + deposit in ONE tx — exactly like placeRealPredictions() in production. This
   // leaves no 0/0 window for the live keeper to catch, so the keeper only ever sees the Holds pool
   // filled and seeds the opposing Breaks pool.
-  const createIx = await (program.methods as any).createMarket(fixtureId, oddKey, params, SIDE_HOLD, level, new BN(windowStart), new BN(windowEnd), 500, CONFIG.feeRecipient)
+  const createIx = await (program.methods as any).createMarketV2(fixtureId, oddKey, params, SIDE_HOLD, level, new BN(windowStart), new BN(windowEnd), 500, CONFIG.feeRecipient)
     .accounts({ authority: user.publicKey, market, usdcMint: mint, vault, tokenProgram: TOKEN_PROGRAM_ID, systemProgram: SystemProgram.programId, rent: SYSVAR_RENT_PUBKEY }).instruction();
   const depositIx = await (program.methods as any).deposit(SIDE_YES, new BN(USER_STAKE * 1e6))
     .accounts({ user: user.publicKey, market, position: uPos, vault, userToken: uAta.address, tokenProgram: TOKEN_PROGRAM_ID, systemProgram: SystemProgram.programId }).instruction();

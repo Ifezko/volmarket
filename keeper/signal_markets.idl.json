@@ -261,6 +261,152 @@
         {
           "name": "fee_bps",
           "type": "u16"
+        }
+      ]
+    },
+    {
+      "name": "create_market_v2",
+      "docs": [
+        "Same as `create_market`, plus an explicit `fee_recipient`: where the protocol fee is",
+        "paid on claim. Stored into `market.authority`, which the Claim ix constrains",
+        "`fee_token.owner` against. Passed as data (NOT a signer/account) so the market creator —",
+        "user or keeper — can direct fees to a dedicated house wallet without that wallet",
+        "co-signing or paying rent. The signer/rent-payer stays the `authority` account.",
+        "",
+        "Added as a NEW instruction alongside the unchanged 8-arg `create_market` so both wire",
+        "formats coexist on the live program: legacy 8-arg callers keep working, while the",
+        "fee-routing frontend calls this. The account layout and `CreateMarket` context are",
+        "identical, so markets from either path stay mutually readable."
+      ],
+      "discriminator": [
+        193,
+        18,
+        155,
+        62,
+        161,
+        124,
+        80,
+        25
+      ],
+      "accounts": [
+        {
+          "name": "authority",
+          "writable": true,
+          "signer": true
+        },
+        {
+          "name": "market",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  109,
+                  97,
+                  114,
+                  107,
+                  101,
+                  116
+                ]
+              },
+              {
+                "kind": "arg",
+                "path": "fixture_id"
+              },
+              {
+                "kind": "arg",
+                "path": "odd_key"
+              },
+              {
+                "kind": "arg",
+                "path": "market_params"
+              },
+              {
+                "kind": "arg",
+                "path": "side"
+              },
+              {
+                "kind": "arg",
+                "path": "level"
+              },
+              {
+                "kind": "arg",
+                "path": "window_start"
+              }
+            ]
+          }
+        },
+        {
+          "name": "usdc_mint"
+        },
+        {
+          "name": "vault",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  118,
+                  97,
+                  117,
+                  108,
+                  116
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "market"
+              }
+            ]
+          }
+        },
+        {
+          "name": "token_program",
+          "address": "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA"
+        },
+        {
+          "name": "system_program",
+          "address": "11111111111111111111111111111111"
+        },
+        {
+          "name": "rent",
+          "address": "SysvarRent111111111111111111111111111111111"
+        }
+      ],
+      "args": [
+        {
+          "name": "fixture_id",
+          "type": "u64"
+        },
+        {
+          "name": "odd_key",
+          "type": "u64"
+        },
+        {
+          "name": "market_params",
+          "type": "u64"
+        },
+        {
+          "name": "side",
+          "type": "u8"
+        },
+        {
+          "name": "level",
+          "type": "i64"
+        },
+        {
+          "name": "window_start",
+          "type": "i64"
+        },
+        {
+          "name": "window_end",
+          "type": "i64"
+        },
+        {
+          "name": "fee_bps",
+          "type": "u16"
         },
         {
           "name": "fee_recipient",
