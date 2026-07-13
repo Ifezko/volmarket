@@ -25,7 +25,7 @@ createRoot(document.getElementById('root')!).render(
         embeddedWallets: {
           // Sign transactions WITHOUT popping Privy's per-transaction confirmation UI.
           // Two reasons: (1) the product model is "fund your account once, then predict
-          // freely" — a signing prompt on every bet defeats that; (2) that confirmation
+          // freely" - a signing prompt on every bet defeats that; (2) that confirmation
           // modal was the blank screen users hit right after logging in to place a
           // prediction. With this off, useSignTransaction signs silently inside the
           // embedded-wallet iframe and we submit the tx ourselves.

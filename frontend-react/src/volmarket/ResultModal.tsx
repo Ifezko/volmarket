@@ -2,9 +2,9 @@ import { describeMarket } from './liveFixtures'
 import type { ActivePosition } from '../lib/claimMarkets'
 
 // Pops when one or more of the user's predictions reach the end of their window and settle
-// on-chain — the counterpart to the WINNING/LOSING chips going final. Purely informational:
+// on-chain - the counterpart to the WINNING/LOSING chips going final. Purely informational:
 // winnings are credited to the balance automatically (see the auto-claim in VolmarketApp), so
-// there's nothing to click — just a summary of what won/lost.
+// there's nothing to click - just a summary of what won/lost.
 export function ResultModal({
   open,
   results,
@@ -18,7 +18,7 @@ export function ResultModal({
   const wins = results.filter((r) => r.status === 'won')
   const anyWin = wins.length > 0
   // Total winnings = full payout (stake + winnings at the market's fixed odds), NOT just the
-  // stake back — this is what the auto-claim actually credited to the balance.
+  // stake back - this is what the auto-claim actually credited to the balance.
   const credited = wins.reduce((sum, r) => sum + r.payoutUsdc, 0)
 
   return (

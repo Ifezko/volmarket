@@ -1,4 +1,4 @@
-// Ported verbatim (logic-for-logic) from frontend/index.html's inline <script> —
+// Ported verbatim (logic-for-logic) from frontend/index.html's inline <script> -
 // flags, mock match list, and the odds/probability math the whole UI is built on.
 // Do not change these formulas; they're what the rest of the port renders against.
 
@@ -79,7 +79,7 @@ export interface OddLine {
   prob: number
 }
 
-// odds lines per match — each has its own volume signal.
+// odds lines per match - each has its own volume signal.
 // Feature 1X2 (Match result) and Over/Under only. BTTS ("both teams score") is intentionally
 // omitted: TxLINE isn't serving its SuperOddsType in the feed right now, so we can't settle it.
 // Re-add the BTTS lines here (and in ODD_OUTCOMES in keeper/src/markets.ts) once the feed carries it.
@@ -91,7 +91,7 @@ export function oddsLines(m: Match): OddLine[] {
     { grp: 'Match result', key: 'res-a', label: m.b, fl: FL[m.b], prob: A },
     { grp: 'Goals', key: 'ov25', label: 'Over 2.5 goals', fl: '⚽', prob: 48 },
     { grp: 'Goals', key: 'un25', label: 'Under 2.5 goals', fl: '🛡️', prob: 52 },
-    // BTTS removed — not available in the TxLINE feed at present.
+    // BTTS removed - not available in the TxLINE feed at present.
   ]
 }
 

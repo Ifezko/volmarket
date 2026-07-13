@@ -20,7 +20,7 @@ export interface MarketView {
 }
 
 // Fetching accounts is read-only and never signs anything, so a throwaway keypair
-// stands in for AnchorProvider's required `wallet` — its signing methods are never called.
+// stands in for AnchorProvider's required `wallet` - its signing methods are never called.
 class ReadonlyWallet {
   publicKey = Keypair.generate().publicKey
 

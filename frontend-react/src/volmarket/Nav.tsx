@@ -4,7 +4,7 @@ import type { BoardFilter } from './liveFixtures'
 // The app's top nav: logo + search + wallet/balance/deposit/profile (nav1), and the
 // secondary row of board filters + sort (nav2). The nav1 balance shows the real embedded-
 // wallet USDC balance; the avatar opens the profile. The nav2 filters/sort actually drive
-// the board (see applyBoardView) — clicking one re-filters/re-sorts the fixtures grid.
+// the board (see applyBoardView) - clicking one re-filters/re-sorts the fixtures grid.
 export function Nav({
   comboCount,
   walletAddress,
@@ -64,7 +64,7 @@ export function Nav({
               <div className="bal">
                 <div className="k">Balance</div>
                 <div className="v mono" style={{ color: 'var(--green)' }}>
-                  {usdcBalance == null ? '—' : `$${usdcBalance.toFixed(2)}`}
+                  {usdcBalance == null ? '-' : `$${usdcBalance.toFixed(2)}`}
                 </div>
               </div>
             )}

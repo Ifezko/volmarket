@@ -1,7 +1,7 @@
   :root{
     --bg:#0F1318;--surface:#171c23;--surface2:#1f262f;--hover:#232b35;
     --border:#262f3a;--border2:#33404e;--text:#eef2f6;--dim:#8b95a2;--faint:#5a6573;
-    /* Brand — from the product logo (favicon.svg): purple lightning bolt. */
+    /* Brand - from the product logo (favicon.svg): purple lightning bolt. */
     --brand:#863bff;--brand-hi:#a06bff;--brand-lo:#7e14ff;--brandBg:rgba(134,59,255,.14);
     /* Primary accent is the brand purple. Kept as --blue so every existing var(--blue) usage
        (buttons, focus rings, selection, fab, segmented controls…) picks up the brand color. */
@@ -40,7 +40,7 @@
   .topic{display:flex;align-items:center;gap:6px;padding:7px 12px;border-radius:8px;color:var(--dim);font-size:13.5px;white-space:nowrap;cursor:pointer}.topic:hover{color:var(--text);background:var(--surface)}.topic.on{color:var(--text);background:var(--surface2)}
   .pdot{width:7px;height:7px;border-radius:50%;background:var(--red);box-shadow:0 0 8px var(--red);animation:bl 1.4s infinite;display:inline-block}@keyframes bl{50%{opacity:.4}}
 
-  /* intro — product-specific, signal-forward */
+  /* intro - product-specific, signal-forward */
   .intro{display:flex;align-items:flex-end;gap:16px;margin:22px 0 14px}
   .intro h1{font-size:22px;margin:0;letter-spacing:-.5px}
   .intro p{margin:4px 0 0;color:var(--dim);font-size:13.5px;max-width:60ch}
@@ -72,7 +72,7 @@
   .sigline .lab{color:var(--cyan)}
   .mfoot{display:flex;justify-content:space-between;margin-top:10px;color:var(--faint);font-size:12px}.mfoot .vol{font-family:var(--mono)}
 
-  /* The secondary nav (board filters + sort) belongs to the landing/board page only — hide it
+  /* The secondary nav (board filters + sort) belongs to the landing/board page only - hide it
      while a match-detail or groups overlay is open (body.lock). The nav's ResizeObserver then
      shrinks --nav-h to just the primary row, so the overlay sits flush under it. */
   body.lock .nav2{display:none}
@@ -109,7 +109,7 @@
   .sigfoot{display:flex;gap:8px;margin:12px 0}
   .sigpill{flex:1;background:var(--bg);border:1px solid var(--border);border-radius:9px;padding:8px 11px}
   .sigpill .k{font-family:var(--mono);font-size:9px;text-transform:uppercase;color:var(--dim)}.sigpill .v{font-family:var(--mono);font-weight:700;font-size:15px;margin-top:2px}
-  /* live win/loss status chips for each active call on the odd — one per drawn "your call" line */
+  /* live win/loss status chips for each active call on the odd - one per drawn "your call" line */
   .predstat{display:flex;flex-wrap:wrap;gap:8px;margin-top:2px}
   .pchip{display:flex;align-items:center;gap:8px;font-family:var(--mono);font-size:11px;border-radius:8px;padding:6px 10px;border:1px solid transparent}
   .pchip .pd{color:var(--dim)}
@@ -264,14 +264,14 @@
 
   /* ---- match detail: chart | predict two-column (desktop), stacked (mobile) ---- */
   /* Chart left (narrower), the build+place panel right (wider) so the signal is read on one
-     side and predictions are stacked/placed on the other — no drawer round-trip. */
+     side and predictions are stacked/placed on the other - no drawer round-trip. */
   .detailgrid{display:grid;grid-template-columns:minmax(0,1fr) 380px;gap:16px;align-items:start;margin:16px 0 22px}
   .dg-chart .sig{margin:0}
-  /* Chart is the focal point — give it real height once it has the width to fill. */
+  /* Chart is the focal point - give it real height once it has the width to fill. */
   @media(min-width:981px){.dg-chart canvas{height:420px}.dg-predict{position:sticky;top:72px}}
   @media(max-width:980px){.detailgrid{grid-template-columns:1fr;gap:14px}}
   /* On desktop the inline predict panel is the place-from surface, so the floating "View slip"
-     fab is redundant while a match (or groups) overlay is open — body.lock marks that state. */
+     fab is redundant while a match (or groups) overlay is open - body.lock marks that state. */
   @media(min-width:981px){body.lock .fab{display:none}}
 
   /* fullscreen chart toggle (in the .sigh header) + the fullscreen state */
@@ -293,7 +293,7 @@
   .pp-stakelbl{margin-top:14px}
   .pp-actions{display:flex;gap:8px}.pp-actions .btn{flex:1}
 
-  /* Hidden manual-claim fallback — a small unobtrusive pill, only rendered when the keeper
+  /* Hidden manual-claim fallback - a small unobtrusive pill, only rendered when the keeper
      has left a winning position unpaid (see VolmarketApp surfaceFallback). */
   .claim-fallback{position:fixed;left:18px;bottom:18px;z-index:65;font-family:var(--mono);font-size:12px;font-weight:700;
     color:#0F1318;background:var(--green);border:none;border-radius:10px;padding:10px 14px;cursor:pointer;

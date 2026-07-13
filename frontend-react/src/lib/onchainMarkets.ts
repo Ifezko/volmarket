@@ -64,7 +64,7 @@ const ALCHEMY_RPC_URL =
 export const PRIMARY_RPC_URL = import.meta.env.VITE_RPC_URL || ALCHEMY_RPC_URL || PUBLIC_DEVNET
 
 // All connections go through here. `disableRetryOnRateLimit` turns OFF web3.js's built-in 429
-// auto-retry (it silently fires ~5 extra POSTs per throttled call — the "Retrying after 500ms
+// auto-retry (it silently fires ~5 extra POSTs per throttled call - the "Retrying after 500ms
 // delay" storm) so OUR withFailover is the single, deliberate retry/fallback path. Massively cuts
 // the request volume when the RPC is throttling.
 export function makeConnection(url: string = PRIMARY_RPC_URL): Connection {
@@ -76,19 +76,19 @@ export function makeConnection(url: string = PRIMARY_RPC_URL): Connection {
 const FALLBACK_URLS = [...new Set([ALCHEMY_RPC_URL, PUBLIC_DEVNET].filter(Boolean) as string[])]
 const fallbackConnections = FALLBACK_URLS.map((url) => makeConnection(url))
 
-// Startup diagnostic: log which RPC hosts are wired in (host only — never the URL, which
+// Startup diagnostic: log which RPC hosts are wired in (host only - never the URL, which
 // contains the Alchemy key). If this prints `api.devnet.solana.com` as primary with no Alchemy
-// host in the fallbacks, the VITE_ALCHEMY_* env var wasn't present at *build* time — set it in
+// host in the fallbacks, the VITE_ALCHEMY_* env var wasn't present at *build* time - set it in
 // Vercel and redeploy (Vite bakes env vars at build, not runtime).
 try {
   const host = (u: string) => new URL(u).host
   console.info('[volmarket] RPC primary:', host(PRIMARY_RPC_URL), '· fallbacks:', FALLBACK_URLS.map(host).join(', '))
 } catch {
-  /* URL parse guard — never block startup on a diagnostic */
+  /* URL parse guard - never block startup on a diagnostic */
 }
 
 // Runs `run` against the primary connection, failing over to each configured fallback endpoint
-// (notably Alchemy) when a read throws — e.g. the public RPC 429-ing getProgramAccounts — with a
+// (notably Alchemy) when a read throws - e.g. the public RPC 429-ing getProgramAccounts - with a
 // short backoff between full passes. Used for every account scan so throttling degrades instead
 // of blanking the UI.
 export async function withFailover<T>(

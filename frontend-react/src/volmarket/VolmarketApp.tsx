@@ -43,7 +43,7 @@ import type { RealPredictMeta } from './PredictBuilder'
 
 // Odds are FIXED decimal odds implied by the market level (the odd's probability), NOT a function
 // of stake: Holds pays 1/p, Breaks pays 1/(1-p) with p = levelRaw/100000. The keeper (house) makes
-// the pari-mutuel contract pay those odds by seeding the opposing pool with stake×(odds−1) — see
+// the pari-mutuel contract pay those odds by seeding the opposing pool with stake×(odds−1) - see
 // keeper/src/config.ts / bootstrap.ts. BOOTSTRAP_CAP_USDC MUST match the keeper's cap: past it, the
 // house can't fully back the true odds, so the delivered odds fall to 1 + cap/stake. Combos multiply.
 const BOOTSTRAP_CAP_USDC = 1000
@@ -59,16 +59,16 @@ function genCode(): string {
 }
 
 // paste a friend's code -> loads a mock prediction into the slip, ported from pasteCode()
-// (this demo path has no real on-chain meta — placing it just produces a ticket, no tx)
+// (this demo path has no real on-chain meta - placing it just produces a ticket, no tx)
 function pasteCodePool(code: string): SlipItem[] {
   const r = rng(code)
   const pool = [
     'Brazil v Argentina · Brazil: holds 58%+ within 2m',
-    'Brazil v Argentina · Over 2.5 goals — Yes',
+    'Brazil v Argentina · Over 2.5 goals - Yes',
     'Spain v Germany · Spain: breaks 75% within 5m',
-    'France v England · Draw — Yes',
+    'France v England · Draw - Yes',
     'Nigeria v Ghana · Nigeria: holds 60%+ within 1m',
-    'Italy v Uruguay · BTTS — Yes',
+    'Italy v Uruguay · BTTS - Yes',
   ]
   const n = 1 + Math.floor(r() * 3)
   const used = new Set<number>()
@@ -84,8 +84,8 @@ function pasteCodePool(code: string): SlipItem[] {
 
 // Top-level composition for the ported Volmarket product UI (see frontend/index.html).
 // The board/detail trade REAL on-chain Market accounts (fetchRealMarkets, grouped by
-// liveFixtures.ts). Predicting is free — pick a window and holds/breaks, add it to the
-// slip, no wallet needed (see PredictBuilder.tsx) — Privy only asks you to log in when
+// liveFixtures.ts). Predicting is free - pick a window and holds/breaks, add it to the
+// slip, no wallet needed (see PredictBuilder.tsx) - Privy only asks you to log in when
 // you hit "Place prediction", which then creates whatever markets don't exist yet and
 // deposits real devnet USDC on all of them in one signed transaction.
 export function VolmarketApp() {
@@ -136,7 +136,7 @@ export function VolmarketApp() {
   const autoClaimAttempts = useRef<Map<string, number>>(new Map())
   const autoClaiming = useRef(false)
   const [usdcBalance, setUsdcBalance] = useState<number | null>(null)
-  // Every position the wallet holds (pending/won/lost) — drawn onto the signal chart as the
+  // Every position the wallet holds (pending/won/lost) - drawn onto the signal chart as the
   // user's "calls", so placed predictions and their outcome show up alongside the live tape.
   const [activePositions, setActivePositions] = useState<ActivePosition[]>([])
   // "Your prediction ended" popup: the positions that just settled this session.
@@ -160,16 +160,16 @@ export function VolmarketApp() {
   )
 
   // Every on-chain market currently loaded (flattened from the board data), for pricing the slip.
-  // The slip priced with the REAL payout multiplier. Placing ALWAYS opens a fresh market — its
+  // The slip priced with the REAL payout multiplier. Placing ALWAYS opens a fresh market - its
   // PDA is keyed by window_start = now, so a prediction never deposits into an existing pool
   // (and the odd's level is deterministic, so other bettors' markets on the same line are separate
-  // window_starts). Each leg's odds are the FIXED decimal odds from its level (oddsFromLevelRaw) —
+  // window_starts). Each leg's odds are the FIXED decimal odds from its level (oddsFromLevelRaw) -
   // the keeper seeds the opposing pool with perStake×(odds−1), capped at BOOTSTRAP_CAP_USDC, so the
   // pro-rata claim pays perStake×odds minus the protocol fee. previewMultiplier mirrors that claim
   // math. Beyond the cap the house can't fully back the odds, so the delivered multiplier drops
   // accordingly (kept in lock-step with the keeper). The FEE_BPS protocol fee is priced in here: it
   // is taken on the winnings and routes to the dedicated fee wallet (create_market's fee_recipient),
-  // so — unlike before — it does NOT wash back to the placer. computePayout subtracts the same fee,
+  // so - unlike before - it does NOT wash back to the placer. computePayout subtracts the same fee,
   // so the settled amount matches this preview. Pasted demo picks (no meta) keep their placeholder.
   const pricedSlip = useMemo<SlipItem[]>(() => {
     const perStake = slip.length ? stake / slip.length : stake
@@ -290,7 +290,7 @@ export function VolmarketApp() {
 
   // Surfaces the "prediction ended" popup for any settled positions not seen yet. Seeds the
   // seen-set silently on the first pass so we don't pop for predictions that settled before
-  // this session — only for ones that end while you're here.
+  // this session - only for ones that end while you're here.
   const surfaceEnded = useCallback((positions: ActivePosition[]) => {
     const settled = positions.filter((p) => p.status !== 'pending')
     if (!resolveSeeded.current) {
@@ -306,7 +306,7 @@ export function VolmarketApp() {
   }, [])
 
   // One consolidated poll: a single combined read (fetchWalletState = one position scan + one
-  // market scan) drives the board, the chart's active positions, and claimables — then we
+  // market scan) drives the board, the chart's active positions, and claimables - then we
   // auto-resolve ended predictions and auto-claim winners off that same data. Halves the
   // getProgramAccounts load vs. the old separate claimables + active-positions polls.
   const refreshWalletState = useCallback(
@@ -465,7 +465,7 @@ export function VolmarketApp() {
     })
   }
 
-  // Ported from add() in the original — toggles a pick in/out of the slip and records
+  // Ported from add() in the original - toggles a pick in/out of the slip and records
   // its fixture/odd/side/level/window so place() can find it again. No wallet touched.
   function addPrediction(id: string, label: string, prob: number, meta: RealPredictMeta) {
     if (ticket) setTicket(null)
@@ -482,7 +482,7 @@ export function VolmarketApp() {
     return slip.some((s) => s.id === id)
   }
 
-  // "Your call" lines for the currently-viewed odd: only ACTIVE calls — live (pending) placed
+  // "Your call" lines for the currently-viewed odd: only ACTIVE calls - live (pending) placed
   // positions and not-yet-placed slip picks. Settled predictions (won/lost) drop off the chart
   // once resolved, so only in-play calls are ever drawn.
   const predictionLines = useMemo<PredictionLine[]>(() => {
@@ -517,7 +517,7 @@ export function VolmarketApp() {
   }
 
   // Ported from place() in the original. Real picks (from PredictBuilder) create whatever
-  // markets don't exist yet and deposit on them, all in one Privy-signed transaction —
+  // markets don't exist yet and deposit on them, all in one Privy-signed transaction -
   // login is only asked for here, at the moment of placing. Pasted demo picks (no real
   // meta) just produce a shareable ticket, same as the original mock.
   async function place() {
@@ -536,7 +536,7 @@ export function VolmarketApp() {
         return
       }
       if (!solanaWallet) {
-        setPlaceError('Wallet not ready yet — try again in a moment.')
+        setPlaceError('Wallet not ready yet - try again in a moment.')
         return
       }
       setPlacing(true)
@@ -550,7 +550,7 @@ export function VolmarketApp() {
         return
       }
       setPlacing(false)
-      // The prediction is confirmed on-chain — show success now. Refresh board / balance /
+      // The prediction is confirmed on-chain - show success now. Refresh board / balance /
       // positions in the background rather than making the user wait on more round-trips.
       void refreshWalletState()
       void refreshUsdc()
@@ -577,7 +577,7 @@ export function VolmarketApp() {
       return
     }
     if (!solanaWallet) {
-      setPlaceError('Wallet not ready yet — try again in a moment.')
+      setPlaceError('Wallet not ready yet - try again in a moment.')
       return
     }
     setSending(true)
@@ -636,27 +636,27 @@ export function VolmarketApp() {
 
   // Real deposit: funds the embedded wallet with `amount` devnet USDC (and a little gas SOL)
   // via the treasury endpoint, then refreshes the on-screen balance. Login is prompted here if
-  // needed, same as placing — you can't deposit into a wallet you haven't signed into yet.
+  // needed, same as placing - you can't deposit into a wallet you haven't signed into yet.
   async function depositUsdc(amount: number) {
     if (!authenticated) {
       login()
       throw new Error('Sign in to deposit.')
     }
-    if (!solanaWallet) throw new Error('Wallet not ready yet — try again in a moment.')
+    if (!solanaWallet) throw new Error('Wallet not ready yet - try again in a moment.')
     await fundWallet(solanaWallet.address, amount)
     await refreshUsdc()
   }
 
   // Withdraws USDC from the embedded wallet to an external address, then refreshes the balance.
   async function withdraw(destination: string, amount: number) {
-    if (!solanaWallet) throw new Error('Wallet not ready yet — try again in a moment.')
+    if (!solanaWallet) throw new Error('Wallet not ready yet - try again in a moment.')
     const connection = makeConnection()
     await withdrawUsdc(connection, solanaWallet, signTransaction, destination, amount)
     await refreshUsdc()
   }
 
   // Opens the profile (wallet address + withdraw) in the slip drawer's override slot. Login is
-  // prompted if needed — the profile is meaningless without a signed-in embedded wallet.
+  // prompted if needed - the profile is meaningless without a signed-in embedded wallet.
   function openProfile() {
     if (!authenticated) {
       login()
@@ -668,7 +668,7 @@ export function VolmarketApp() {
     setSlipOpen(true)
   }
 
-  // Ported from openGroups()/createGroup() — opens the group-creation form in the slip
+  // Ported from openGroups()/createGroup() - opens the group-creation form in the slip
   // drawer, pre-seeded with a ticket's share code when reached via "Make this a group".
   function openGroupCreate(seedCode?: string) {
     setCreatingGroup({ seedCode, stage: 'form' })
@@ -677,7 +677,7 @@ export function VolmarketApp() {
     setSlipOpen(true)
   }
 
-  // Ported from openDeposit() — reuses the slip drawer's override slot, same as group
+  // Ported from openDeposit() - reuses the slip drawer's override slot, same as group
   // creation.
   function openDeposit() {
     setDepositOpen(true)

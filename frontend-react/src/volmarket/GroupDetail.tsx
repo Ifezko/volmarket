@@ -110,7 +110,7 @@ export function GroupDetail({
               <button className={`selrow joinopt${roster ? ' on' : ''}`} onClick={() => setRoster(!roster)}
                 style={{ cursor: 'pointer', textAlign: 'left', width: '100%' }}>
                 <div><div className="l">Show members to approved joiners</div>
-                  <div className="s" style={{ color: 'var(--dim)' }}>{roster ? 'On' : 'Off — members private'}</div></div>
+                  <div className="s" style={{ color: 'var(--dim)' }}>{roster ? 'On' : 'Off - members private'}</div></div>
                 <span className="rad" style={{ borderColor: roster ? 'var(--blue)' : 'var(--faint)' }} />
               </button>
             </div>

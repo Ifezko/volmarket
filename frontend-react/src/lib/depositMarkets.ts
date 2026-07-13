@@ -19,8 +19,8 @@ import { USDC_MINT, FEE_RECIPIENT, topUpGas } from './funds'
 
 // Markets are now single two-sided markets: the on-chain `side` is always HOLD, and its two pools
 // are the Holds side (SIDE_YES / total_yes, signal stays >= level) and the Breaks side (SIDE_NO /
-// total_no, signal falls below level). A pick's hold/break selects which POOL to deposit into — NOT
-// a separate market — so Holds and Breaks on the same (odd, level, window) are one market. (lib.rs)
+// total_no, signal falls below level). A pick's hold/break selects which POOL to deposit into - NOT
+// a separate market - so Holds and Breaks on the same (odd, level, window) are one market. (lib.rs)
 const SIDE_HOLD = 0
 const SIDE_YES = 1
 const SIDE_NO = 2
@@ -36,7 +36,7 @@ export interface PendingPick {
   oddKey: number
   marketParams: number
   side: 'hold' | 'break'
-  /** implied probability × 1000 — the on-chain scale (see onchainMarkets.ts) */
+  /** implied probability × 1000 - the on-chain scale (see onchainMarkets.ts) */
   levelRaw: number
   windowSecs: number
   /** stake for this pick, in whole USDC */
@@ -55,7 +55,7 @@ async function explainSendError(err: unknown, connection: Connection): Promise<E
       try {
         logs = await err.getLogs(connection)
       } catch {
-        /* logs unavailable — fall back to the bare message */
+        /* logs unavailable - fall back to the bare message */
       }
     }
     const detail = logs && logs.length ? `\n${logs.join('\n')}` : ''
@@ -66,7 +66,7 @@ async function explainSendError(err: unknown, connection: Connection): Promise<E
 
 // A fresh embedded wallet holds 0 SOL, but placing a prediction creates several rent-
 // exempt accounts (mint + per-pick market + vault + position), so it needs some SOL to
-// pay for them. On devnet we top it up with a best-effort airdrop when it's low — this is
+// pay for them. On devnet we top it up with a best-effort airdrop when it's low - this is
 // the "fund your account" step, done automatically for the demo. Airdrop rate limits mean
 // this can fail; we swallow that (the user may have funded manually) and let the real
 // transaction surface any genuine insufficient-funds error.
@@ -83,7 +83,7 @@ export async function ensureDevnetSol(connection: Connection, owner: PublicKey, 
     const latest = await connection.getLatestBlockhash()
     await connection.confirmTransaction({ signature: sig, ...latest }, 'confirmed')
   } catch {
-    // rate-limited or unavailable — proceed; the tx will report a real error if truly unfunded
+    // rate-limited or unavailable - proceed; the tx will report a real error if truly unfunded
   }
 }
 
@@ -93,7 +93,7 @@ const GAS_MIN_LAMPORTS = 50_000_000 // 0.05 SOL
 /**
  * Guarantees the wallet has gas SOL *as seen by the connection we're about to send on*, before
  * placing. An external wallet (e.g. Solflare) that only holds app-USDC has 0 SOL, so it can't pay
- * fees/rent — the tx would fail preflight with "Attempt to debit an account but found no record of
+ * fees/rent - the tx would fail preflight with "Attempt to debit an account but found no record of
  * a prior credit". We top it up via the treasury (reliable for any wallet), then POLL this same
  * connection until the credit is visible: the treasury confirms on its own RPC, but the client's
  * RPC (Alchemy / public devnet) can lag, and sending before it sees the balance is exactly what
@@ -128,11 +128,11 @@ export async function ensureGasReady(connection: Connection, address: string): P
   try {
     bal = await connection.getBalance(owner, 'confirmed')
   } catch {
-    /* ignore — reported below as best-effort */
+    /* ignore - reported below as best-effort */
   }
   throw new Error(
     `Couldn't get devnet gas SOL to ${address.slice(0, 4)}…${address.slice(-4)} in time ` +
-      `(balance ${(bal / 1e9).toFixed(4)} SOL). Your USDC balance can't pay network fees — ` +
+      `(balance ${(bal / 1e9).toFixed(4)} SOL). Your USDC balance can't pay network fees - ` +
       `wait a few seconds and try again, or airdrop devnet SOL to this wallet.`,
   )
 }
@@ -147,7 +147,7 @@ async function placeBatch(
   const program = getReadonlyProgram(connection)
 
   // Stakes are the user's real deposited USDC on the canonical mint (funded via the deposit
-  // sheet / /api/fund) — no more throwaway per-pick mint. The USDC ATA already exists from
+  // sheet / /api/fund) - no more throwaway per-pick mint. The USDC ATA already exists from
   // depositing; create it idempotently just in case so a deposit never fails on a missing ATA.
   const userToken = getAssociatedTokenAddressSync(USDC_MINT, userPublicKey)
 
@@ -158,7 +158,7 @@ async function placeBatch(
 
   // Derive each pick's PDAs first so we can check which markets already exist. A market for
   // this exact odd/level/window may already be open (created by an earlier prediction on the
-  // same line, or by another user) — re-running create_market on it fails with "already in
+  // same line, or by another user) - re-running create_market on it fails with "already in
   // use". So we only create markets that don't exist yet and deposit into the rest; deposit's
   // init_if_needed position + additive stake makes topping up an existing market safe (this is
   // the "create whatever markets don't exist yet and deposit on all of them" behavior).
@@ -251,12 +251,12 @@ async function placeBatch(
 
 /**
  * Places one or more predictions. Unlike depositing into an existing market, a user
- * picking a level/duration nobody has opened yet has nothing to deposit into — so this
+ * picking a level/duration nobody has opened yet has nothing to deposit into - so this
  * creates that market first (permissionless, same as the keeper's seed scripts:
  * `create_market` accepts any signer as authority), then deposits YES (agreeing with the
  * market's own hold/break thesis) on each one, staked with the user's real deposited USDC
- * (the canonical mint — funded via the deposit sheet / /api/fund). Combos larger than fit in
- * one transaction are sent as sequential batches, each its own signature — the wallet signs
+ * (the canonical mint - funded via the deposit sheet / /api/fund). Combos larger than fit in
+ * one transaction are sent as sequential batches, each its own signature - the wallet signs
  * once per batch, not once per pick.
  */
 export async function placeRealPredictions(
@@ -268,7 +268,7 @@ export async function placeRealPredictions(
   if (!picks.length) throw new Error('no picks to place')
 
   // Placing creates several rent-exempt accounts + pays fees, so the wallet needs SOL. Ensure it's
-  // funded AND that this connection's RPC can see the funds before we send — otherwise an unfunded
+  // funded AND that this connection's RPC can see the funds before we send - otherwise an unfunded
   // external wallet (or one whose top-up hasn't propagated) fails simulation with "Attempt to debit
   // an account but found no record of a prior credit".
   await ensureGasReady(connection, wallet.address)
@@ -283,7 +283,7 @@ export async function placeRealPredictions(
 
 // One batch of "Send to group": create whatever markets don't exist yet (create_market_v2, same as
 // the individual place) then GROUP-deposit each pick into (group, market) instead of an individual
-// Position — funds land in the shared GroupPool and the member's GroupPosition. The signer must be
+// Position - funds land in the shared GroupPool and the member's GroupPosition. The signer must be
 // an approved member of `group` (enforced on-chain).
 async function placeGroupBatch(
   connection: Connection,

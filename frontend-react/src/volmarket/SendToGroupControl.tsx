@@ -1,6 +1,6 @@
 import { useState } from 'react'
 
-// Shared "Send to group" control — a group picker + button, shown under the Place button on both
+// Shared "Send to group" control - a group picker + button, shown under the Place button on both
 // predict surfaces (the Slip drawer and the desktop PredictPanel). Stakes the current slip into the
 // group's shared pool (group_deposit) instead of an individual position. Hidden when the user is in
 // no groups.
@@ -32,7 +32,7 @@ export function SendToGroupControl({
         </button>
       </div>
       <div className="s" style={{ color: 'var(--dim)', marginTop: 6 }}>
-        Stakes into the group's shared pool — your call shows in the group activity feed.
+        Stakes into the group's shared pool - your call shows in the group activity feed.
       </div>
     </div>
   )

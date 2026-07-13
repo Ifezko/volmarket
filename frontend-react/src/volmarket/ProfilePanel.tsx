@@ -287,9 +287,9 @@ function FeedRow({
 }
 
 // Human window length (matches the duration chips: 5s, 1m, 5m, 1h…), from the market's
-// window_start/window_end — so History shows which window the prediction was placed on.
+// window_start/window_end - so History shows which window the prediction was placed on.
 function formatWindow(secs: number): string {
-  if (secs <= 0) return '—'
+  if (secs <= 0) return '-'
   if (secs < 60) return `${secs}s`
   if (secs % 3600 === 0) return `${secs / 3600}h`
   if (secs % 60 === 0) return `${secs / 60}m`
@@ -302,7 +302,7 @@ type FeedEntry =
 
 // History = one chronological feed of everything that moved money: predictions (win/loss +
 // payout/stake, from the polled position scan) and deposits/withdrawals (from the USDC-account
-// scan). Newest first — predictions ordered by their settle time, funding by block time.
+// scan). Newest first - predictions ordered by their settle time, funding by block time.
 function HistoryList({
   positions,
   funding,
@@ -322,7 +322,7 @@ function HistoryList({
   ].sort((a, b) => b.time - a.time)
 
   if (entries.length === 0 && funding !== null) {
-    return <div className="empty">No activity yet — deposit, then pick a window and place a prediction.</div>
+    return <div className="empty">No activity yet - deposit, then pick a window and place a prediction.</div>
   }
 
   return (

@@ -5,7 +5,7 @@ import { matchState, type LiveFixture } from './liveFixtures'
 // Ported from renderGrid()/liveTag() in frontend/index.html, now driven by real on-chain
 // fixtures (grouped Market accounts) instead of the mock array. Standard scoreboard model:
 // the top-right tag is the status/clock (live dot + minute, HT/FT, or kickoff time) and the
-// middle of the teams row shows the score — see matchState.
+// middle of the teams row shows the score - see matchState.
 
 export function MatchCard({ m, now, onOpen }: { m: LiveFixture; now: number; onOpen: (id: string) => void }) {
   const st = matchState(m, now)

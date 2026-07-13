@@ -31,7 +31,7 @@ export interface DevnetProofResult {
 /**
  * Proves the Privy embedded Solana wallet can sign and send a real transaction against the
  * deployed signal_markets program on devnet. One atomic transaction: create a fresh mock-USDC
- * mint, initialize it, and call the program's create_market instruction against it — all
+ * mint, initialize it, and call the program's create_market instruction against it - all
  * signed by the Privy wallet (as fee payer + market authority) plus a locally-generated
  * throwaway keypair (as the new mint account, which must co-sign its own creation).
  */

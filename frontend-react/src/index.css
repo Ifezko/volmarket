@@ -1,7 +1,7 @@
 /* Global reset for the Volmarket app. All real theming lives in
-   src/volmarket/volmarket.css — this only clears default margins and sets the page
+   src/volmarket/volmarket.css - this only clears default margins and sets the page
    background. (Previously this file was Vite's starter-template CSS, which forced
-   #root to a fixed width, centered text, and drew side borders — fighting the app.) */
+   #root to a fixed width, centered text, and drew side borders - fighting the app.) */
 *,
 *::before,
 *::after {

@@ -13,8 +13,8 @@ type PrivySignTransaction = (input: {
  * The peer-dependency seam: this app's wallet/RPC plumbing (@privy-io/react-auth,
  * @solana/kit, @solana-program/*) is all "kit"-based, but @coral-xyz/anchor's Program/
  * AnchorProvider only understand classic @solana/web3.js Transaction/VersionedTransaction
- * objects. There's no real npm conflict between @solana/kit and @solana/web3.js — they're
- * separate packages and coexist fine in node_modules — the actual seam is at the signing
+ * objects. There's no real npm conflict between @solana/kit and @solana/web3.js - they're
+ * separate packages and coexist fine in node_modules - the actual seam is at the signing
  * boundary. It closes cleanly because Privy's signTransaction() hook doesn't care which
  * library built the transaction: it takes and returns raw serialized bytes. So Anchor
  * builds a classic web3.js Transaction, we serialize it to bytes, hand those bytes to
@@ -22,7 +22,7 @@ type PrivySignTransaction = (input: {
  * for Anchor to send. @solana/kit is never involved in this path.
  */
 // Structurally matches @coral-xyz/anchor's `Wallet` interface (publicKey +
-// signTransaction + signAllTransactions) — that interface isn't re-exported from the
+// signTransaction + signAllTransactions) - that interface isn't re-exported from the
 // package root, only its concrete NodeWallet implementation is, so we match it by shape.
 export class PrivyAnchorWallet {
   publicKey: PublicKey

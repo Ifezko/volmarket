@@ -1,18 +1,18 @@
-# Volmarket — Technical Documentation
+# Volmarket - Technical Documentation
 
-A non-custodial Solana protocol where you predict the *volume signal* on a live match's odds — settled trustlessly against TxLINE's on-chain odds proofs.
+A non-custodial Solana protocol where you predict the *volume signal* on a live match's odds - settled trustlessly against TxLINE's on-chain odds proofs.
 
 ---
 
 ## 1. Core idea
 
-Most prediction markets settle "who won." Volmarket lets you predict the **second-order signal** on each odd of a live match — where the money builds support and resistance, and whether the line holds or breaks. Each betting line (1X2, Over/Under) becomes a chart with a live volume profile; you pick an odd, read its signal, and predict it. Predictions are non-custodial USDC escrows that settle on-chain from TxLINE's cryptographic proofs — no operator holds funds, no oracle to trust. You can predict solo or pool with a group, and combine outcomes across odds into one shareable prediction code.
+Most prediction markets settle "who won." Volmarket lets you predict the **second-order signal** on each odd of a live match - where the money builds support and resistance, and whether the line holds or breaks. Each betting line (1X2, Over/Under) becomes a chart with a live volume profile; you pick an odd, read its signal, and predict it. Predictions are non-custodial USDC escrows that settle on-chain from TxLINE's cryptographic proofs - no operator holds funds, no oracle to trust. You can predict solo or pool with a group, and combine outcomes across odds into one shareable prediction code.
 
 ## 2. What it does
 
 - Browse a board of live and upcoming matches, each showing a live signal sparkline.
 - Open a match → select any odd → read its **volume signal** (a live probability tape plus a support/resistance profile derived from on-chain stake).
-- Predict the signal — **Holds** (stays at/above a support level) or **Breaks** (reaches a resistance level) within a chosen time window; combine several into one slip with a copyable share code.
+- Predict the signal - **Holds** (stays at/above a support level) or **Breaks** (reaches a resistance level) within a chosen time window; combine several into one slip with a copyable share code.
 - Group up (public or invite-only, with a per-group fee), pool predictions into a shared market position, and settle on-chain.
 
 ## 3. Architecture
@@ -31,20 +31,20 @@ TxLINE feed ── StablePrice odds, each update anchored on Solana
 ```
 
 Components:
-- **`signal_markets`** — the Anchor program. Escrow vault PDAs, `Market`/`Position` accounts, a permissionless `resolve_market` that CPIs the validator, pro-rata `claim` minus `fee_bps`, and a full group layer (`Group`/`GroupMember`/`GroupPool`/`GroupPosition`). Non-custodial throughout.
-- **`keeper`** — a TypeScript service that watches the TxLINE odds stream, matches updates to open markets, reads the settling outcome's probability, fetches the Merkle proof, and submits `resolve_market`. It also seeds the opposing pool of new two-sided markets so payouts are real.
-- **`mock_validator`** — a small native program that approves any proof, so the full loop runs end-to-end on devnet without the real validator CPI.
-- **`frontend-react`** — the match board and per-odd signal terminal, plus the deposit/claim, combo-slip, and group flows.
+- **`signal_markets`** - the Anchor program. Escrow vault PDAs, `Market`/`Position` accounts, a permissionless `resolve_market` that CPIs the validator, pro-rata `claim` minus `fee_bps`, and a full group layer (`Group`/`GroupMember`/`GroupPool`/`GroupPosition`). Non-custodial throughout.
+- **`keeper`** - a TypeScript service that watches the TxLINE odds stream, matches updates to open markets, reads the settling outcome's probability, fetches the Merkle proof, and submits `resolve_market`. It also seeds the opposing pool of new two-sided markets so payouts are real.
+- **`mock_validator`** - a small native program that approves any proof, so the full loop runs end-to-end on devnet without the real validator CPI.
+- **`frontend-react`** - the match board and per-odd signal terminal, plus the deposit/claim, combo-slip, and group flows.
 
 ## 4. How the signal is calculated & verified
 
 The signal is two layers, obtained and verified differently.
 
-**The line (implied probability)** comes from TxLINE's **StablePrice** feed — demargined consensus odds, so the percentage reads as a true probability. Each odds update is an `Odds` record (`FixtureId`, `MessageId`, `Ts`, `SuperOddsType`, `MarketParameters`, `PriceNames[]`, `Prices[]`, `Pct[]`, `InRunning`). The implied probability for an outcome is its **`Pct[]`** entry — a 3-decimal percent string (e.g. `"39.432"`) parallel to `PriceNames[]`. That is what settles; on-chain it is scaled to an integer as `round(Pct × 1000)` (so `"39.432"` → `39432`). It is **not** `Prices[]`, which is decimal-odds × 1000. Every update is committed into a batch whose Merkle root is anchored on Solana.
+**The line (implied probability)** comes from TxLINE's **StablePrice** feed - demargined consensus odds, so the percentage reads as a true probability. Each odds update is an `Odds` record (`FixtureId`, `MessageId`, `Ts`, `SuperOddsType`, `MarketParameters`, `PriceNames[]`, `Prices[]`, `Pct[]`, `InRunning`). The implied probability for an outcome is its **`Pct[]`** entry - a 3-decimal percent string (e.g. `"39.432"`) parallel to `PriceNames[]`. That is what settles; on-chain it is scaled to an integer as `round(Pct × 1000)` (so `"39.432"` → `39432`). It is **not** `Prices[]`, which is decimal-odds × 1000. Every update is committed into a batch whose Merkle root is anchored on Solana.
 
-**The volume (support/resistance)** comes from Volmarket's own escrow — aggregate stake-by-level, publicly-readable on-chain state. **Volume only *informs*; it never *settles*.** It shapes the displayed profile and suggests where a level sits, but no outcome is ever decided by internal stake. This wall is what makes the market non-manipulable: manufacturing internal volume moves the picture, not the payout.
+**The volume (support/resistance)** comes from Volmarket's own escrow - aggregate stake-by-level, publicly-readable on-chain state. **Volume only *informs*; it never *settles*.** It shapes the displayed profile and suggests where a level sits, but no outcome is ever decided by internal stake. This wall is what makes the market non-manipulable: manufacturing internal volume moves the picture, not the payout.
 
-**The level that settles** is snapped from TxLINE's anchored StablePrice at market open — support = current − δ, resistance = current + δ. Because the level is derived from public anchored odds (not user stake), no participant can manufacture the level they're predicting.
+**The level that settles** is snapped from TxLINE's anchored StablePrice at market open - support = current − δ, resistance = current + δ. Because the level is derived from public anchored odds (not user stake), no participant can manufacture the level they're predicting.
 
 **Verification:** an odds update is provable via its Merkle proof (a two-stage `subTreeProof` + `mainTreeProof`); reconstruct the root and compare it to the on-chain root through TxLINE's `validate` instruction. Because the profile is a pure function of public, anchored data, anyone recomputes it identically.
 
@@ -55,18 +55,18 @@ A market is **fixture, odd (SuperOddsType + MarketParameters + outcome), side (H
 - **HOLD** wins if the odd's implied probability stays **≥ L** for the whole window.
 - **BREAK** wins if it reaches **≥ L** at any point in the window.
 
-**Single-proof settlement.** You never prove "stayed above for the whole window" — you submit *one* anchored odds update:
+**Single-proof settlement.** You never prove "stayed above for the whole window" - you submit *one* anchored odds update:
 - **BREAK** resolves the moment anyone submits the update where prob ≥ L (one Merkle proof → CPI into the validator). No such update by t₀+W ⇒ BREAK loses (window close is the timeout).
 - **HOLD** is the mirror, settled **optimistically**: anyone may submit the single update where prob dipped **below** L to defeat it. If none is submitted by challenge close (window end) ⇒ HOLD wins.
 
-Everything settles on the anchored line — internal stake never decides an outcome. The program is odds-only; score/stat markets are not implemented.
+Everything settles on the anchored line - internal stake never decides an outcome. The program is odds-only; score/stat markets are not implemented.
 
 ### Market instructions
 
-1. `create_market(fixture_id, odd_key, market_params, side, level, window_start, window_end, fee_bps)` — opens the market and inits its USDC vault PDA. The signer is the market authority (the fee washes back to them). `create_market_v2(…, fee_recipient)` is the same, plus an explicit fee recipient so the protocol fee routes to a dedicated house wallet. Both coexist on the live program with identical account layouts.
-2. `deposit(side, amount)` — stakes USDC into the vault on YES/NO; records a `Position`.
-3. `resolve_market(value, proof)` — permissionless single-proof settlement (above).
-4. `claim()` — winners take pro-rata payout from the vault, minus `fee_bps` on winnings.
+1. `create_market(fixture_id, odd_key, market_params, side, level, window_start, window_end, fee_bps)` - opens the market and inits its USDC vault PDA. The signer is the market authority (the fee washes back to them). `create_market_v2(…, fee_recipient)` is the same, plus an explicit fee recipient so the protocol fee routes to a dedicated house wallet. Both coexist on the live program with identical account layouts.
+2. `deposit(side, amount)` - stakes USDC into the vault on YES/NO; records a `Position`.
+3. `resolve_market(value, proof)` - permissionless single-proof settlement (above).
+4. `claim()` - winners take pro-rata payout from the vault, minus `fee_bps` on winnings.
 
 Payout math (in `claim`, all `u128` with checked ops):
 ```
@@ -79,10 +79,10 @@ payout   = stake + (winnings − fee)
 
 A group is a named roster with its own fee that pools predictions into a shared market position.
 
-- `create_group(group_id, name, fee_bps, visibility, roster)` — identity is `(owner, group_id)`, so one owner can run several groups. The owner is the implicit first member (`member_count` starts at 1, no `GroupMember` minted for them). `update_group` lets the owner edit name/fee/visibility/roster later.
+- `create_group(group_id, name, fee_bps, visibility, roster)` - identity is `(owner, group_id)`, so one owner can run several groups. The owner is the implicit first member (`member_count` starts at 1, no `GroupMember` minted for them). `update_group` lets the owner edit name/fee/visibility/roster later.
 - `request_join` mints a pending `GroupMember`; `approve_member` (owner only) flips it to approved and bumps `member_count`. `leave_group` closes a member's `GroupMember` (the owner can't leave).
 - `group_deposit(side, amount)` stakes into a market **as part of the group**: funds enter the same market vault and count in `market.total_*` (group money competes in the real pool), but the per-member accounting lives in a shared `GroupPool` (group+market aggregate) and a `GroupPosition` (per member/side). The owner deposits without a `GroupMember`; other members must be approved.
-- `claim_group()` pays a member their pro-rata payout — identical winnings math to `claim`, but keyed off the `GroupPosition` and with the **group's** `fee_bps` routed to the **group owner** (the group's house).
+- `claim_group()` pays a member their pro-rata payout - identical winnings math to `claim`, but keyed off the `GroupPosition` and with the **group's** `fee_bps` routed to the **group owner** (the group's house).
 
 Because group stake flows into the market's own vault and totals, group and individual predictions settle against the same market outcome; each side is accounted exactly once (a `Position` or a `GroupPosition`), so the vault conserves.
 

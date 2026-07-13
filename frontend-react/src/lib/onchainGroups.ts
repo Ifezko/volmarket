@@ -36,7 +36,7 @@ export interface OnchainMember {
   approved: boolean
 }
 
-// "Group fee: 2.5%" / "Group fee: Free" — the on-chain fee_bps rendered for every group screen.
+// "Group fee: 2.5%" / "Group fee: Free" - the on-chain fee_bps rendered for every group screen.
 export function feeLabel(feeBps: number): string {
   return feeBps === 0 ? 'Free' : `${(feeBps / 100).toFixed(feeBps % 100 === 0 ? 0 : 2)}%`
 }
@@ -156,7 +156,7 @@ export async function requestJoinOnchain(
 // ---- activity feed ----
 
 export interface GroupActivityItem {
-  /** GroupPosition account address — stable key for the feed row */
+  /** GroupPosition account address - stable key for the feed row */
   address: string
   group: string
   member: string
@@ -167,13 +167,13 @@ export interface GroupActivityItem {
   fixtureId: number
   oddKey: number
   marketParams: number
-  /** implied probability (%) — the market level */
+  /** implied probability (%) - the market level */
   level: number
   windowStart: number
   windowEnd: number
   status: 'open' | 'resolved'
   outcome: 'unset' | 'yes' | 'no'
-  /** final pool sizes on the market (USDC) — for pro-rata PnL of settled calls */
+  /** final pool sizes on the market (USDC) - for pro-rata PnL of settled calls */
   marketTotalYes: number
   marketTotalNo: number
 }
@@ -187,7 +187,7 @@ export interface GroupStats {
   wr: number
 }
 
-// Live group stats from its calls + each call's market outcome — the card's Predictions / PnL /
+// Live group stats from its calls + each call's market outcome - the card's Predictions / PnL /
 // Win rate. A settled winning call nets its pro-rata share of the losing pool minus the group fee;
 // a settled loser is -stake; open calls don't count toward PnL/WR yet. Mirrors claim_group math.
 export function groupStats(items: GroupActivityItem[], feeBps: number): GroupStats {
@@ -214,7 +214,7 @@ export function groupStats(items: GroupActivityItem[], feeBps: number): GroupSta
 /**
  * Recent group calls: every GroupPosition (a member's group_deposit into a market), joined to its
  * market for display + prefill. Filtered to the canonical USDC mint (same as the board) so stray
- * throwaway-mint test markets don't leak in. Sorted with open markets first, largest stake first —
+ * throwaway-mint test markets don't leak in. Sorted with open markets first, largest stake first -
  * a "what's live to join" ordering, since GroupPosition carries no timestamp.
  */
 export async function fetchGroupActivity(connection: Connection): Promise<GroupActivityItem[]> {

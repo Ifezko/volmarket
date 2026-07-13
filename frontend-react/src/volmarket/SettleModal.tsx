@@ -1,7 +1,7 @@
 import { describeMarket } from './liveFixtures'
 import type { ClaimablePosition } from '../lib/claimMarkets'
 
-// Real on-chain settlement popup — the counterpart to the original's mock settle modal
+// Real on-chain settlement popup - the counterpart to the original's mock settle modal
 // (frontend/index.html showSettle()), but driven by markets the keeper actually resolved.
 // Reuses the ported .setmodal/.setcard styling. When the user holds winning positions on
 // resolved markets, this surfaces the total and claims their USDC back on click.

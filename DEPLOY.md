@@ -1,12 +1,12 @@
 # Deploying Volmarket
 
-Four pieces, four homes — they deploy independently.
+Four pieces, four homes - they deploy independently.
 
 | Piece | Where | Why |
 |---|---|---|
 | `frontend-react/` | **Vercel** | Vite build; talks only to public RPC + read-only chain state. |
 | `signal_markets/` + `mock_validator/` | **Solana devnet** | The programs live where the data is. |
-| `keeper/` | **An always-on host** (Railway, Fly.io, a VPS) — **not** Vercel | A long-lived process that watches a stream and polls the chain; serverless functions won't keep it alive. |
+| `keeper/` | **An always-on host** (Railway, Fly.io, a VPS) - **not** Vercel | A long-lived process that watches a stream and polls the chain; serverless functions won't keep it alive. |
 | everything (this repo) | **GitHub** | Source of truth the others build from. |
 
 ---
@@ -42,7 +42,7 @@ npm run build && npm start
 
 The keeper carries a self-contained `signal_markets.idl.json`, so it runs without the `signal_markets/` workspace next to it (`IDL_PATH` defaults to `./signal_markets.idl.json`).
 
-**Env** — set these on the host (start from `keeper/.env.example`):
+**Env** - set these on the host (start from `keeper/.env.example`):
 
 | Var | Value |
 |---|---|
@@ -61,7 +61,7 @@ Ready-made container artifacts live in `keeper/` (`Dockerfile`, `.dockerignore`,
 
 ## Secrets
 
-- The keeper's signing key is set **only** through the host's secret manager — never committed, never baked into an image.
+- The keeper's signing key is set **only** through the host's secret manager - never committed, never baked into an image.
 - Never commit `.env` (only `.env.example`, with placeholders) or any Solana keypair (`*id.json`). `.gitignore` covers these.
-- The frontend holds no secrets — only public RPC URLs, program ids, and mints.
+- The frontend holds no secrets - only public RPC URLs, program ids, and mints.
 - A leaked keeper key lets someone submit resolutions as you (wasted fees); a leaked wallet key can drain funds. If either is exposed, rotate immediately.

@@ -4,9 +4,9 @@ import { createPortal } from 'react-dom'
 // Ported verbatim (same math, same canvas calls) from the signal-sim section of
 // frontend/index.html: startSim/stepSig/drawSignal. Re-expressed with useRef/useEffect
 // instead of module-level globals + setInterval on `document`, but the drawing math and
-// simulation step are untouched — no charting library, no rewrite. This is still a
+// simulation step are untouched - no charting library, no rewrite. This is still a
 // simulated tape, same as the original (there's no live TxLINE feed wired into the
-// browser) — but it's now seeded from a real on-chain market's level, and "your call"
+// browser) - but it's now seeded from a real on-chain market's level, and "your call"
 // lines are real deposited positions instead of pending slip picks. The window selector
 // and Holds/Breaks buttons that used to live here moved to RealPredictPanel, since a real
 // market's window is fixed at creation, not a UI choice.
@@ -51,7 +51,7 @@ export function SignalChart({
   const sigRef = useRef<Sig | null>(null)
   const timerRef = useRef<ReturnType<typeof setInterval> | null>(null)
   const [fs, setFs] = useState(false)
-  const [pills, setPills] = useState({ r: '—', l: '—', s: '—' })
+  const [pills, setPills] = useState({ r: '-', l: '-', s: '-' })
 
   const i2p = useCallback((sig: Sig, i: number) => sig.pmin + (i / (BUCKETS - 1)) * (sig.pmax - sig.pmin), [])
   const p2i = useCallback(
@@ -151,7 +151,7 @@ export function SignalChart({
     })
     ctx.globalAlpha = 1
 
-    // prediction lines on this odd — the wallet's real deposited positions (tagged won/lost/
+    // prediction lines on this odd - the wallet's real deposited positions (tagged won/lost/
     // pending once placed) plus any not-yet-placed slip picks (no status).
     const seen = new Set<string>()
     predictionLines.forEach((ln) => {
@@ -170,7 +170,7 @@ export function SignalChart({
         alpha = 0.5
       } else {
         // Live status is shown ON the call line itself (no separate chip): the line goes green
-        // WINNING once the tape reaches/holds the level, red LOSING otherwise — evaluated against
+        // WINNING once the tape reaches/holds the level, red LOSING otherwise - evaluated against
         // the current live value (sig.prob), so it updates every sim tick as the line moves.
         const winning = sig.prob >= ln.level
         col = winning ? '#2fc079' : '#f3596b'
@@ -199,12 +199,12 @@ export function SignalChart({
     const res = ns.filter((n) => i2p(sig, n.i) > sig.prob).sort((a, b) => b.v - a.v)[0]
     setPills({
       l: sig.prob.toFixed(1) + '%',
-      s: sup ? i2p(sig, sup.i).toFixed(0) + '%' : '—',
-      r: res ? i2p(sig, res.i).toFixed(0) + '%' : '—',
+      s: sup ? i2p(sig, sup.i).toFixed(0) + '%' : '-',
+      r: res ? i2p(sig, res.i).toFixed(0) + '%' : '-',
     })
     onLiveProb?.(sig.prob)
 
-    // x time axis — reads the market's real window duration
+    // x time axis - reads the market's real window duration
     const wsecs = windowSecs || 300
     const ft = (s: number) => (s < 60 ? s + 's' : s % 3600 === 0 ? s / 3600 + 'h' : s % 60 === 0 ? s / 60 + 'm' : (s / 60).toFixed(1) + 'm')
     ctx.fillStyle = '#5a6573'
@@ -217,7 +217,7 @@ export function SignalChart({
     ctx.fillText('now', plotR, h - 3)
     ctx.textAlign = 'left'
 
-    // live % value pinned at the tip of the tape — drawn LAST so nothing overpaints it. Solid
+    // live % value pinned at the tip of the tape - drawn LAST so nothing overpaints it. Solid
     // amber pill with dark text for high contrast, sitting just above the dot (flips below if
     // there's no room), so the exact percentage is readable as the line moves.
     const lv = sig.prob.toFixed(1) + '%'
@@ -270,7 +270,7 @@ export function SignalChart({
     sig.vol[Math.max(0, Math.min(BUCKETS - 1, p2i(sig, sig.prob)))] += 2 + Math.random() * 3
   }, [i2p, nodes, p2i])
 
-  // (re)starts the sim whenever a different odd is selected — matches startSim(prob) in the original
+  // (re)starts the sim whenever a different odd is selected - matches startSim(prob) in the original
   useEffect(() => {
     let p = Math.max(2, Math.min(98, prob))
     let pmin = Math.round(p - 18),
@@ -303,7 +303,7 @@ export function SignalChart({
     return () => {
       if (timerRef.current) clearInterval(timerRef.current)
     }
-    // Intentionally re-runs only when the selected odd changes (matchId/oddKey/prob) —
+    // Intentionally re-runs only when the selected odd changes (matchId/oddKey/prob) -
     // this mirrors startSim(prob) in the original, which restarts on a new odd, not on
     // every redraw-triggering prop change (those just redraw via the effect below).
   }, [matchId, oddKey, prob])
@@ -319,7 +319,7 @@ export function SignalChart({
 
   // Toggling fullscreen changes the canvas box; redraw on the next frame so it picks up the
   // new client width/height. Escape exits fullscreen (and, while fullscreen, is swallowed so
-  // it doesn't also close the whole match — see VolmarketApp's global Escape handler).
+  // it doesn't also close the whole match - see VolmarketApp's global Escape handler).
   useEffect(() => {
     const r = requestAnimationFrame(() => drawSignal())
     return () => cancelAnimationFrame(r)

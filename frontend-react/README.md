@@ -1,12 +1,12 @@
-# Volmarket — app
+# Volmarket - app
 
 The Volmarket web app: the match board, per-odd signal terminal, and the deposit / predict / claim / group flows. React + Vite, with Privy embedded wallets and `@coral-xyz/anchor` for on-chain reads and writes against the `signal_markets` program on Solana devnet.
 
 ## Stack
 
-- **React + Vite + TypeScript** — the UI and build.
-- **Privy** (`@privy-io/react-auth`) — email/social login with an embedded Solana wallet; transactions are signed through Privy and sent via web3.js.
-- **`@coral-xyz/anchor` + `@solana/web3.js`** — build instructions and read program accounts. The program IDL is committed at `src/idl/signal_markets.json`.
+- **React + Vite + TypeScript** - the UI and build.
+- **Privy** (`@privy-io/react-auth`) - email/social login with an embedded Solana wallet; transactions are signed through Privy and sent via web3.js.
+- **`@coral-xyz/anchor` + `@solana/web3.js`** - build instructions and read program accounts. The program IDL is committed at `src/idl/signal_markets.json`.
 
 ## Develop
 
@@ -21,7 +21,7 @@ Sensible devnet defaults are baked in, so `npm run dev` runs without any `.env`.
 
 ## Configuration
 
-All config is via `VITE_*` env vars — client-side and non-secret (baked in at build time):
+All config is via `VITE_*` env vars - client-side and non-secret (baked in at build time):
 
 | Var | Purpose |
 |---|---|
@@ -44,7 +44,7 @@ src/
 │   ├── onchainGroups.ts         groups: fetch, create/join/approve/update/leave, group_deposit, activity, stats
 │   ├── funds.ts                 USDC balance, deposit/withdraw, gas top-up
 │   └── privyAnchorWallet.ts     bridges Privy's signer to Anchor's wallet interface
-└── volmarket/                   UI — Board, MatchDetail, Slip, Groups view + detail, Profile, etc.
+└── volmarket/                   UI - Board, MatchDetail, Slip, Groups view + detail, Profile, etc.
 ```
 
 The board renders real on-chain `Market` accounts grouped into fixtures; the groups views render real `Group`/`GroupMember`/`GroupPosition` accounts. See the root `README.md` for the program's instruction surface and the settlement design.

@@ -13,7 +13,7 @@ function pctToBps(pct: string): number {
   return Math.min(10_000, Math.round(n * 100))
 }
 
-// Ported from openGroups()/gVis()/gJoin()/gSlug()/createGroup() in frontend/index.html —
+// Ported from openGroups()/gVis()/gJoin()/gSlug()/createGroup() in frontend/index.html -
 // rendered inside the Slip drawer's `override` slot (see Slip.tsx), same as the
 // original swaps #slipBody's innerHTML for this form.
 export function GroupCreatePanel({
@@ -143,7 +143,7 @@ export function GroupCreatePanel({
         </div>
         <div className="s" style={{ color: 'var(--dim)', marginTop: 6 }}>
           {feeBps === 0
-            ? 'No cut — members keep all winnings.'
+            ? 'No cut - members keep all winnings.'
             : `Your cut on members' winnings at settlement (${feeLabel(feeBps)}). Set any amount, 0 = Free.`}
         </div>
       </div>

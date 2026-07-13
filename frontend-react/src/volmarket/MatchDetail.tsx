@@ -7,7 +7,7 @@ import { type RealPredictMeta } from './PredictBuilder'
 import { matchState, type LiveFixture } from './liveFixtures'
 import type { SlipItem, Ticket } from './Slip'
 
-// Ported from openMatch() in frontend/index.html: the .detail overlay — score header,
+// Ported from openMatch() in frontend/index.html: the .detail overlay - score header,
 // grouped odds selector (live only), the .sig volume-signal panel, the all-odds list,
 // and the pre-match "markets open at kickoff" state. `match` is now a real on-chain
 // fixture (grouped Market accounts, see liveFixtures.ts) instead of the mock array.
@@ -78,7 +78,7 @@ export function MatchDetail({
   const now = Math.floor(useNow(1000) / 1000)
   const st = matchState(match, now)
 
-  // Left side: the live dot + match minute / HT / FT (or the kickoff time for upcoming) —
+  // Left side: the live dot + match minute / HT / FT (or the kickoff time for upcoming) -
   // the standard scoreboard status column.
   const minTag = st.live ? (
     <span className="min">
@@ -151,7 +151,7 @@ export function MatchDetail({
               <div className="detailgrid">
                 <div className="dg-chart">
                   <SignalChart
-                    title={`${activeOdd.label} — ${activeOdd.prob.toFixed(1)}%`}
+                    title={`${activeOdd.label} - ${activeOdd.prob.toFixed(1)}%`}
                     onOpenHow={onOpenHow}
                     matchId={match.id}
                     oddKey={activeOdd.key}
@@ -204,7 +204,7 @@ export function MatchDetail({
               onClick={() => onToggleFollow(match.id)}
               style={{ width: '100%' }}
             >
-              {isFollowed ? '✓ Following — alerts at kickoff' : '🔔 Follow match'}
+              {isFollowed ? '✓ Following - alerts at kickoff' : '🔔 Follow match'}
             </button>
           </div>
         ) : (

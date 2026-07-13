@@ -23,7 +23,7 @@ export function Board({
         <div>
           <h1>Live volume signals</h1>
           <p>
-            Open a match, pick a country or odd, and predict where the money holds support or breaks resistance — on
+            Open a match, pick a country or odd, and predict where the money holds support or breaks resistance - on
             every available line.
           </p>
           <button className="howbtn" onClick={onOpenHow} style={{ marginTop: 8 }}>
@@ -55,8 +55,8 @@ export function Board({
             />
             <span>
               {hasAnyMarkets
-                ? 'No matches in this view — try another filter.'
-                : 'No real markets on devnet yet — seed some with keeper/scripts/seed-devnet.ts.'}
+                ? 'No matches in this view - try another filter.'
+                : 'No real markets on devnet yet - seed some with keeper/scripts/seed-devnet.ts.'}
             </span>
           </div>
         ) : (

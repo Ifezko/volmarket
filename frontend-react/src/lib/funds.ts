@@ -9,7 +9,7 @@ import { PrivyAnchorWallet } from './privyAnchorWallet'
 
 type PrivySignTransaction = ConstructorParameters<typeof PrivyAnchorWallet>[1]
 
-// The app's canonical devnet USDC mint (treasury-controlled — see keeper/scripts/setup-treasury.ts).
+// The app's canonical devnet USDC mint (treasury-controlled - see keeper/scripts/setup-treasury.ts).
 // Overridable per-env via VITE_USDC_MINT; the fallback is the mint created for this deployment.
 export const USDC_MINT = new PublicKey(
   import.meta.env.VITE_USDC_MINT ?? '3aakQUJ6vvWphAr18ZoAJfoHs3w148tWJmKsgsnUj12q',
@@ -32,7 +32,7 @@ export interface FundResult {
 }
 
 // Calls the treasury funding endpoint: tops up a little gas SOL and mints `amount` USDC to the
-// wallet. This is the "deposit" — on devnet there's no real USDC to move, so funding IS minting.
+// wallet. This is the "deposit" - on devnet there's no real USDC to move, so funding IS minting.
 export async function fundWallet(address: string, amount: number): Promise<FundResult> {
   const res = await fetch(FUND_ENDPOINT, {
     method: 'POST',
@@ -46,8 +46,8 @@ export async function fundWallet(address: string, amount: number): Promise<FundR
 
 // Reliably tops up gas SOL for `address` via the treasury (amount 0 => the endpoint only sends SOL
 // if the wallet is below its gas floor, no USDC minted). Used before placing so the fee payer can
-// cover fees + account rent. This works for ANY wallet — embedded or an external one like Solflare
-// — unlike the devnet airdrop, which is rate-limited and silently fails.
+// cover fees + account rent. This works for ANY wallet - embedded or an external one like Solflare
+// - unlike the devnet airdrop, which is rate-limited and silently fails.
 export async function topUpGas(address: string): Promise<void> {
   await fundWallet(address, 0)
 }
@@ -71,7 +71,7 @@ export interface FundingEvent {
   amountUsdc: number
 }
 
-// Money-in/money-out history for the wallet's canonical-USDC account, newest first — the funding
+// Money-in/money-out history for the wallet's canonical-USDC account, newest first - the funding
 // half of the profile's History (predictions are the other half). We scan the USDC ATA's
 // signatures and classify each by the ATA's USDC balance delta: a credit shows as a deposit, a
 // debit as a withdrawal. Only loaded when the History tab opens, so the per-tx parse cost is paid
@@ -116,7 +116,7 @@ const USDC_DECIMALS = 6
 
 // Withdraws USDC from the embedded wallet to any Solana address (signed silently by Privy,
 // same as placing). Creates the destination's USDC token account if it doesn't exist yet, then
-// transfers — so the recipient doesn't have to have opened one first.
+// transfers - so the recipient doesn't have to have opened one first.
 export async function withdrawUsdc(
   connection: Connection,
   wallet: ConnectedStandardSolanaWallet,

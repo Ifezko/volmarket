@@ -25,12 +25,12 @@ const ODD_LABELS: Record<number, { grp: string; base: string }> = {
   3: { grp: 'Over/Under', base: 'over' },
   4: { grp: 'Over/Under', base: 'under' },
 }
-// The canonical odd set every fixture offers — matches the original mock's oddsLines()
+// The canonical odd set every fixture offers - matches the original mock's oddsLines()
 // (1X2 + Over/Under; BTTS omitted, see keeper/src/markets.ts ODD_OUTCOMES). Users can
 // predict hold/break on any of these, not just whichever side happens to already have a
-// real market — placing a prediction creates the market on demand (see depositMarkets.ts).
+// real market - placing a prediction creates the market on demand (see depositMarkets.ts).
 const CANONICAL_ODD_KEYS = [0, 1, 2, 3, 4]
-const DEFAULT_OU_LINE = 250 // 2.5 goals, ×100 — the default line shown before a real market picks one
+const DEFAULT_OU_LINE = 250 // 2.5 goals, ×100 - the default line shown before a real market picks one
 
 export interface LiveOdd {
   key: string
@@ -39,7 +39,7 @@ export interface LiveOdd {
   grp: string
   label: string
   fl: string
-  /** reference probability (%) for this odd — a real market's level if one exists, else a
+  /** reference probability (%) for this odd - a real market's level if one exists, else a
    *  stable pseudo-value seeded from the fixture+odd, same idea as the sparkline seeding */
   prob: number
   markets: RealMarket[]
@@ -60,9 +60,9 @@ export interface LiveFixture {
 }
 
 // The scoreboard follows the standard football mental model: a live dot + match minute (or
-// HT/FT) on the LEFT, and the SCORE in the middle. There's no real match feed on-chain — the
+// HT/FT) on the LEFT, and the SCORE in the middle. There's no real match feed on-chain - the
 // market windows are week-long trading windows (see keeper/scripts/seed-devnet.ts), not match
-// clocks — so, exactly like the team names/odds/sparklines, the score and minute are derived
+// clocks - so, exactly like the team names/odds/sparklines, the score and minute are derived
 // deterministically from the fixture id. Each fixture runs its own seeded 45+45 timeline that
 // ticks in real time (with a half-time break), so a "live" match shows a believable, advancing
 // minute in 1'..90' instead of a stale elapsed count.
@@ -109,14 +109,14 @@ export function matchState(f: LiveFixture, nowSecs: number): MatchState {
 export type BoardFilter = 'all' | 'trending' | 'live' | 'today' | 'upcoming'
 export type BoardSort = 'volume' | 'recent'
 
-// Total USDC staked across all of a fixture's markets — the "volume" the board sorts on.
+// Total USDC staked across all of a fixture's markets - the "volume" the board sorts on.
 export function fixtureVolume(f: LiveFixture): number {
   let v = 0
   for (const o of f.odds) for (const m of o.markets) v += m.totalYes + m.totalNo
   return v
 }
 
-// Most recent market window on the fixture — used for the "Recent" sort.
+// Most recent market window on the fixture - used for the "Recent" sort.
 function fixtureLatest(f: LiveFixture): number {
   let t = 0
   for (const o of f.odds) for (const m of o.markets) t = Math.max(t, m.windowStart)
@@ -131,7 +131,7 @@ function fixtureLatest(f: LiveFixture): number {
 export function applyBoardView(fixtures: LiveFixture[], filter: BoardFilter, sort: BoardSort): LiveFixture[] {
   // Only surface real TxLINE-seeded fixtures on the user-facing board. The synthetic demo
   // fixtures (99xxx/77xxx/91xxx) stay in the underlying data (still openable/testable and their
-  // pseudoTeams naming is unchanged) — they're just hidden from what users see here.
+  // pseudoTeams naming is unchanged) - they're just hidden from what users see here.
   let list = fixtures.filter((f) => f.fixtureId >= REAL_FIXTURE_MIN)
   if (filter === 'live') list = list.filter((f) => f.status === 'live')
   else if (filter === 'upcoming') list = list.filter((f) => f.status === 'soon')
@@ -143,11 +143,11 @@ export function applyBoardView(fixtures: LiveFixture[], filter: BoardFilter, sor
   )
 }
 
-// There's no fixture metadata on-chain (team names, competition, kickoff) — that lives in
+// There's no fixture metadata on-chain (team names, competition, kickoff) - that lives in
 // TxLINE's feed, which isn't wired into the browser yet (see README "Open" items). Rather
 // than hand-maintain a lookup table that only covers today's seeded demo fixtures, derive
 // stable display names deterministically from the fixture id itself, the same way the
-// sparklines are seeded — so ANY fixture (today's or a future real one) renders sensibly.
+// sparklines are seeded - so ANY fixture (today's or a future real one) renders sensibly.
 function pseudoTeams(fixtureId: number): { comp: string; a: string; b: string } {
   const countries = Object.keys(FL).filter((k) => k !== 'Draw')
   const r = rng(`fixture-${fixtureId}`)
@@ -183,7 +183,7 @@ function oddLabel(oddKey: number, marketParams: number, a: string, b: string): {
 }
 
 /**
- * A human label for a market from its on-chain fields alone — the same deterministic team
+ * A human label for a market from its on-chain fields alone - the same deterministic team
  * and odd naming the board uses, so a claim popup reads like the board did (e.g.
  * "Brazil v Argentina · Over 2.5 goals: holds 58%"). Used by the settlement modal.
  */
@@ -202,7 +202,7 @@ export function describeMarket(
 
 /**
  * Groups the flat list of real on-chain Market accounts into board-shaped fixtures. Every
- * known fixture always offers the full canonical odd set (both teams, draw, over/under) —
+ * known fixture always offers the full canonical odd set (both teams, draw, over/under) -
  * real markets attach to whichever odds already have one, the rest get a placeholder
  * reference probability so they're still selectable and predictable.
  */

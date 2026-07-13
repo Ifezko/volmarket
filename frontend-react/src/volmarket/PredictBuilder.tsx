@@ -7,16 +7,16 @@ export interface RealPredictMeta {
   oddKey: number
   marketParams: number
   side: 'hold' | 'break'
-  /** implied probability × 1000 — the on-chain scale */
+  /** implied probability × 1000 - the on-chain scale */
   levelRaw: number
   windowSecs: number
 }
 
 // Ported from renderCtrls() in frontend/index.html: the window selector + Holds/Breaks
-// buttons. Adding a pick here is free — no wallet, no login, no chain call — exactly like
+// buttons. Adding a pick here is free - no wallet, no login, no chain call - exactly like
 // the original's add(). Only "Place prediction" (in the slip) touches the chain, and only
 // then does Privy ask you to log in. Both sides are always offered for whichever odd is
-// selected, regardless of whether a real market already exists for it — placing creates
+// selected, regardless of whether a real market already exists for it - placing creates
 // one on demand (see lib/depositMarkets.ts).
 export function PredictBuilder({
   odd,
@@ -50,7 +50,7 @@ export function PredictBuilder({
         <div className="wchips">
           {/* Only windows the keeper can realistically verify in-window against the live signal.
               Sub-30s durations close before a freshly-created market is even observed, so they'd
-              always settle to the default outcome rather than a verified one — hidden to keep the
+              always settle to the default outcome rather than a verified one - hidden to keep the
               "verified within your window" promise honest. Indices are kept absolute (WSECS/probs
               unchanged) so the odds math and pick ids stay consistent. */}
           {WINDOWS.map((w, i) =>

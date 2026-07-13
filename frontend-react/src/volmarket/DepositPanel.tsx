@@ -11,7 +11,7 @@ const AMOUNTS = [20, 50, 200]
 // inside the Slip drawer's `override` slot. Now a REAL deposit: Continue funds the embedded
 // wallet with `amount` devnet USDC (and tops up gas SOL) via the treasury endpoint, so the
 // user has spendable balance to place predictions. On devnet the payment rails are illustrative
-// — every method resolves to minting the same canonical USDC to the wallet.
+// - every method resolves to minting the same canonical USDC to the wallet.
 export function DepositPanel({
   balance,
   onDeposit,
@@ -80,7 +80,7 @@ export function DepositPanel({
       )}
       {done != null && !error && (
         <div className="s" style={{ color: 'var(--green)', margin: '4px 0 10px' }}>
-          Deposited {done} USDC — you're funded and ready to predict.
+          Deposited {done} USDC - you're funded and ready to predict.
         </div>
       )}
 

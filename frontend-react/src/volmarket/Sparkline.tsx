@@ -1,7 +1,7 @@
 import { rng } from './data'
 
 // Ported verbatim (same math) from the `spark()` template-string function in
-// frontend/index.html — deterministic per-seed sparkline with support/resistance
+// frontend/index.html - deterministic per-seed sparkline with support/resistance
 // guide lines, used on board cards and the all-odds rows.
 export function Sparkline({ seed, prob, height }: { seed: string; prob: number; height?: number }) {
   const r = rng(seed)

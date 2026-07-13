@@ -17,7 +17,7 @@ export interface Ticket {
 
 // Ported from the .fab / .scrim / .slip markup and renderSlip()/place()/pasteCode() in
 // frontend/index.html. Group-creation and deposit reuse this same drawer in the
-// original (via `ticket==='group'|'dep'`) — those land in later commits.
+// original (via `ticket==='group'|'dep'`) - those land in later commits.
 export function Slip({
   open,
   slip,
@@ -51,7 +51,7 @@ export function Slip({
   override: { title: string; body: ReactNode } | null
   placing: boolean
   placeError: string | null
-  // true when the signed-in wallet's USDC balance can't cover the stake — block Place and steer
+  // true when the signed-in wallet's USDC balance can't cover the stake - block Place and steer
   // to Deposit instead (a common external-wallet snag: SOL/other USDC present, but no app USDC).
   insufficientFunds: boolean
   balance: number | null
@@ -66,7 +66,7 @@ export function Slip({
   onNewSlip: () => void
   onPasteCode: (code: string) => void
   // Groups the signed-in user can stake this slip into (owned or approved-member). Empty when the
-  // user is in no groups — the "Send to group" control is hidden entirely then.
+  // user is in no groups - the "Send to group" control is hidden entirely then.
   sendableGroups: { address: string; name: string }[]
   sending: boolean
   onSendToGroup: (groupAddress: string) => void

@@ -42,8 +42,8 @@ function MarketsList() {
     <ul>
       {markets.markets.map((m) => (
         <li key={m.address}>
-          fixture {m.fixtureId} / odd {m.oddKey} / side {m.side} / level {m.level} — YES{' '}
-          {m.totalYes} / NO {m.totalNo} USDC — {m.status} ({m.outcome})
+          fixture {m.fixtureId} / odd {m.oddKey} / side {m.side} / level {m.level} - YES{' '}
+          {m.totalYes} / NO {m.totalNo} USDC - {m.status} ({m.outcome})
         </li>
       ))}
     </ul>

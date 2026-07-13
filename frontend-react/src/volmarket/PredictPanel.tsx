@@ -6,8 +6,8 @@ import type { SlipItem, Ticket } from './Slip'
 
 // The desktop match-detail right column: the prediction builder (window + Holds/Breaks) stacked
 // over the live slip, so a user reads the signal on the left and builds + places from here without
-// opening the drawer. It shares VolmarketApp's slip/stake/ticket state with the drawer Slip — the
-// two are just different surfaces onto the same combo — so a pick added on the board still shows,
+// opening the drawer. It shares VolmarketApp's slip/stake/ticket state with the drawer Slip - the
+// two are just different surfaces onto the same combo - so a pick added on the board still shows,
 // and placing here still yields the shareable ticket. On mobile this whole panel stacks under the
 // chart (see .detailgrid), which keeps the original single-column flow.
 export function PredictPanel({

@@ -33,7 +33,7 @@ export function Footer() {
         </div>
         <div className="legal" style={{ color: 'var(--faint)' }}>
           Volmarket is non-custodial. Outcomes settle against cryptographic match proofs anchored on Solana via
-          TxLINE — released by code, never held by an operator. Predicting involves risk. Check the laws in your
+          TxLINE - released by code, never held by an operator. Predicting involves risk. Check the laws in your
           jurisdiction.
         </div>
       </div>

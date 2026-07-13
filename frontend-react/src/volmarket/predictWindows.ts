@@ -1,4 +1,4 @@
-// Ported verbatim from frontend/index.html's WINDOWS/WSECS/holdProb/breakProb — the
+// Ported verbatim from frontend/index.html's WINDOWS/WSECS/holdProb/breakProb - the
 // duration chips users pick when predicting. A real market's window is fixed once
 // created, but the user chooses it up front (same as the original), and placing the
 // prediction creates a fresh on-chain market for exactly that window if the wallet is

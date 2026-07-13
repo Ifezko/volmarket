@@ -15,8 +15,8 @@ const MAX_RESOLVE_PER_TX = 6
 const STATUS_RESOLVED = 1
 
 // The keeper (or another tab) may resolve a market between our read and our send; the program
-// then rejects our resolve with AlreadyResolved. That's not a failure — the market is settled
-// either way — so we treat it as a no-op.
+// then rejects our resolve with AlreadyResolved. That's not a failure - the market is settled
+// either way - so we treat it as a no-op.
 function isAlreadyResolved(err: unknown): boolean {
   return String((err as { message?: string })?.message ?? err).includes('AlreadyResolved')
 }
@@ -34,7 +34,7 @@ async function resolveBatch(
   for (const market of markets) {
     // Past window_end, resolve_market takes the timeout branch: it settles the default outcome
     // (HOLD wins, BREAK loses) with no proof and no TxLINE CPI, so value/proof are dummies and
-    // there are no remaining_accounts. Permissionless — the user signs as `resolver`.
+    // there are no remaining_accounts. Permissionless - the user signs as `resolver`.
     const ix = await program.methods
       .resolveMarket(new BN(0), Buffer.from([]))
       .accounts({ resolver: userPublicKey, market, txlineProgram: TXLINE_PROGRAM_ID } as any)
@@ -54,7 +54,7 @@ async function resolveBatch(
 }
 
 /**
- * Browser-side fallback that settles the given markets once their trading window has closed —
+ * Browser-side fallback that settles the given markets once their trading window has closed -
  * so a user's predictions resolve at the duration they picked even if the keeper isn't running
  * (the same spirit as the hidden manual-claim fallback). Only pass markets whose window_end has
  * passed; the program rejects a premature, proofless resolve. Batched so the wallet signs once
@@ -69,7 +69,7 @@ export async function resolveMarkets(
 ): Promise<string[]> {
   if (!markets.length) return []
 
-  // Drop any already resolved (commonly the keeper got there first) before building a tx —
+  // Drop any already resolved (commonly the keeper got there first) before building a tx -
   // otherwise one resolved market would fail the whole batch. A resolved market is null-safe
   // here; treat a failed fetch as still-open and let the send-time guard catch the race.
   const program = getReadonlyProgram(connection)

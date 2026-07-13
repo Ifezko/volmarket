@@ -2,7 +2,7 @@ import * as Flags from 'country-flag-icons/react/3x2'
 
 // Country name -> ISO 3166 code used by country-flag-icons. These render as real bundled SVGs
 // that look identical on every OS. The old FL emoji were regional-indicator flags, which
-// Windows (and some Linux) can't render — they fell back to bare letters like "NL"/"PT"/"AR",
+// Windows (and some Linux) can't render - they fell back to bare letters like "NL"/"PT"/"AR",
 // which is the "flags not showing on desktop" bug. Draw / Over / Under have no country flag,
 // so callers pass a `fallback` glyph (⚖️/⚽/🛡️) which are ordinary emoji that do render.
 const CODE: Record<string, keyof typeof Flags> = {

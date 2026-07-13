@@ -10,7 +10,7 @@ const SIDE_YES = 1
 // Position layout: discriminator(8) + market(32) + owner(32) -> owner starts at byte 40.
 const POSITION_OWNER_OFFSET = 40
 // A claim ix touches ~6 accounts and no rent-paying inits (the ATAs already exist from the
-// deposit), so several fit in one legacy transaction. Kept conservative — each pick used a
+// deposit), so several fit in one legacy transaction. Kept conservative - each pick used a
 // distinct throwaway mint, so batched claims don't share vault/token accounts.
 const MAX_CLAIMS_PER_TX = 4
 
@@ -35,7 +35,7 @@ export interface ClaimablePosition {
 
 /**
  * Prospective payout multiplier for depositing `stake` into one side of a two-sided market, from
- * the CURRENT live pools — the real number the slip should show instead of the old 100/prob guess.
+ * the CURRENT live pools - the real number the slip should show instead of the old 100/prob guess.
  * Mirrors `claim`: your stake joins the winning pool (diluting it), then wins a pro-rata share of
  * the opposing pool, fee taken on winnings only. So payout = stake + stake*opposing/(sameSide+stake)
  * - fee, and multiplier = payout/stake. `sameSide`/`opposing` are the pool sizes for the side you're
@@ -52,7 +52,7 @@ export function previewMultiplier(sameSide: number, opposing: number, stake: num
 // Net wallet delta from a winning claim, mirroring `claim` in the program: winners split the
 // losing pool in proportion to stake, and the protocol fee (taken only on the winnings) is paid to
 // the market authority's token account. In this app the placer IS the market authority (see
-// depositMarkets.ts), so that fee lands right back in their own wallet — a wash — and the real
+// depositMarkets.ts), so that fee lands right back in their own wallet - a wash - and the real
 // credited amount is stake + winnings, fee-free. `feeReturnsToOwner` captures that: when the fee's
 // recipient (authority) is the position owner, don't subtract it. This keeps the settled amount
 // equal to the slip's fee-free preview. With an all-YES demo market (no NO stake) the losing pool
@@ -76,7 +76,7 @@ export interface ActivePosition {
   level: number
   /** unix seconds the trading window opened (prediction placed) */
   windowStart: number
-  /** unix seconds the trading window closes — when the prediction is due to resolve */
+  /** unix seconds the trading window closes - when the prediction is due to resolve */
   windowEnd: number
   /** the staked amount, in whole USDC */
   stakeUsdc: number
@@ -95,7 +95,7 @@ export interface WalletState {
 /**
  * One combined read of the wallet's on-chain state: a single position scan + a single market
  * scan (in parallel, each with RPC failover), from which everything the app polls for is derived
- * — the board's markets, the wallet's active positions (pending/won/lost, for the chart), and the
+ * - the board's markets, the wallet's active positions (pending/won/lost, for the chart), and the
  * claimable subset (won & unclaimed, for auto-credit). Consolidating what used to be two separate
  * position+market scans per poll halves the getProgramAccounts load the public devnet RPC throttles.
  * Positions are always YES (agree with the market thesis, see depositMarkets.ts), so a resolved
@@ -120,7 +120,7 @@ export async function fetchWalletState(connection: Connection, owner: PublicKey)
     // SIDE_NO <-> 'no'. (Two-sided: a Breaks/SIDE_NO position wins when the market resolves 'no'.)
     const positionOutcome = account.side === SIDE_YES ? 'yes' : 'no'
     // The placer is the market authority, so the claim fee (paid to the authority) returns to this
-    // same wallet — a wash. Payout is then fee-free, matching the slip's preview.
+    // same wallet - a wash. Payout is then fee-free, matching the slip's preview.
     const feeReturnsToOwner = market.authority.equals(owner)
     const status: ActivePosition['status'] =
       market.status !== 'resolved' ? 'pending' : market.outcome === positionOutcome ? 'won' : 'lost'
@@ -180,7 +180,7 @@ async function claimBatch(
 
     const ix = await program.methods
       .claim()
-      // claim is permissionless (payer/owner split) — the keeper normally pushes these payouts
+      // claim is permissionless (payer/owner split) - the keeper normally pushes these payouts
       // automatically; this self-claim is the hidden fallback, so the user is both payer and owner.
       .accounts({
         payer: userPublicKey,
@@ -220,7 +220,7 @@ export async function claimPositions(
 ): Promise<{ signatures: string[] }> {
   if (!positions.length) throw new Error('no positions to claim')
 
-  // Claiming a payout is a signed tx the wallet pays fees for — a gasless external wallet (USDC
+  // Claiming a payout is a signed tx the wallet pays fees for - a gasless external wallet (USDC
   // but no SOL) would fail the same way placing did, leaving the winnings stuck in the vault and
   // never credited. Ensure gas (and that this RPC sees it) before claiming.
   await ensureGasReady(connection, wallet.address)
