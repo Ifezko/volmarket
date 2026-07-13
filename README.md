@@ -9,7 +9,6 @@ Non-custodial Solana prediction protocol where you trade the **volume signal** o
 ```
 volmarket/
 ├── frontend-react/     The app — React + Vite + Privy, talks to the program on devnet (deployed to Vercel)
-├── frontend/           Original single-file HTML prototype (design reference)
 ├── signal_markets/     Anchor program — escrow vaults, HOLD/BREAK markets, single-proof settlement, groups
 ├── keeper/             TypeScript service — watches TxLINE odds, fetches proofs, resolves markets
 ├── mock_validator/     Native Solana program that approves any proof (devnet settlement stand-in)
