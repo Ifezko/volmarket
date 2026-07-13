@@ -16,7 +16,7 @@ export function HowModal({ open, onClose }: { open: boolean; onClose: () => void
         <h3>How signals work</h3>
         <div style={{ marginBottom: 14 }}>{open && <Sparkline seed="howto" prob={62} height={72} />}</div>
         <p>
-          The <b style={{ color: 'var(--cyan)' }}>blue line</b> is the live chance of this outcome — it moves as the
+          The <b style={{ color: 'var(--cyan)' }}>cyan line</b> is the live chance of this outcome — it moves as the
           match plays.
         </p>
         <p>
