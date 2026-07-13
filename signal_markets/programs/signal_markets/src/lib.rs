@@ -380,6 +380,32 @@ pub mod signal_markets {
         g.bump = ctx.bumps.group;
         Ok(())
     }
+
+    /// A wallet asks to join a group: mints its `GroupMember` in the pending (`approved = false`)
+    /// state. Permissionless to request — the owner gates entry via `approve_member`. Re-requesting
+    /// fails at `init` (the PDA already exists), which is exactly the UI's "Requested" latch.
+    pub fn request_join(ctx: Context<RequestJoin>) -> Result<()> {
+        let m = &mut ctx.accounts.group_member;
+        m.group = ctx.accounts.group.key();
+        m.member = ctx.accounts.member.key();
+        m.approved = false;
+        m.bump = ctx.bumps.group_member;
+        Ok(())
+    }
+
+    /// The group owner approves a pending member: flips `approved` false -> true and bumps the
+    /// group's `member_count`. Only the `group.owner` may call it; approving an already-approved
+    /// member is rejected so `member_count` can't be double-counted.
+    pub fn approve_member(ctx: Context<ApproveMember>) -> Result<()> {
+        require!(
+            !ctx.accounts.group_member.approved,
+            MarketError::AlreadyApproved
+        );
+        ctx.accounts.group_member.approved = true;
+        let g = &mut ctx.accounts.group;
+        g.member_count = g.member_count.checked_add(1).ok_or(MarketError::Overflow)?;
+        Ok(())
+    }
 }
 
 // ---- TxLINE CPI helper (the single swappable integration seam) ----
@@ -624,6 +650,47 @@ pub struct CreateGroup<'info> {
     pub system_program: Program<'info, System>,
 }
 
+#[derive(Accounts)]
+pub struct RequestJoin<'info> {
+    #[account(mut)]
+    pub member: Signer<'info>,
+
+    pub group: Account<'info, Group>,
+
+    #[account(
+        init,
+        payer = member,
+        space = 8 + GroupMember::INIT_SPACE,
+        seeds = [b"member", group.key().as_ref(), member.key().as_ref()],
+        bump
+    )]
+    pub group_member: Account<'info, GroupMember>,
+
+    pub system_program: Program<'info, System>,
+}
+
+#[derive(Accounts)]
+pub struct ApproveMember<'info> {
+    /// Must be the group owner — enforced by the `group.owner == owner` constraint below.
+    pub owner: Signer<'info>,
+
+    #[account(
+        mut,
+        seeds = [b"group", group.owner.as_ref(), group.group_id.to_le_bytes().as_ref()],
+        bump = group.bump,
+        constraint = group.owner == owner.key() @ MarketError::NotGroupOwner,
+    )]
+    pub group: Account<'info, Group>,
+
+    #[account(
+        mut,
+        seeds = [b"member", group.key().as_ref(), group_member.member.as_ref()],
+        bump = group_member.bump,
+        constraint = group_member.group == group.key() @ MarketError::Unauthorized,
+    )]
+    pub group_member: Account<'info, GroupMember>,
+}
+
 // =========================== State ===========================
 
 #[account]
@@ -735,4 +802,8 @@ pub enum MarketError {
     NameTooLong,
     #[msg("visibility must be public (0) or private (1)")]
     InvalidVisibility,
+    #[msg("signer is not the group owner")]
+    NotGroupOwner,
+    #[msg("member is already approved")]
+    AlreadyApproved,
 }

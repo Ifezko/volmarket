@@ -8,6 +8,90 @@
   },
   "instructions": [
     {
+      "name": "approve_member",
+      "docs": [
+        "The group owner approves a pending member: flips `approved` false -> true and bumps the",
+        "group's `member_count`. Only the `group.owner` may call it; approving an already-approved",
+        "member is rejected so `member_count` can't be double-counted."
+      ],
+      "discriminator": [
+        67,
+        153,
+        211,
+        36,
+        192,
+        57,
+        223,
+        105
+      ],
+      "accounts": [
+        {
+          "name": "owner",
+          "docs": [
+            "Must be the group owner — enforced by the `group.owner == owner` constraint below."
+          ],
+          "signer": true
+        },
+        {
+          "name": "group",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  103,
+                  114,
+                  111,
+                  117,
+                  112
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "group.owner",
+                "account": "Group"
+              },
+              {
+                "kind": "account",
+                "path": "group.group_id",
+                "account": "Group"
+              }
+            ]
+          }
+        },
+        {
+          "name": "group_member",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  109,
+                  101,
+                  109,
+                  98,
+                  101,
+                  114
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "group"
+              },
+              {
+                "kind": "account",
+                "path": "group_member.member",
+                "account": "GroupMember"
+              }
+            ]
+          }
+        }
+      ],
+      "args": []
+    },
+    {
       "name": "claim",
       "docs": [
         "Pays a winner their pro-rata payout from the vault. The fee_bps \"cut\" is taken on",
@@ -600,6 +684,66 @@
       ]
     },
     {
+      "name": "request_join",
+      "docs": [
+        "A wallet asks to join a group: mints its `GroupMember` in the pending (`approved = false`)",
+        "state. Permissionless to request — the owner gates entry via `approve_member`. Re-requesting",
+        "fails at `init` (the PDA already exists), which is exactly the UI's \"Requested\" latch."
+      ],
+      "discriminator": [
+        70,
+        164,
+        111,
+        135,
+        228,
+        172,
+        97,
+        186
+      ],
+      "accounts": [
+        {
+          "name": "member",
+          "writable": true,
+          "signer": true
+        },
+        {
+          "name": "group"
+        },
+        {
+          "name": "group_member",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  109,
+                  101,
+                  109,
+                  98,
+                  101,
+                  114
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "group"
+              },
+              {
+                "kind": "account",
+                "path": "member"
+              }
+            ]
+          }
+        },
+        {
+          "name": "system_program",
+          "address": "11111111111111111111111111111111"
+        }
+      ],
+      "args": []
+    },
+    {
       "name": "resolve_market",
       "docs": [
         "Permissionless single-proof settlement.",
@@ -706,6 +850,19 @@
         89,
         186,
         254
+      ]
+    },
+    {
+      "name": "GroupMember",
+      "discriminator": [
+        100,
+        200,
+        88,
+        143,
+        83,
+        227,
+        165,
+        166
       ]
     },
     {
@@ -830,6 +987,16 @@
       "code": 6018,
       "name": "InvalidVisibility",
       "msg": "visibility must be public (0) or private (1)"
+    },
+    {
+      "code": 6019,
+      "name": "NotGroupOwner",
+      "msg": "signer is not the group owner"
+    },
+    {
+      "code": 6020,
+      "name": "AlreadyApproved",
+      "msg": "member is already approved"
     }
   ],
   "types": [
@@ -868,6 +1035,34 @@
           {
             "name": "member_count",
             "type": "u32"
+          },
+          {
+            "name": "bump",
+            "type": "u8"
+          }
+        ]
+      }
+    },
+    {
+      "name": "GroupMember",
+      "docs": [
+        "One member's standing in a group. Minted on `request_join`, flipped to `approved` by the",
+        "owner via `approve_member` (Slice 2). The owner isn't given a GroupMember (see `create_group`)."
+      ],
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "group",
+            "type": "pubkey"
+          },
+          {
+            "name": "member",
+            "type": "pubkey"
+          },
+          {
+            "name": "approved",
+            "type": "bool"
           },
           {
             "name": "bump",
