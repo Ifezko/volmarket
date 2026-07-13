@@ -457,6 +457,105 @@ pub mod signal_markets {
         }
         Ok(())
     }
+
+    /// Pays a group member their pro-rata payout on a resolved market. Identical winnings math to
+    /// the individual `claim` — the member's `GroupPosition.amount` is the stake, and the market's
+    /// `total_yes/total_no` (which already include this group's money, see `group_deposit`) are the
+    /// win/lose pools — so payouts are automatically proportional to each member's contribution.
+    /// The only differences from `claim`: settlement is keyed off the `GroupPosition`, and the fee
+    /// is the *group's* `fee_bps` routed to the *group owner* (the group's house) rather than the
+    /// market fee/authority. Permissionless: anyone may `payer`; funds route to the member.
+    pub fn claim_group(ctx: Context<ClaimGroup>) -> Result<()> {
+        let outcome = ctx.accounts.market.outcome;
+        let total_yes = ctx.accounts.market.total_yes;
+        let total_no = ctx.accounts.market.total_no;
+        let fee_bps = ctx.accounts.group.fee_bps as u128; // the GROUP's fee, not the market's
+        let bump = ctx.accounts.market.bump;
+        let fixture_id = ctx.accounts.market.fixture_id;
+        let odd_key = ctx.accounts.market.odd_key;
+        let market_params = ctx.accounts.market.market_params;
+        let market_side = ctx.accounts.market.side;
+        let level = ctx.accounts.market.level;
+        let window_start = ctx.accounts.market.window_start;
+        let side = ctx.accounts.group_position.side;
+        let stake = ctx.accounts.group_position.amount as u128;
+
+        require!(side == outcome, MarketError::LosingPosition);
+
+        let (win_total, lose_total) = if outcome == OUTCOME_YES {
+            (total_yes as u128, total_no as u128)
+        } else {
+            (total_no as u128, total_yes as u128)
+        };
+        require!(win_total > 0, MarketError::NoWinningStake);
+
+        // pro-rata share of the losing pool, group fee taken only on winnings
+        let winnings = stake
+            .checked_mul(lose_total)
+            .ok_or(MarketError::Overflow)?
+            / win_total;
+        let fee = winnings
+            .checked_mul(fee_bps)
+            .ok_or(MarketError::Overflow)?
+            / BPS_DENOMINATOR as u128;
+        let payout = stake
+            .checked_add(winnings.checked_sub(fee).ok_or(MarketError::Overflow)?)
+            .ok_or(MarketError::Overflow)?;
+
+        let payout_u64 = u64::try_from(payout).map_err(|_| error!(MarketError::Overflow))?;
+        let fee_u64 = u64::try_from(fee).map_err(|_| error!(MarketError::Overflow))?;
+
+        // market PDA signs vault transfers (same seeds as `claim`)
+        let fid = fixture_id.to_le_bytes();
+        let oid = odd_key.to_le_bytes();
+        let mp_b = market_params.to_le_bytes();
+        let side_arr = [market_side];
+        let level_b = level.to_le_bytes();
+        let ws_b = window_start.to_le_bytes();
+        let bump_arr = [bump];
+        let seeds: &[&[u8]] = &[
+            b"market".as_ref(),
+            fid.as_ref(),
+            oid.as_ref(),
+            mp_b.as_ref(),
+            side_arr.as_ref(),
+            level_b.as_ref(),
+            ws_b.as_ref(),
+            bump_arr.as_ref(),
+        ];
+        let signer: &[&[&[u8]]] = &[seeds];
+
+        token::transfer(
+            CpiContext::new_with_signer(
+                ctx.accounts.token_program.to_account_info(),
+                Transfer {
+                    from: ctx.accounts.vault.to_account_info(),
+                    to: ctx.accounts.member_token.to_account_info(),
+                    authority: ctx.accounts.market.to_account_info(),
+                },
+                signer,
+            ),
+            payout_u64,
+        )?;
+
+        if fee_u64 > 0 {
+            token::transfer(
+                CpiContext::new_with_signer(
+                    ctx.accounts.token_program.to_account_info(),
+                    Transfer {
+                        from: ctx.accounts.vault.to_account_info(),
+                        to: ctx.accounts.fee_token.to_account_info(),
+                        authority: ctx.accounts.market.to_account_info(),
+                    },
+                    signer,
+                ),
+                fee_u64,
+            )?;
+        }
+
+        ctx.accounts.group_position.claimed = true;
+        Ok(())
+    }
 }
 
 // ---- TxLINE CPI helper (the single swappable integration seam) ----
@@ -807,6 +906,68 @@ pub struct GroupDeposit<'info> {
 
     pub token_program: Program<'info, Token>,
     pub system_program: Program<'info, System>,
+}
+
+#[derive(Accounts)]
+pub struct ClaimGroup<'info> {
+    /// Pays the tx fee. Permissionless — not coupled to the member, so the keeper (or anyone) can
+    /// settle a group winner's payout. Funds route to `member`, never to `payer`.
+    #[account(mut)]
+    pub payer: Signer<'info>,
+
+    /// CHECK: the group member being paid. Not a signer — used to derive the GroupPosition PDA and
+    /// as the required owner of `member_token`, so a claim can only ever pay the legitimate member.
+    pub member: UncheckedAccount<'info>,
+
+    /// Supplies the group fee (`fee_bps`) and the fee recipient (`owner`). Tied to the position by
+    /// the `group_position.group == group` constraint below.
+    pub group: Account<'info, Group>,
+
+    #[account(
+        seeds = [
+            b"market",
+            market.fixture_id.to_le_bytes().as_ref(),
+            market.odd_key.to_le_bytes().as_ref(),
+            market.market_params.to_le_bytes().as_ref(),
+            market.side.to_le_bytes().as_ref(),
+            market.level.to_le_bytes().as_ref(),
+            market.window_start.to_le_bytes().as_ref(),
+        ],
+        bump = market.bump,
+        constraint = market.status == STATUS_RESOLVED @ MarketError::NotResolved,
+    )]
+    pub market: Account<'info, Market>,
+
+    #[account(
+        mut,
+        seeds = [b"grouppos", group.key().as_ref(), market.key().as_ref(), member.key().as_ref(), &[group_position.side]],
+        bump = group_position.bump,
+        constraint = group_position.group == group.key() @ MarketError::Unauthorized,
+        constraint = group_position.market == market.key() @ MarketError::Unauthorized,
+        constraint = group_position.member == member.key() @ MarketError::Unauthorized,
+        constraint = !group_position.claimed @ MarketError::AlreadyClaimed,
+    )]
+    pub group_position: Account<'info, GroupPosition>,
+
+    #[account(mut, address = market.vault)]
+    pub vault: Account<'info, TokenAccount>,
+
+    #[account(
+        mut,
+        constraint = member_token.owner == member.key() @ MarketError::Unauthorized,
+        constraint = member_token.mint == market.usdc_mint @ MarketError::WrongMint,
+    )]
+    pub member_token: Account<'info, TokenAccount>,
+
+    /// The group's fee sink — must be owned by the group owner (the group's house).
+    #[account(
+        mut,
+        constraint = fee_token.owner == group.owner @ MarketError::Unauthorized,
+        constraint = fee_token.mint == market.usdc_mint @ MarketError::WrongMint,
+    )]
+    pub fee_token: Account<'info, TokenAccount>,
+
+    pub token_program: Program<'info, Token>,
 }
 
 // =========================== State ===========================

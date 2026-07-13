@@ -199,6 +199,124 @@
       "args": []
     },
     {
+      "name": "claim_group",
+      "docs": [
+        "Pays a group member their pro-rata payout on a resolved market. Identical winnings math to",
+        "the individual `claim` — the member's `GroupPosition.amount` is the stake, and the market's",
+        "`total_yes/total_no` (which already include this group's money, see `group_deposit`) are the",
+        "win/lose pools — so payouts are automatically proportional to each member's contribution.",
+        "The only differences from `claim`: settlement is keyed off the `GroupPosition`, and the fee",
+        "is the *group's* `fee_bps` routed to the *group owner* (the group's house) rather than the",
+        "market fee/authority. Permissionless: anyone may `payer`; funds route to the member."
+      ],
+      "discriminator": [
+        161,
+        21,
+        52,
+        18,
+        215,
+        4,
+        197,
+        139
+      ],
+      "accounts": [
+        {
+          "name": "payer",
+          "docs": [
+            "Pays the tx fee. Permissionless — not coupled to the member, so the keeper (or anyone) can",
+            "settle a group winner's payout. Funds route to `member`, never to `payer`."
+          ],
+          "writable": true,
+          "signer": true
+        },
+        {
+          "name": "member",
+          "docs": [
+            "as the required owner of `member_token`, so a claim can only ever pay the legitimate member."
+          ]
+        },
+        {
+          "name": "group",
+          "docs": [
+            "Supplies the group fee (`fee_bps`) and the fee recipient (`owner`). Tied to the position by",
+            "the `group_position.group == group` constraint below."
+          ]
+        },
+        {
+          "name": "market",
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  109,
+                  97,
+                  114,
+                  107,
+                  101,
+                  116
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "market.fixture_id",
+                "account": "Market"
+              },
+              {
+                "kind": "account",
+                "path": "market.odd_key",
+                "account": "Market"
+              },
+              {
+                "kind": "account",
+                "path": "market.market_params",
+                "account": "Market"
+              },
+              {
+                "kind": "account",
+                "path": "market.side",
+                "account": "Market"
+              },
+              {
+                "kind": "account",
+                "path": "market.level",
+                "account": "Market"
+              },
+              {
+                "kind": "account",
+                "path": "market.window_start",
+                "account": "Market"
+              }
+            ]
+          }
+        },
+        {
+          "name": "group_position",
+          "writable": true
+        },
+        {
+          "name": "vault",
+          "writable": true
+        },
+        {
+          "name": "member_token",
+          "writable": true
+        },
+        {
+          "name": "fee_token",
+          "docs": [
+            "The group's fee sink — must be owned by the group owner (the group's house)."
+          ],
+          "writable": true
+        },
+        {
+          "name": "token_program",
+          "address": "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA"
+        }
+      ],
+      "args": []
+    },
+    {
       "name": "create_group",
       "docs": [
         "Opens a prediction group. A group is a named roster with its own fee: `fee_bps` is the",
