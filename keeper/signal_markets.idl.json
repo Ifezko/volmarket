@@ -958,6 +958,90 @@
       ]
     },
     {
+      "name": "leave_group",
+      "docs": [
+        "A member leaves a group: closes their `GroupMember` (rent refunded to them) and, if they",
+        "were approved, decrements `member_count`. The owner can't leave (they're the group's",
+        "identity) — they'd have to abandon it. Pending requesters may also call this to cancel."
+      ],
+      "discriminator": [
+        10,
+        4,
+        125,
+        28,
+        46,
+        23,
+        233,
+        29
+      ],
+      "accounts": [
+        {
+          "name": "member",
+          "docs": [
+            "The leaving member — receives the closed GroupMember's rent."
+          ],
+          "writable": true,
+          "signer": true
+        },
+        {
+          "name": "group",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  103,
+                  114,
+                  111,
+                  117,
+                  112
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "group.owner",
+                "account": "Group"
+              },
+              {
+                "kind": "account",
+                "path": "group.group_id",
+                "account": "Group"
+              }
+            ]
+          }
+        },
+        {
+          "name": "group_member",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  109,
+                  101,
+                  109,
+                  98,
+                  101,
+                  114
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "group"
+              },
+              {
+                "kind": "account",
+                "path": "member"
+              }
+            ]
+          }
+        }
+      ],
+      "args": []
+    },
+    {
       "name": "request_join",
       "docs": [
         "A wallet asks to join a group: mints its `GroupMember` in the pending (`approved = false`)",
@@ -1108,6 +1192,75 @@
         {
           "name": "proof",
           "type": "bytes"
+        }
+      ]
+    },
+    {
+      "name": "update_group",
+      "docs": [
+        "The owner edits their group's settings — name, fee, visibility, roster. Identity",
+        "(owner, group_id) is fixed, so a rename doesn't move the PDA. Owner-only."
+      ],
+      "discriminator": [
+        9,
+        242,
+        1,
+        110,
+        91,
+        22,
+        172,
+        97
+      ],
+      "accounts": [
+        {
+          "name": "owner",
+          "signer": true
+        },
+        {
+          "name": "group",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  103,
+                  114,
+                  111,
+                  117,
+                  112
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "group.owner",
+                "account": "Group"
+              },
+              {
+                "kind": "account",
+                "path": "group.group_id",
+                "account": "Group"
+              }
+            ]
+          }
+        }
+      ],
+      "args": [
+        {
+          "name": "name",
+          "type": "string"
+        },
+        {
+          "name": "fee_bps",
+          "type": "u16"
+        },
+        {
+          "name": "visibility",
+          "type": "u8"
+        },
+        {
+          "name": "roster",
+          "type": "bool"
         }
       ]
     }
@@ -1302,6 +1455,11 @@
       "code": 6021,
       "name": "MemberNotApproved",
       "msg": "group member is not approved"
+    },
+    {
+      "code": 6022,
+      "name": "OwnerCannotLeave",
+      "msg": "the group owner cannot leave their own group"
     }
   ],
   "types": [

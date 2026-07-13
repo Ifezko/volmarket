@@ -264,6 +264,49 @@ export async function groupDepositOnchain(
   })
 }
 
+/** The owner edits their group's settings (name, fee, visibility, roster). */
+export async function updateGroupOnchain(
+  connection: Connection,
+  wallet: ConnectedStandardSolanaWallet,
+  sign: PrivySignTransaction,
+  groupAddress: string,
+  opts: { name: string; feeBps: number; visibility: 'Public' | 'Private'; roster: boolean },
+): Promise<string> {
+  const owner = new PublicKey(wallet.address)
+  const group = new PublicKey(groupAddress)
+  return signSend(connection, wallet, sign, async (program) => {
+    const ix = await (program.methods as any)
+      .updateGroup(
+        opts.name,
+        opts.feeBps,
+        opts.visibility === 'Private' ? GROUP_PRIVATE : GROUP_PUBLIC,
+        opts.roster,
+      )
+      .accounts({ owner, group })
+      .instruction()
+    return new Transaction().add(ix)
+  })
+}
+
+/** A member leaves a group (closes their GroupMember; owner can't leave). */
+export async function leaveGroupOnchain(
+  connection: Connection,
+  wallet: ConnectedStandardSolanaWallet,
+  sign: PrivySignTransaction,
+  groupAddress: string,
+): Promise<string> {
+  const member = new PublicKey(wallet.address)
+  const group = new PublicKey(groupAddress)
+  return signSend(connection, wallet, sign, async (program) => {
+    const gm = memberPda(group, member, program.programId)
+    const ix = await (program.methods as any)
+      .leaveGroup()
+      .accounts({ member, group, groupMember: gm })
+      .instruction()
+    return new Transaction().add(ix)
+  })
+}
+
 /** The group owner approves a pending member (approved false -> true). */
 export async function approveMemberOnchain(
   connection: Connection,

@@ -5,6 +5,7 @@ import { describeMarket } from './liveFixtures'
 import { feeLabel } from './groups'
 
 export interface MyGroup {
+  address: string
   name: string
   feeBps: number
   role: 'Owner' | 'Member'
@@ -25,6 +26,7 @@ export function ProfilePanel({
   positions,
   myGroups,
   onOpenGroups,
+  onOpenGroup,
   loadFunding,
 }: {
   walletAddress: string | undefined
@@ -36,6 +38,7 @@ export function ProfilePanel({
   positions: ActivePosition[]
   myGroups: MyGroup[]
   onOpenGroups: () => void
+  onOpenGroup: (address: string) => void
   loadFunding: () => Promise<FundingEvent[]>
 }) {
   const [view, setView] = useState<'account' | 'history'>('account')
@@ -150,15 +153,23 @@ export function ProfilePanel({
               </div>
             ) : (
               <div style={{ display: 'grid', gap: 8 }}>
-                {myGroups.map((g, i) => (
-                  <div className="selrow" key={i}>
+                {myGroups.map((g) => (
+                  <button
+                    className="selrow"
+                    key={g.address}
+                    onClick={() => onOpenGroup(g.address)}
+                    style={{ cursor: 'pointer', textAlign: 'left', width: '100%' }}
+                  >
                     <div style={{ minWidth: 0 }}>
                       <div className="l">{g.name}</div>
                       <div className="s" style={{ color: 'var(--dim)' }}>
                         {g.role} · {g.members} {g.members === 1 ? 'member' : 'members'} · Group fee: {feeLabel(g.feeBps)}
                       </div>
                     </div>
-                  </div>
+                    <span className="s" style={{ color: 'var(--blue)', whiteSpace: 'nowrap', marginLeft: 8 }}>
+                      {g.role === 'Owner' ? 'Edit →' : 'View →'}
+                    </span>
+                  </button>
                 ))}
               </div>
             )}

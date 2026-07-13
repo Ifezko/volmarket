@@ -24,10 +24,13 @@ import {
   requestJoinOnchain,
   approveMemberOnchain,
   groupDepositOnchain,
+  updateGroupOnchain,
+  leaveGroupOnchain,
   type OnchainGroup,
   type OnchainMember,
   type GroupActivityItem,
 } from '../lib/onchainGroups'
+import { GroupDetail } from './GroupDetail'
 import { fetchRealMarkets, makeConnection } from '../lib/onchainMarkets'
 import { placeRealPredictions, placeGroupPredictions, FEE_BPS, type PendingPick } from '../lib/depositMarkets'
 import { claimPositions, fetchWalletState, previewMultiplier, type ClaimablePosition, type ActivePosition } from '../lib/claimMarkets'
@@ -109,6 +112,9 @@ export function VolmarketApp() {
   const [groupMembers, setGroupMembers] = useState<OnchainMember[]>([])
   const [groupActivity, setGroupActivity] = useState<GroupActivityItem[]>([])
   const [groupsViewOpen, setGroupsViewOpen] = useState(false)
+  const [openGroupDetail, setOpenGroupDetail] = useState<string | null>(null) // group address
+  const [savingGroup, setSavingGroup] = useState(false)
+  const [leavingGroup, setLeavingGroup] = useState(false)
   const [creatingGroup, setCreatingGroup] = useState<{ seedCode?: string; stage: 'form' | 'created' } | null>(null)
   const [depositOpen, setDepositOpen] = useState(false)
   const [profileOpen, setProfileOpen] = useState(false)
@@ -254,7 +260,7 @@ export function VolmarketApp() {
       if (isOwner || mine?.approved) sendableGroups.push({ address: g.address, name: g.name })
       // "My groups" for the profile: owned or approved-member.
       if (isOwner || mine?.approved) {
-        myGroups.push({ name: g.name, feeBps: g.feeBps, role: isOwner ? 'Owner' : 'Member', members: g.memberCount })
+        myGroups.push({ address: g.address, name: g.name, feeBps: g.feeBps, role: isOwner ? 'Owner' : 'Member', members: g.memberCount })
       }
       if (me && g.owner === me) {
         const pending = groupMembers
@@ -757,6 +763,80 @@ export function VolmarketApp() {
     await Promise.all([refreshGroups(), refreshUsdc()])
   }
 
+  // ---- group detail (opened from the profile's "My groups") ----
+  function openGroup(address: string) {
+    setOpenGroupDetail(address)
+    setProfileOpen(false)
+    setSlipOpen(false)
+    setGroupsViewOpen(false)
+  }
+
+  async function saveGroupDetail(opts: { name: string; feeBps: number; visibility: 'Public' | 'Private'; roster: boolean }) {
+    if (!openGroupDetail || !authenticated || !solanaWallet) return
+    setSavingGroup(true)
+    try {
+      const connection = makeConnection()
+      await updateGroupOnchain(connection, solanaWallet, signTransaction, openGroupDetail, opts)
+    } catch (err) {
+      console.error('update_group failed', err)
+    }
+    setSavingGroup(false)
+    await refreshGroups()
+  }
+
+  async function leaveGroupDetail() {
+    if (!openGroupDetail || !authenticated || !solanaWallet) return
+    setLeavingGroup(true)
+    try {
+      const connection = makeConnection()
+      await leaveGroupOnchain(connection, solanaWallet, signTransaction, openGroupDetail)
+    } catch (err) {
+      console.error('leave_group failed', err)
+      setLeavingGroup(false)
+      return
+    }
+    setLeavingGroup(false)
+    setOpenGroupDetail(null)
+    await refreshGroups()
+  }
+
+  async function approveGroupDetail(memberAddress: string) {
+    if (!openGroupDetail || !authenticated || !solanaWallet) return
+    try {
+      const connection = makeConnection()
+      await approveMemberOnchain(connection, solanaWallet, signTransaction, openGroupDetail, memberAddress)
+    } catch (err) {
+      console.error('approve_member failed', err)
+    }
+    await refreshGroups()
+  }
+
+  async function joinCallDetail(item: GroupActivityItem) {
+    if (!authenticated || !solanaWallet) {
+      login()
+      return
+    }
+    if (!openGroupDetail) return
+    try {
+      const connection = makeConnection()
+      await groupDepositOnchain(connection, solanaWallet, signTransaction, {
+        group: openGroupDetail,
+        market: item.market,
+        side: item.side,
+        amountUsdc: stake,
+      })
+    } catch (err) {
+      console.error('group_deposit (join call) failed', err)
+    }
+    await Promise.all([refreshGroups(), refreshUsdc()])
+  }
+
+  // The group currently open in the detail view + its derived slices.
+  const detailGroup = openGroupDetail ? onchainGroups.find((g) => g.address === openGroupDetail) ?? null : null
+  const detailRole: 'owner' | 'member' = detailGroup && detailGroup.owner === solanaWallet?.address ? 'owner' : 'member'
+  const detailMembers = openGroupDetail ? groupMembers.filter((m) => m.group === openGroupDetail) : []
+  const detailActivity = openGroupDetail ? groupActivity.filter((a) => a.group === openGroupDetail) : []
+
   return (
     <>
       <Nav
@@ -871,6 +951,7 @@ export function VolmarketApp() {
                           setSlipOpen(false)
                           setGroupsViewOpen(true)
                         }}
+                        onOpenGroup={openGroup}
                         loadFunding={async () => {
                           if (!solanaWallet) return []
                           const connection = makeConnection()
@@ -935,6 +1016,22 @@ export function VolmarketApp() {
         onRequestJoin={requestJoinGroup}
         onApprove={approveMember}
         onJoinCall={joinCall}
+      />
+
+      <GroupDetail
+        open={openGroupDetail != null}
+        group={detailGroup}
+        role={detailRole}
+        members={detailMembers}
+        activity={detailActivity}
+        currentUser={solanaWallet?.address}
+        saving={savingGroup}
+        leaving={leavingGroup}
+        onClose={() => setOpenGroupDetail(null)}
+        onSave={saveGroupDetail}
+        onLeave={leaveGroupDetail}
+        onApprove={approveGroupDetail}
+        onJoinCall={joinCallDetail}
       />
     </>
   )

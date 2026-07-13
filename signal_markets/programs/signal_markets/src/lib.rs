@@ -407,6 +407,42 @@ pub mod signal_markets {
         Ok(())
     }
 
+    /// The owner edits their group's settings — name, fee, visibility, roster. Identity
+    /// (owner, group_id) is fixed, so a rename doesn't move the PDA. Owner-only.
+    pub fn update_group(
+        ctx: Context<UpdateGroup>,
+        name: String,
+        fee_bps: u16,
+        visibility: u8,
+        roster: bool,
+    ) -> Result<()> {
+        require!(name.len() <= Group::NAME_MAX_LEN, MarketError::NameTooLong);
+        require!(fee_bps as u64 <= BPS_DENOMINATOR, MarketError::InvalidFee);
+        require!(visibility <= GROUP_PRIVATE, MarketError::InvalidVisibility);
+        let g = &mut ctx.accounts.group;
+        g.name = name;
+        g.fee_bps = fee_bps;
+        g.visibility = visibility;
+        g.roster = roster;
+        Ok(())
+    }
+
+    /// A member leaves a group: closes their `GroupMember` (rent refunded to them) and, if they
+    /// were approved, decrements `member_count`. The owner can't leave (they're the group's
+    /// identity) — they'd have to abandon it. Pending requesters may also call this to cancel.
+    pub fn leave_group(ctx: Context<LeaveGroup>) -> Result<()> {
+        require_keys_neq!(
+            ctx.accounts.member.key(),
+            ctx.accounts.group.owner,
+            MarketError::OwnerCannotLeave
+        );
+        if ctx.accounts.group_member.approved {
+            let g = &mut ctx.accounts.group;
+            g.member_count = g.member_count.saturating_sub(1);
+        }
+        Ok(()) // group_member account is closed by the `close = member` attribute
+    }
+
     /// An approved group member stakes into a market *as part of the group*. Mechanically this is
     /// the individual `deposit` — funds go into the same market vault and bump `market.total_*`, so
     /// group money competes in the market's pool like everyone else's — but the per-member
@@ -854,6 +890,43 @@ pub struct ApproveMember<'info> {
 }
 
 #[derive(Accounts)]
+pub struct UpdateGroup<'info> {
+    pub owner: Signer<'info>,
+
+    #[account(
+        mut,
+        seeds = [b"group", group.owner.as_ref(), group.group_id.to_le_bytes().as_ref()],
+        bump = group.bump,
+        constraint = group.owner == owner.key() @ MarketError::NotGroupOwner,
+    )]
+    pub group: Account<'info, Group>,
+}
+
+#[derive(Accounts)]
+pub struct LeaveGroup<'info> {
+    /// The leaving member — receives the closed GroupMember's rent.
+    #[account(mut)]
+    pub member: Signer<'info>,
+
+    #[account(
+        mut,
+        seeds = [b"group", group.owner.as_ref(), group.group_id.to_le_bytes().as_ref()],
+        bump = group.bump,
+    )]
+    pub group: Account<'info, Group>,
+
+    #[account(
+        mut,
+        close = member,
+        seeds = [b"member", group.key().as_ref(), member.key().as_ref()],
+        bump = group_member.bump,
+        constraint = group_member.group == group.key() @ MarketError::Unauthorized,
+        constraint = group_member.member == member.key() @ MarketError::Unauthorized,
+    )]
+    pub group_member: Account<'info, GroupMember>,
+}
+
+#[derive(Accounts)]
 #[instruction(side: u8)]
 pub struct GroupDeposit<'info> {
     #[account(mut)]
@@ -1122,4 +1195,6 @@ pub enum MarketError {
     AlreadyApproved,
     #[msg("group member is not approved")]
     MemberNotApproved,
+    #[msg("the group owner cannot leave their own group")]
+    OwnerCannotLeave,
 }
