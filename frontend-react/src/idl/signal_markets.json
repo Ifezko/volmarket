@@ -115,6 +115,87 @@
       "args": []
     },
     {
+      "name": "create_group",
+      "docs": [
+        "Opens a prediction group. A group is a named roster with its own fee: `fee_bps` is the",
+        "group's cut on winnings at `claim_group` (Slice 4), surfaced in the UI as \"Group fee: X%\"",
+        "/ \"Free\" (0). Identity is (owner, group_id) so one owner can run several groups. The owner",
+        "is implicitly the first member — `member_count` starts at 1 and no `GroupMember` account is",
+        "minted for them (they're tracked by the `owner` field); `approve_member` mints/approves the",
+        "rest. `visibility` (0 public / 1 private) and `roster` (whether members are shown to",
+        "approved joiners) back the existing group UI."
+      ],
+      "discriminator": [
+        79,
+        60,
+        158,
+        134,
+        61,
+        199,
+        56,
+        248
+      ],
+      "accounts": [
+        {
+          "name": "owner",
+          "writable": true,
+          "signer": true
+        },
+        {
+          "name": "group",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  103,
+                  114,
+                  111,
+                  117,
+                  112
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "owner"
+              },
+              {
+                "kind": "arg",
+                "path": "group_id"
+              }
+            ]
+          }
+        },
+        {
+          "name": "system_program",
+          "address": "11111111111111111111111111111111"
+        }
+      ],
+      "args": [
+        {
+          "name": "group_id",
+          "type": "u64"
+        },
+        {
+          "name": "name",
+          "type": "string"
+        },
+        {
+          "name": "fee_bps",
+          "type": "u16"
+        },
+        {
+          "name": "visibility",
+          "type": "u8"
+        },
+        {
+          "name": "roster",
+          "type": "bool"
+        }
+      ]
+    },
+    {
       "name": "create_market",
       "docs": [
         "Opens a market over a single TxLINE-settleable odd and inits its USDC vault PDA.",
@@ -615,6 +696,19 @@
   ],
   "accounts": [
     {
+      "name": "Group",
+      "discriminator": [
+        209,
+        249,
+        208,
+        63,
+        182,
+        89,
+        186,
+        254
+      ]
+    },
+    {
       "name": "Market",
       "discriminator": [
         219,
@@ -726,9 +820,62 @@
       "code": 6016,
       "name": "NoWinningStake",
       "msg": "no stake on the winning side"
+    },
+    {
+      "code": 6017,
+      "name": "NameTooLong",
+      "msg": "group name exceeds max length"
+    },
+    {
+      "code": 6018,
+      "name": "InvalidVisibility",
+      "msg": "visibility must be public (0) or private (1)"
     }
   ],
   "types": [
+    {
+      "name": "Group",
+      "docs": [
+        "A named prediction group with its own fee. See `create_group`."
+      ],
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "owner",
+            "type": "pubkey"
+          },
+          {
+            "name": "group_id",
+            "type": "u64"
+          },
+          {
+            "name": "name",
+            "type": "string"
+          },
+          {
+            "name": "fee_bps",
+            "type": "u16"
+          },
+          {
+            "name": "visibility",
+            "type": "u8"
+          },
+          {
+            "name": "roster",
+            "type": "bool"
+          },
+          {
+            "name": "member_count",
+            "type": "u32"
+          },
+          {
+            "name": "bump",
+            "type": "u8"
+          }
+        ]
+      }
+    },
     {
       "name": "Market",
       "type": {

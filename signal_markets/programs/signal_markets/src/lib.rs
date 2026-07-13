@@ -347,6 +347,39 @@ pub mod signal_markets {
         ctx.accounts.position.claimed = true;
         Ok(())
     }
+
+    // =========================== Groups ===========================
+
+    /// Opens a prediction group. A group is a named roster with its own fee: `fee_bps` is the
+    /// group's cut on winnings at `claim_group` (Slice 4), surfaced in the UI as "Group fee: X%"
+    /// / "Free" (0). Identity is (owner, group_id) so one owner can run several groups. The owner
+    /// is implicitly the first member — `member_count` starts at 1 and no `GroupMember` account is
+    /// minted for them (they're tracked by the `owner` field); `approve_member` mints/approves the
+    /// rest. `visibility` (0 public / 1 private) and `roster` (whether members are shown to
+    /// approved joiners) back the existing group UI.
+    pub fn create_group(
+        ctx: Context<CreateGroup>,
+        group_id: u64,
+        name: String,
+        fee_bps: u16,
+        visibility: u8,
+        roster: bool,
+    ) -> Result<()> {
+        require!(name.len() <= Group::NAME_MAX_LEN, MarketError::NameTooLong);
+        require!(fee_bps as u64 <= BPS_DENOMINATOR, MarketError::InvalidFee);
+        require!(visibility <= GROUP_PRIVATE, MarketError::InvalidVisibility);
+
+        let g = &mut ctx.accounts.group;
+        g.owner = ctx.accounts.owner.key();
+        g.group_id = group_id;
+        g.name = name;
+        g.fee_bps = fee_bps;
+        g.visibility = visibility;
+        g.roster = roster;
+        g.member_count = 1; // the owner
+        g.bump = ctx.bumps.group;
+        Ok(())
+    }
 }
 
 // ---- TxLINE CPI helper (the single swappable integration seam) ----
@@ -573,6 +606,24 @@ pub struct Claim<'info> {
     pub token_program: Program<'info, Token>,
 }
 
+#[derive(Accounts)]
+#[instruction(group_id: u64)]
+pub struct CreateGroup<'info> {
+    #[account(mut)]
+    pub owner: Signer<'info>,
+
+    #[account(
+        init,
+        payer = owner,
+        space = 8 + Group::INIT_SPACE,
+        seeds = [b"group", owner.key().as_ref(), group_id.to_le_bytes().as_ref()],
+        bump
+    )]
+    pub group: Account<'info, Group>,
+
+    pub system_program: Program<'info, System>,
+}
+
 // =========================== State ===========================
 
 #[account]
@@ -605,6 +656,40 @@ pub struct Position {
     pub side: u8, // SIDE_YES | SIDE_NO
     pub amount: u64,
     pub claimed: bool,
+    pub bump: u8,
+}
+
+// Group.visibility
+pub const GROUP_PUBLIC: u8 = 0;
+pub const GROUP_PRIVATE: u8 = 1;
+
+/// A named prediction group with its own fee. See `create_group`.
+#[account]
+#[derive(InitSpace)]
+pub struct Group {
+    pub owner: Pubkey,
+    pub group_id: u64,
+    #[max_len(48)]
+    pub name: String,
+    pub fee_bps: u16,     // group's cut on winnings at claim_group; 0 = "Free"
+    pub visibility: u8,   // GROUP_PUBLIC | GROUP_PRIVATE
+    pub roster: bool,     // whether members are shown to approved joiners
+    pub member_count: u32,
+    pub bump: u8,
+}
+
+impl Group {
+    pub const NAME_MAX_LEN: usize = 48;
+}
+
+/// One member's standing in a group. Minted on `request_join`, flipped to `approved` by the
+/// owner via `approve_member` (Slice 2). The owner isn't given a GroupMember (see `create_group`).
+#[account]
+#[derive(InitSpace)]
+pub struct GroupMember {
+    pub group: Pubkey,
+    pub member: Pubkey,
+    pub approved: bool,
     pub bump: u8,
 }
 
@@ -646,4 +731,8 @@ pub enum MarketError {
     LosingPosition,
     #[msg("no stake on the winning side")]
     NoWinningStake,
+    #[msg("group name exceeds max length")]
+    NameTooLong,
+    #[msg("visibility must be public (0) or private (1)")]
+    InvalidVisibility,
 }
