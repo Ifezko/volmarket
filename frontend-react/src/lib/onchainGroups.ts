@@ -1,13 +1,20 @@
 import { Connection, PublicKey, SystemProgram, Transaction } from '@solana/web3.js'
+import {
+  TOKEN_PROGRAM_ID,
+  createAssociatedTokenAccountIdempotentInstruction,
+  getAssociatedTokenAddressSync,
+} from '@solana/spl-token'
 import { BN } from '@coral-xyz/anchor'
 import type { ConnectedStandardSolanaWallet } from '@privy-io/react-auth/solana'
-import { getReadonlyProgram, withFailover } from './onchainMarkets'
+import { getReadonlyProgram, withFailover, fetchRealMarkets, type RealMarket } from './onchainMarkets'
 import { PrivyAnchorWallet } from './privyAnchorWallet'
-import { topUpGas } from './funds'
+import { topUpGas, USDC_MINT } from './funds'
 
 // mirror the on-chain u8 constants (signal_markets/programs/signal_markets/src/lib.rs)
 const GROUP_PUBLIC = 0
 const GROUP_PRIVATE = 1
+const SIDE_YES = 1 // "hold" pool
+const SIDE_NO = 2 // "break" pool
 
 type PrivySignTransaction = ConstructorParameters<typeof PrivyAnchorWallet>[1]
 
@@ -143,6 +150,114 @@ export async function requestJoinOnchain(
       .accounts({ member, group, groupMember: gm, systemProgram: SystemProgram.programId })
       .instruction()
     return new Transaction().add(ix)
+  })
+}
+
+// ---- activity feed ----
+
+export interface GroupActivityItem {
+  /** GroupPosition account address — stable key for the feed row */
+  address: string
+  group: string
+  member: string
+  market: string
+  side: 'hold' | 'break'
+  amountUsdc: number
+  // the market this call was on, for display + "Join this call" prefill
+  fixtureId: number
+  oddKey: number
+  marketParams: number
+  /** implied probability (%) — the market level */
+  level: number
+  windowStart: number
+  windowEnd: number
+  status: 'open' | 'resolved'
+}
+
+/**
+ * Recent group calls: every GroupPosition (a member's group_deposit into a market), joined to its
+ * market for display + prefill. Filtered to the canonical USDC mint (same as the board) so stray
+ * throwaway-mint test markets don't leak in. Sorted with open markets first, largest stake first —
+ * a "what's live to join" ordering, since GroupPosition carries no timestamp.
+ */
+export async function fetchGroupActivity(connection: Connection): Promise<GroupActivityItem[]> {
+  const [rawPositions, markets] = await withFailover(connection, async (program) => {
+    const gp = await (program.account as any).groupPosition.all()
+    return [gp, null] as const
+  }).then(async ([gp]) => [gp, await fetchRealMarkets(connection)] as const)
+
+  const byAddr = new Map<string, RealMarket>(markets.map((m) => [m.address.toBase58(), m]))
+  const items: GroupActivityItem[] = []
+  for (const { publicKey, account } of rawPositions as any[]) {
+    const marketAddr = account.market.toBase58()
+    const m = byAddr.get(marketAddr)
+    if (!m || !m.usdcMint.equals(USDC_MINT)) continue // skip unknown / non-app-mint markets
+    items.push({
+      address: publicKey.toBase58(),
+      group: account.group.toBase58(),
+      member: account.member.toBase58(),
+      market: marketAddr,
+      side: account.side === SIDE_NO ? 'break' : 'hold',
+      amountUsdc: Number(account.amount) / 1e6,
+      fixtureId: m.fixtureId,
+      oddKey: m.oddKey,
+      marketParams: m.marketParams,
+      level: m.level,
+      windowStart: m.windowStart,
+      windowEnd: m.windowEnd,
+      status: m.status,
+    })
+  }
+  items.sort((a, b) => (a.status === b.status ? b.amountUsdc - a.amountUsdc : a.status === 'open' ? -1 : 1))
+  return items
+}
+
+/**
+ * "Join this call" / "Send to group": the signer's own group_deposit into an existing market as
+ * part of `group`. The market must already exist (feed items always reference an open market);
+ * funds land in the shared GroupPool + the member's GroupPosition. Requires an approved membership
+ * (enforced on-chain). Mirrors depositMarkets' sign/send.
+ */
+export async function groupDepositOnchain(
+  connection: Connection,
+  wallet: ConnectedStandardSolanaWallet,
+  sign: PrivySignTransaction,
+  opts: { group: string; market: string; side: 'hold' | 'break'; amountUsdc: number },
+): Promise<string> {
+  const member = new PublicKey(wallet.address)
+  const group = new PublicKey(opts.group)
+  const market = new PublicKey(opts.market)
+  const depositSide = opts.side === 'hold' ? SIDE_YES : SIDE_NO
+  return signSend(connection, wallet, sign, async (program) => {
+    const pid = program.programId
+    const groupMember = memberPda(group, member, pid)
+    const [vault] = PublicKey.findProgramAddressSync([Buffer.from('vault'), market.toBuffer()], pid)
+    const [groupPool] = PublicKey.findProgramAddressSync([Buffer.from('grouppool'), group.toBuffer(), market.toBuffer()], pid)
+    const [groupPosition] = PublicKey.findProgramAddressSync(
+      [Buffer.from('grouppos'), group.toBuffer(), market.toBuffer(), member.toBuffer(), Buffer.from([depositSide])],
+      pid,
+    )
+    const memberToken = getAssociatedTokenAddressSync(USDC_MINT, member)
+    const tx = new Transaction()
+    // ensure the member's USDC ATA exists (idempotent) so the deposit never fails on a missing ATA
+    tx.add(createAssociatedTokenAccountIdempotentInstruction(member, memberToken, member, USDC_MINT))
+    const ix = await (program.methods as any)
+      .groupDeposit(depositSide, new BN(Math.round(opts.amountUsdc * 1e6)))
+      .accounts({
+        member,
+        group,
+        groupMember,
+        market,
+        groupPool,
+        groupPosition,
+        vault,
+        memberToken,
+        tokenProgram: TOKEN_PROGRAM_ID,
+        systemProgram: SystemProgram.programId,
+      })
+      .instruction()
+    tx.add(ix)
+    return tx
   })
 }
 

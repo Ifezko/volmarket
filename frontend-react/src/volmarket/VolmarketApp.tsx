@@ -19,11 +19,14 @@ import { ResultModal } from './ResultModal'
 import { type Group } from './groups'
 import {
   fetchGroups,
+  fetchGroupActivity,
   createGroupOnchain,
   requestJoinOnchain,
   approveMemberOnchain,
+  groupDepositOnchain,
   type OnchainGroup,
   type OnchainMember,
+  type GroupActivityItem,
 } from '../lib/onchainGroups'
 import { fetchRealMarkets, makeConnection } from '../lib/onchainMarkets'
 import { placeRealPredictions, FEE_BPS, type PendingPick } from '../lib/depositMarkets'
@@ -103,6 +106,7 @@ export function VolmarketApp() {
   // request/approve state and the owner's pending-approval lists are all derived from these.
   const [onchainGroups, setOnchainGroups] = useState<OnchainGroup[]>([])
   const [groupMembers, setGroupMembers] = useState<OnchainMember[]>([])
+  const [groupActivity, setGroupActivity] = useState<GroupActivityItem[]>([])
   const [groupsViewOpen, setGroupsViewOpen] = useState(false)
   const [creatingGroup, setCreatingGroup] = useState<{ seedCode?: string; stage: 'form' | 'created' } | null>(null)
   const [depositOpen, setDepositOpen] = useState(false)
@@ -187,9 +191,13 @@ export function VolmarketApp() {
   const refreshGroups = useCallback(async () => {
     try {
       const connection = makeConnection()
-      const { groups, members } = await fetchGroups(connection)
+      const [{ groups, members }, activity] = await Promise.all([
+        fetchGroups(connection),
+        fetchGroupActivity(connection),
+      ])
       setOnchainGroups(groups)
       setGroupMembers(members)
+      setGroupActivity(activity)
     } catch (err) {
       console.error('failed to fetch groups', err)
     }
@@ -207,13 +215,22 @@ export function VolmarketApp() {
   // Derive the board-shaped group list + per-group membership state from the on-chain accounts.
   // Index alignment matters: GroupsView keys its request/approve callbacks by array index, so the
   // `boardGroups` order is the source of truth the sets and pending-map are all built against.
-  const { boardGroups, requestedGroups, joinedGroups, pendingByIdx } = useMemo(() => {
+  const { boardGroups, requestedGroups, joinedGroups, pendingByIdx, activityByIdx } = useMemo(() => {
     const me = solanaWallet?.address
     const boardGroups: Group[] = []
     const requestedGroups = new Set<number>()
     const joinedGroups = new Set<number>()
     const pendingByIdx = new Map<number, PendingRequest[]>()
+    const activityByIdx = new Map<number, GroupActivityItem[]>()
+    const activityByGroup = new Map<string, GroupActivityItem[]>()
+    for (const a of groupActivity) {
+      const arr = activityByGroup.get(a.group) ?? []
+      arr.push(a)
+      activityByGroup.set(a.group, arr)
+    }
     onchainGroups.forEach((g, idx) => {
+      const act = activityByGroup.get(g.address)
+      if (act && act.length) activityByIdx.set(idx, act)
       boardGroups.push({
         name: g.name,
         members: g.memberCount,
@@ -236,8 +253,8 @@ export function VolmarketApp() {
         if (pending.length) pendingByIdx.set(idx, pending)
       }
     })
-    return { boardGroups, requestedGroups, joinedGroups, pendingByIdx }
-  }, [onchainGroups, groupMembers, solanaWallet?.address])
+    return { boardGroups, requestedGroups, joinedGroups, pendingByIdx, activityByIdx }
+  }, [onchainGroups, groupMembers, groupActivity, solanaWallet?.address])
 
   const refreshUsdc = useCallback(async () => {
     if (!authenticated || !solanaWallet) {
@@ -669,6 +686,30 @@ export function VolmarketApp() {
     await refreshGroups()
   }
 
+  // "Join this call": the viewer's own group_deposit copying a feed item's market/side, staked with
+  // the app's current stake amount. Terminates in a signed group_deposit (same instruction as the
+  // proposer's "Send to group"), then refreshes so the new call appears in the feed.
+  async function joinCall(idx: number, item: GroupActivityItem) {
+    if (!authenticated || !solanaWallet) {
+      login()
+      return
+    }
+    const g = onchainGroups[idx]
+    if (!g) return
+    try {
+      const connection = makeConnection()
+      await groupDepositOnchain(connection, solanaWallet, signTransaction, {
+        group: g.address,
+        market: item.market,
+        side: item.side,
+        amountUsdc: stake,
+      })
+    } catch (err) {
+      console.error('group_deposit (join call) failed', err)
+    }
+    await Promise.all([refreshGroups(), refreshUsdc()])
+  }
+
   return (
     <>
       <Nav
@@ -829,10 +870,12 @@ export function VolmarketApp() {
         joined={joinedGroups}
         currentUser={solanaWallet?.address}
         pendingByIdx={pendingByIdx}
+        activityByIdx={activityByIdx}
         onClose={() => setGroupsViewOpen(false)}
         onCreateGroup={() => openGroupCreate()}
         onRequestJoin={requestJoinGroup}
         onApprove={approveMember}
+        onJoinCall={joinCall}
       />
     </>
   )
