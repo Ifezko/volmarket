@@ -1,4 +1,7 @@
-// Ported verbatim from the groups2 mock dataset in frontend/index.html.
+// Board-shaped group. Was the groups2 mock; now backed by on-chain Group accounts (see
+// lib/onchainGroups.ts + buildBoardGroups in VolmarketApp). `members`/`feeBps`/`owner` are real
+// on-chain fields; `preds`/`pnl`/`wr` are activity stats not tracked on-chain yet (0 for real
+// groups) — the card layout is unchanged, so those tiles simply read 0 until a stats index exists.
 export interface Group {
   name: string
   members: number
@@ -7,6 +10,15 @@ export interface Group {
   wr: number
   roster: boolean
   visibility: 'Public' | 'Private'
+  /** on-chain fields (absent on the legacy seed rows) */
+  address?: string
+  owner?: string
+  feeBps?: number
+}
+
+// "Free" for a 0% group, else e.g. "2.5%". Mirrors lib/onchainGroups.feeLabel.
+export function feeLabel(feeBps: number): string {
+  return feeBps === 0 ? 'Free' : `${(feeBps / 100).toFixed(feeBps % 100 === 0 ? 0 : 2)}%`
 }
 
 export const initialGroups: Group[] = [

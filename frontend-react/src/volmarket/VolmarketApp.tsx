@@ -10,13 +10,21 @@ import { Footer } from './Footer'
 import { MatchDetail } from './MatchDetail'
 import { Slip, type SlipItem, type Ticket } from './Slip'
 import { HowModal } from './HowModal'
-import { GroupsView } from './GroupsView'
+import { GroupsView, type PendingRequest } from './GroupsView'
 import { GroupCreatePanel } from './GroupCreatePanel'
 import { DepositPanel } from './DepositPanel'
 import { ProfilePanel } from './ProfilePanel'
 import { SettleModal } from './SettleModal'
 import { ResultModal } from './ResultModal'
-import { initialGroups, type Group } from './groups'
+import { type Group } from './groups'
+import {
+  fetchGroups,
+  createGroupOnchain,
+  requestJoinOnchain,
+  approveMemberOnchain,
+  type OnchainGroup,
+  type OnchainMember,
+} from '../lib/onchainGroups'
 import { fetchRealMarkets, makeConnection } from '../lib/onchainMarkets'
 import { placeRealPredictions, FEE_BPS, type PendingPick } from '../lib/depositMarkets'
 import { claimPositions, fetchWalletState, previewMultiplier, type ClaimablePosition, type ActivePosition } from '../lib/claimMarkets'
@@ -91,8 +99,10 @@ export function VolmarketApp() {
   const [placing, setPlacing] = useState(false)
   const [placeError, setPlaceError] = useState<string | null>(null)
   const [howOpen, setHowOpen] = useState(false)
-  const [groups, setGroups] = useState<Group[]>(initialGroups)
-  const [requestedGroups, setRequestedGroups] = useState<Set<number>>(new Set())
+  // Real on-chain groups (Group + GroupMember accounts). The board-shaped `groups` array, the
+  // request/approve state and the owner's pending-approval lists are all derived from these.
+  const [onchainGroups, setOnchainGroups] = useState<OnchainGroup[]>([])
+  const [groupMembers, setGroupMembers] = useState<OnchainMember[]>([])
   const [groupsViewOpen, setGroupsViewOpen] = useState(false)
   const [creatingGroup, setCreatingGroup] = useState<{ seedCode?: string; stage: 'form' | 'created' } | null>(null)
   const [depositOpen, setDepositOpen] = useState(false)
@@ -173,6 +183,61 @@ export function VolmarketApp() {
   useEffect(() => {
     refreshMarkets()
   }, [refreshMarkets])
+
+  const refreshGroups = useCallback(async () => {
+    try {
+      const connection = makeConnection()
+      const { groups, members } = await fetchGroups(connection)
+      setOnchainGroups(groups)
+      setGroupMembers(members)
+    } catch (err) {
+      console.error('failed to fetch groups', err)
+    }
+  }, [])
+
+  useEffect(() => {
+    refreshGroups()
+  }, [refreshGroups])
+
+  // Refresh groups whenever the browser opens, so a just-created/joined group shows immediately.
+  useEffect(() => {
+    if (groupsViewOpen) refreshGroups()
+  }, [groupsViewOpen, refreshGroups])
+
+  // Derive the board-shaped group list + per-group membership state from the on-chain accounts.
+  // Index alignment matters: GroupsView keys its request/approve callbacks by array index, so the
+  // `boardGroups` order is the source of truth the sets and pending-map are all built against.
+  const { boardGroups, requestedGroups, joinedGroups, pendingByIdx } = useMemo(() => {
+    const me = solanaWallet?.address
+    const boardGroups: Group[] = []
+    const requestedGroups = new Set<number>()
+    const joinedGroups = new Set<number>()
+    const pendingByIdx = new Map<number, PendingRequest[]>()
+    onchainGroups.forEach((g, idx) => {
+      boardGroups.push({
+        name: g.name,
+        members: g.memberCount,
+        preds: 0, // activity stats not tracked on-chain yet
+        pnl: 0,
+        wr: 0,
+        roster: g.roster,
+        visibility: g.visibility,
+        address: g.address,
+        owner: g.owner,
+        feeBps: g.feeBps,
+      })
+      const mine = me ? groupMembers.find((m) => m.group === g.address && m.member === me) : undefined
+      if (mine?.approved) joinedGroups.add(idx)
+      else if (mine) requestedGroups.add(idx)
+      if (me && g.owner === me) {
+        const pending = groupMembers
+          .filter((m) => m.group === g.address && !m.approved)
+          .map((m) => ({ memberAccount: m.address, member: m.member }))
+        if (pending.length) pendingByIdx.set(idx, pending)
+      }
+    })
+    return { boardGroups, requestedGroups, joinedGroups, pendingByIdx }
+  }, [onchainGroups, groupMembers, solanaWallet?.address])
 
   const refreshUsdc = useCallback(async () => {
     if (!authenticated || !solanaWallet) {
@@ -547,15 +612,61 @@ export function VolmarketApp() {
     setSlipOpen(true)
   }
 
-  function createGroup(group: { name: string; visibility: 'Public' | 'Private'; joinMode: 'link' | 'invite' }) {
-    setGroups((prev) => [
-      { name: group.name, members: 1, preds: 0, pnl: 0, wr: 0, roster: group.joinMode === 'link', visibility: group.visibility },
-      ...prev,
-    ])
+  // create_group on-chain. roster = "anyone with link" (members shown to approved joiners); fee_bps
+  // is the group's cut chosen in the form. The panel flips to its "created" view optimistically; on
+  // failure we log and refresh so the list stays truthful to chain.
+  async function createGroup(group: { name: string; visibility: 'Public' | 'Private'; joinMode: 'link' | 'invite'; feeBps: number }) {
+    if (!authenticated || !solanaWallet) {
+      login()
+      return
+    }
+    try {
+      const connection = makeConnection()
+      await createGroupOnchain(connection, solanaWallet, signTransaction, {
+        name: group.name,
+        feeBps: group.feeBps,
+        visibility: group.visibility,
+        roster: group.joinMode === 'link',
+      })
+    } catch (err) {
+      console.error('create_group failed', err)
+    }
+    await refreshGroups()
   }
 
-  function requestJoinGroup(idx: number) {
-    setRequestedGroups((prev) => new Set(prev).add(idx))
+  // request_join on-chain. The button latches to "Requested" from real GroupMember state after the
+  // refresh (and re-requesting would fail at init anyway).
+  async function requestJoinGroup(idx: number) {
+    if (!authenticated || !solanaWallet) {
+      login()
+      return
+    }
+    const g = onchainGroups[idx]
+    if (!g) return
+    try {
+      const connection = makeConnection()
+      await requestJoinOnchain(connection, solanaWallet, signTransaction, g.address)
+    } catch (err) {
+      console.error('request_join failed', err)
+    }
+    await refreshGroups()
+  }
+
+  // approve_member on-chain (owner only; the UI only offers it on groups you own).
+  async function approveMember(idx: number, memberAddress: string) {
+    if (!authenticated || !solanaWallet) {
+      login()
+      return
+    }
+    const g = onchainGroups[idx]
+    if (!g) return
+    try {
+      const connection = makeConnection()
+      await approveMemberOnchain(connection, solanaWallet, signTransaction, g.address, memberAddress)
+    } catch (err) {
+      console.error('approve_member failed', err)
+    }
+    await refreshGroups()
   }
 
   return (
@@ -713,11 +824,15 @@ export function VolmarketApp() {
 
       <GroupsView
         open={groupsViewOpen}
-        groups={groups}
+        groups={boardGroups}
         requested={requestedGroups}
+        joined={joinedGroups}
+        currentUser={solanaWallet?.address}
+        pendingByIdx={pendingByIdx}
         onClose={() => setGroupsViewOpen(false)}
         onCreateGroup={() => openGroupCreate()}
         onRequestJoin={requestJoinGroup}
+        onApprove={approveMember}
       />
     </>
   )
