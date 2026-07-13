@@ -1,70 +1,51 @@
 # volmarket-keeper
 
-Autonomous settlement keeper for the Volmarket markets program. It watches TxLINE's World Cup feed, fetches the Merkle proof for each settling datapoint, and calls `resolve_market` on-chain — which CPIs into TxLINE's validator and sets the outcome from the market's predicate. No human in the loop once it's running, which is the "autonomous operation" the track judges on.
+Autonomous settlement keeper for the `signal_markets` program. It watches TxLINE's odds feed, fetches the Merkle proof for each settling update, and calls `resolve_market` on-chain — which CPIs into TxLINE's validator and sets the outcome from the market's HOLD/BREAK predicate. No human in the loop once it's running.
+
+It also **bootstraps** the opposing pool of new two-sided markets from its own USDC, so the losing side is never empty and winners get real payouts.
 
 ## Flow
 
 ```
-TxLINE SSE stream ──▶ keeper ──▶ match event to open markets
-                                   │
-                  settling datapoint? ──▶ fetch Merkle proof (score 3-stage | odds by messageId)
-                                   │
-                                   ▼
-                         resolve_market(value, proof)  ──CPI──▶ TxLINE validate
-                                   │                                  │ ok
-                                   ▼                                  ▼
-                         predicate evaluated ──────────────▶ outcome written on-chain
+TxLINE odds stream ──▶ keeper ──▶ match an update to open markets by SuperOddsType + MarketParameters
+                                    │
+                     predicate satisfied in-window? ──▶ fetch the update's Merkle proof (by messageId)
+                                    │
+                                    ▼
+                          resolve_market(value, proof)  ──CPI──▶ TxLINE validate
+                                    │                                  │ ok
+                                    ▼                                  ▼
+                          predicate evaluated ──────────────▶ outcome written on-chain
 ```
 
-Three settlement paths:
-- **Deterministic score** — on the settling stat (or match end), fetch the three-stage score proof and resolve. One proof settles both sides.
-- **Odds crossing (optimistic YES)** — when an odds update inside the market's window satisfies the predicate, fetch that update's proof by `messageId` and resolve YES.
-- **Optimistic NO** — at match end or the deadline sweep, if no crossing happened, submit the last odds update's proof (predicate fails → NO).
+Two settlement paths:
+- **Crossing (optimistic YES)** — when an odds update inside the market's window satisfies the predicate, fetch that update's proof by `messageId` and resolve.
+- **Timeout (optimistic NO)** — at window close, if no crossing happened, the default outcome wins (BREAK loses, HOLD wins) without any proof.
 
-Safety: re-checks on-chain `status` before every submit, tracks in-flight markets, and treats an `AlreadyResolved` error as a benign race (any keeper can settle — it's permissionless).
+Safety: re-checks on-chain `status` before every submit, tracks in-flight markets, and treats an `AlreadyResolved` error as a benign race (settlement is permissionless — any keeper can settle).
 
 ## Run
 
 ```bash
-cp .env.example .env      # fill in RPC, keeper keypair, program id, IDL path, TxLINE creds
 npm install
-npm run dev               # watch mode (tsx)
-# or
-npm run build && npm start
+npm run dev                      # watch mode (tsx)
+npm run mock                     # synthetic feed — resolves a market on devnet without a live match
+npm run build && npm start       # real TxLINE feed
 ```
 
-`IDL_PATH` should point at the IDL emitted by `anchor build` in the program repo
-(`../signal_markets/target/idl/signal_markets.json`). The keeper keypair just needs a
-little devnet SOL for fees — it earns nothing and touches no funds.
+The keeper carries a self-contained IDL at `signal_markets.idl.json` (a copy of the program's `anchor build` output), so it runs without the `signal_markets/` workspace next to it (`IDL_PATH` defaults to `./signal_markets.idl.json`). The keeper keypair needs a little devnet SOL for fees, plus USDC if bootstrapping is enabled. Configuration is via `.env` (start from `.env.example`).
 
-## Mock mode (for the demo)
+## Mock mode
 
-```bash
-npm run mock
-```
-
-Drives a synthetic odds feed for the first open fixture and emits an `ended` status, so
-the keeper resolves a market on devnet without waiting for a live match. For the CPI to
-succeed in mock mode, deploy a **mock validator** at `TXLINE_PROGRAM_ID` whose instruction
-returns `Ok(())` for any input (a 10-line Anchor program), or temporarily stub the CPI in
-`validate_with_txline`. This is the cleanest thing to show on camera: start the keeper,
-watch it print `resolved … tx=…`, open the explorer link.
-
-## TxLINE integration TODOs (the seams)
-
-All in `src/txline.ts`:
-1. `normaliseStreamEvent` — map the real World Cup stream payload to `TxEvent`.
-2. `getScoreProof` / `getOddsProof` — point at the real proof endpoints; confirm query params.
-3. `parseProof` — map their response fields (value, proof bytes, commitment/batch accounts).
-   The `accounts` you return become the `remaining_accounts` the validator CPI reads.
-4. In the program, fill `validate_with_txline` with the real `validate_stat` instruction
-   encoding so the forwarded proof actually verifies.
+`npm run mock` drives a synthetic odds feed for the first open fixture and emits an `ended` status, so the keeper resolves a market on devnet without waiting for a live match. For the CPI to succeed, `TXLINE_PROGRAM_ID` must point at the deployed `mock_validator` (approves any proof).
 
 ## Files
+
 - `config.ts` — env + logger
-- `txline.ts` — SSE client + proof fetchers (integration seams live here)
-- `markets.ts` — loads open markets from chain, mirrors the on-chain predicate check
+- `txline.ts` — odds stream client + proof fetchers (the TxLINE integration seam)
+- `markets.ts` — loads open markets from chain, mirrors the on-chain predicate
+- `bootstrap.ts` — seeds the opposing pool of new markets so payouts are real
 - `resolver.ts` — builds the Anchor client, sends `resolve_market`, idempotency guard
 - `keeper.ts` — event loop, settlement decisions, deadline sweeper
-- `mockFeed.ts` — synthetic feed + proof for demos
+- `mockFeed.ts` — synthetic feed + proof for local runs
 - `index.ts` — entry point

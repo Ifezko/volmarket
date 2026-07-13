@@ -1,78 +1,96 @@
 # Volmarket
 
-Non-custodial Solana prediction protocol where you trade the **volume signal** on every live football odd — predict whether a live odd **holds** support or **breaks** resistance within a chosen time window. Settled trustlessly against **TxLINE's** on-chain Merkle proofs. Built for the TxODDS World Cup Hackathon (Prediction Markets & Settlement track, deadline **2026-07-19**).
-
-`volmarket.fun` · `@volmarketfun`
+Non-custodial Solana prediction protocol where you trade the **volume signal** on live football odds — predict whether a live odd **holds** its support level or **breaks** its resistance level within a chosen time window. Predictions are USDC escrows in program-owned vaults, settled trustlessly against TxLINE's on-chain odds proofs. Predict solo or pool with a group.
 
 ---
 
-## What's in here
+## Repository layout
 
 ```
 volmarket/
-├── frontend/            Single-file prototype UI (open frontend/index.html in a browser)
-├── signal_markets/      Anchor program — escrow, HOLD/BREAK markets, single-proof settlement
-├── keeper/              TypeScript service — watches TxLINE, fetches proofs, resolves markets
-├── mock_validator/      Native Solana program that approves any proof (devnet demo)
+├── frontend-react/     The app — React + Vite + Privy, talks to the program on devnet (deployed to Vercel)
+├── frontend/           Original single-file HTML prototype (design reference)
+├── signal_markets/     Anchor program — escrow vaults, HOLD/BREAK markets, single-proof settlement, groups
+├── keeper/             TypeScript service — watches TxLINE odds, fetches proofs, resolves markets
+├── mock_validator/     Native Solana program that approves any proof (devnet settlement stand-in)
 └── docs/
-    ├── volmarket-technical-doc.md   Submission tech doc (core idea, settlement, endpoints, feedback)
-    └── volmarket-revenue-model.md   Revenue one-pager (fee curve, on-ramp, unit economics)
+    └── volmarket-technical-doc.md   Architecture + settlement design
 ```
 
-## Architecture (runtime flow)
-
-Runtime components only — the `docs/` folder holds submission deliverables, not runtime pieces.
+## How it works
 
 ```
-Frontend (match board → odd selector → live signal → deposit / claim)
-     │  deposit USDC / claim payout                    ▲ read on-chain state
-     ▼                                                 │
-signal_markets (Anchor program, devnet) ── escrow vault PDA · HOLD|BREAK markets · pro-rata payout
-     ▲  resolve_market(value, proof) ──CPI──▶ TxLINE validator  (mock_validator on devnet;
-     │                                          real TxLINE `validate` CPI = the one open seam)
-keeper (TS service) ── watch odds → match an open market by SuperOddsType + MarketParameters
-     ▲                    → read the outcome's Pct[] (× 1000) → fetch Merkle proof → resolve_market
-     │
-TxLINE oracle (txline-dev.txodds.com) ── StablePrice odds, each update anchored on Solana
+frontend-react (board → odd → live signal → predict / claim, solo or group)
+      │  deposit USDC / claim payout                    ▲ read on-chain state
+      ▼                                                 │
+signal_markets (Anchor program, devnet) ── vault PDAs · HOLD|BREAK markets · pro-rata payout minus fee
+      ▲  resolve_market(value, proof) ──CPI──▶ validator (mock_validator on devnet; real TxLINE validate = the integration seam)
+      │
+keeper (TS service) ── matches a TxLINE odds update to an open market by SuperOddsType + MarketParameters,
+      ▲                 reads the outcome's demargined probability, fetches the Merkle proof, calls resolve_market
+      │
+TxLINE feed ── StablePrice odds, each update anchored on Solana
 ```
 
-One sentence: TxLINE StablePrice odds (anchored on Solana) → `keeper` matches an update to an open market by **SuperOddsType + MarketParameters** and reads the outcome's demargined probability from **`Pct[]`** → calls `resolve_market(value, proof)` on `signal_markets` → which CPIs the validator to verify the proof → winners `claim` pro-rata from a non-custodial escrow PDA.
+**The line settles; volume only informs.** Internal stake shapes the displayed support/resistance profile and suggests a level — it never decides an outcome. Every settlement rides on TxLINE's anchored odds proof, which is what keeps the market non-manipulable.
 
-## Core design rule (do not break)
+A market is `{ fixture, odd (SuperOddsType + MarketParameters + outcome), side (HOLD|BREAK), level L, window [t0 … t0+W] }`. The odd identity keys on SuperOddsType **and** MarketParameters, so different Over/Under lines (1.5 vs 2.5) are distinct markets. `L` and the settling value share one scale: the demargined implied probability × 1000 (a 3-decimal percent as an integer). **HOLD** wins if the probability stays ≥ L for the window; **BREAK** wins if it reaches ≥ L within it. Settlement is single-proof: submit the one anchored update that decides it (HOLD is optimistic — submit-to-disprove).
 
-**The line settles; volume only informs.** Internal stake is used to *display* the support/resistance profile and *suggest* a level — it never decides an outcome. Every settlement rides on TxLINE's anchored odds proof. This is what makes the market non-manipulable; keep the wall between "informs" and "settles" intact.
+Confirmed outcomes (matched by label against the record's `PriceNames[]`): **1X2** `["part1","draw","part2"]` = home / draw / away, and **Over/Under** `["over","under"]`. BTTS is not in the feed, so the keeper and UI feature 1X2 and Over/Under only.
 
-A market = `{ fixture, odd (SuperOddsType + MarketParameters + outcome), side (HOLD|BREAK), level L, window [t0..t0+W] }`. The odd identity keys on SuperOddsType **and** MarketParameters, so different Over/Under lines (1.5 vs 2.5) are different markets. L and the settling value share one scale: the demargined implied probability × 1000 (a 3-decimal percent as an integer, read from `Pct[]`). **HOLD** wins if prob stays ≥ L for the window; **BREAK** wins if prob reaches ≥ L within it. Settlement is **single-proof**: submit the one anchored update that decides it (HOLD is optimistic / submit-to-disprove).
+## Program surface
 
-Confirmed outcome labels (matched against the record's `PriceNames[]`): **1X2** `["part1","draw","part2"]` = home / draw / away; **Over/Under** `["over","under"]`. **BTTS is not in the feed right now** — the keeper and UI feature 1X2 and Over/Under only.
+Markets:
 
----
+| Instruction | Who | What |
+|---|---|---|
+| `create_market` | anyone | opens a market + USDC vault PDA (authority = the signer; fee washes back to them) |
+| `create_market_v2` | anyone | same as `create_market` plus an explicit `fee_recipient` — routes the protocol fee to a house wallet |
+| `deposit` | user | stakes USDC on YES (predicate holds) or NO into the vault; records a `Position` |
+| `resolve_market` | anyone (permissionless) | single-proof settlement — CPIs the validator, then evaluates HOLD/BREAK on the verified value |
+| `claim` | winner | pro-rata payout from the vault; `fee_bps` cut on winnings routes to the market authority |
+
+Groups — a named roster with its own fee that pools predictions:
+
+| Instruction | Who | What |
+|---|---|---|
+| `create_group` | anyone | opens a `Group` (name, fee, visibility, roster); creator is the implicit first member |
+| `request_join` | user | mints a pending `GroupMember` |
+| `approve_member` | owner | approves a pending member |
+| `update_group` | owner | edits name / fee / visibility / roster |
+| `leave_group` | member | closes their membership (owner can't leave) |
+| `group_deposit` | member/owner | stakes into a market as part of the group — funds join the market pool; per-member accounting lives in a shared `GroupPool` + `GroupPosition` |
+| `claim_group` | member | pro-rata payout from the market, with the **group's** fee routed to the group owner |
+
+`create_market` (8-arg) and `create_market_v2` (9-arg) coexist so both instruction-data formats stay valid on the live program; account layout is identical, so markets from either path are mutually readable.
 
 ## Run it
 
-**Frontend** — just open `frontend/index.html` in a browser. Self-contained (no build step). All data is mocked/simulated; live matches animate a synthetic tape, upcoming matches show a "markets open at kickoff" state.
+**App** (`frontend-react/`)
+```bash
+cd frontend-react
+npm install
+npm run dev            # local dev server
+npm run build          # production build (dist/)
+```
+Config is via `VITE_*` env vars (RPC URL, USDC mint, Privy app id, fund endpoint, fee recipient). All are client-side, non-secret. Sensible devnet defaults are baked in, so `npm run dev` works without any `.env`.
 
-**Anchor program** (`signal_markets/`)
+**Program** (`signal_markets/`)
 ```bash
 cd signal_markets
-anchor build                                   # green; also generates the IDL
+anchor build                                    # compiles + emits the IDL
 anchor deploy --provider.cluster devnet
 ```
-Written for Anchor 0.30.1. `anchor build` compiles and emits the IDL. (Note: IDL codegen under `anchor build` needs a nightly that still has `proc_macro::Span::source_file` — `nightly-2024-08-31` works; the SBF program compile itself does not.) `TXLINE_PROGRAM_ID` is already set to the deployed `mock_validator` for the devnet demo.
-
-**Mock validator** (`mock_validator/`) — the devnet CPI target that approves any proof; already deployed (id below). Rebuild with `cargo build-sbf` and redeploy if needed (see `mock_validator/README.md`).
+Written for Anchor 0.30.1. `TXLINE_PROGRAM_ID` points at the deployed `mock_validator` for the devnet demo.
 
 **Keeper** (`keeper/`)
 ```bash
 cd keeper
 npm install
-cp .env.example .env   # already wired for devnet: PROGRAM_ID + TXLINE_PROGRAM_ID (mock) + oracle-dev host
-npm run mock           # fully-synthetic feed — resolves markets on the deployed devnet program
-npm run build && npm start   # real TxLINE feed (start runs the compiled dist/)
+npm run mock                     # synthetic feed — resolves markets on the deployed devnet program
+npm run build && npm start       # real TxLINE feed
 ```
-The self-contained IDL lives at `keeper/signal_markets.idl.json` (copied from the anchor build). The keeper key loads in two modes: `KEEPER_SECRET_KEY` (a JSON byte array, for deployed hosts) takes priority, else the file at `KEEPER_KEYPAIR`.
-
-**Full devnet loop** — `deposit → resolve → claim` runs end-to-end today. `keeper/scripts/demo-setup.ts` creates a market + deposits, `npm run mock` resolves it (CPI into `mock_validator`), and `keeper/scripts/demo-claim.ts` claims the winnings. See `DEPLOY.md` for the deploy/secret-hygiene guide.
+The keeper carries a self-contained copy of the IDL at `keeper/signal_markets.idl.json`.
 
 ## Deployed on devnet
 
@@ -80,31 +98,9 @@ The self-contained IDL lives at `keeper/signal_markets.idl.json` (copied from th
 |---|---|
 | `signal_markets` program | `86hERt8cdRZUBpc1Ng8coX2jwLmWGUcyc9JNfspw39yr` |
 | `mock_validator` program (= `TXLINE_PROGRAM_ID`) | `FPnwSSp2DXcNvJnxXWc2JXvU4MLNfrWDT6wBcU5Eptse` |
-| Devnet settlement mint | `4Zao8ocPhmMgq7PdsYWyxvqySMGx7xb9cMftPMkEokRG` |
-| TxLINE API host (devnet) | `txline-dev.txodds.com` |
+| App USDC mint | `3aakQUJ6vvWphAr18ZoAJfoHs3w148tWJmKsgsnUj12q` |
 
-Real-time data on devnet: TxLINE confirmed **Level 1 is not downgraded on devnet during the hackathon** — it delivers real-time (equivalent to mainnet Level 12), so sub-minute windows work on devnet Level 1. This parity is a hackathon accommodation and likely won't persist afterward.
-
----
-
-## Build status: what's done, what's left
-
-**Authoritative source for the open items:** [github.com/txodds/tx-on-chain](https://github.com/txodds/tx-on-chain) — the real IDL, program IDs, and working example scripts. The real API host is **`oracle(.-dev).txodds.com`**, not `txline.txodds.com` (docs/marketing site) or `txline-dev.txodds.com` (a separate Swagger UI).
-
-### ✅ Done
-- **`anchor build` green** and the **IDL is generated** (`signal_markets/target/idl/signal_markets.json`, copied to `keeper/`).
-- **Full devnet loop works end-to-end** — `create → deposit → resolve → claim`, with real tx signatures. `resolve` runs via `npm run mock` and CPIs into the deployed `mock_validator`.
-- **Pct / PriceNames mapping** — settlement reads the outcome's `Pct[]` (demargined implied probability, a 3-decimal percent string) as `round(Pct × 1000)`; **not** `Prices[]` (decimal-odds × 1000). Outcome resolved **by label** against `PriceNames[]`, never a raw index.
-- **Odd identity = SuperOddsType + MarketParameters** — different Over/Under lines are distinct markets (`market_params` is part of the on-chain market PDA).
-- **BTTS excluded** — not served by the feed; keeper + UI feature 1X2 and Over/Under only.
-- **Dual-mode keeper key** — `KEEPER_SECRET_KEY` (env, deployed hosts) or `KEEPER_KEYPAIR` (file).
-- **Self-contained IDL** — `keeper/signal_markets.idl.json`, so the keeper deploys without the `signal_markets/` workspace next to it.
-
-### 🔧 Open (the real build work left)
-1. **Real TxLINE `validate` CPI swap** — `validate_with_txline` in `signal_markets/programs/signal_markets/src/lib.rs` currently forwards a placeholder wire format. Replace it with the real IDL-encoded `validate` call, modeled on the tx-on-chain repo's on-chain validation example (`users.ts` / `validate_odds_onchain.ts`). Until then, `mock_validator` stands in on devnet.
-2. **Real-auth wiring** — the keeper's `auth.ts` subscribe → sign → activate sequence for non-guest access, and confirming World Cup data coverage (`cd keeper && npm run check:worldcup` hits the real guest-JWT + snapshot endpoint). Mock mode skips auth entirely, which is why the devnet loop runs without it. Auth supports two paths: **guest-JWT-only** (`TXLINE_GUEST_ONLY=true`) and the full **on-chain subscribe → sign → activate**.
-
-**Production safeguards** (designed, not built — deliberately, for the hackathon): minimum-depth gate, per-wallet position caps, δ scaling. See the "Manipulation resistance" section in `docs/volmarket-technical-doc.md`.
+The full `create → deposit → resolve → claim` loop (and the group `create → join → group_deposit → claim_group` loop) runs end-to-end on devnet today. On devnet, `resolve` runs via the keeper and CPIs into `mock_validator`; swapping that CPI for TxLINE's real `validate` call is the remaining integration.
 
 ## Not legal or financial advice
-Betting-adjacent product; regulatory treatment varies by jurisdiction. Frame revenue as protocol fees + data, and get counsel before charging in specific markets.
+This is a betting-adjacent product; regulatory treatment varies by jurisdiction. Get counsel before operating in specific markets.
