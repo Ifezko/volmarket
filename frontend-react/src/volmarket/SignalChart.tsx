@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
+import { matchClockAt } from './liveFixtures'
 
 // Ported verbatim (same math, same canvas calls) from the signal-sim section of
 // frontend/index.html: startSim/stepSig/drawSignal. Re-expressed with useRef/useEffect
@@ -34,6 +35,7 @@ export function SignalChart({
   matchId,
   oddKey,
   prob,
+  fixtureId,
   windowSecs,
   predictionLines,
   onLiveProb,
@@ -43,6 +45,7 @@ export function SignalChart({
   matchId: string
   oddKey: string
   prob: number
+  fixtureId: number
   windowSecs: number
   predictionLines: PredictionLine[]
   onLiveProb?: (prob: number) => void
@@ -204,24 +207,23 @@ export function SignalChart({
     })
     onLiveProb?.(sig.prob)
 
-    // x time axis - real clock time, advancing left-to-right with the tape (no negative offsets).
-    // The tape's right tip is the current moment; the axis spans the selected window before it. A
-    // Holds/Breaks placed now settles one window later (now + windowSecs), shown top-right.
+    // x time axis - in match-clock context (the scoreboard minute, e.g. "67'"), advancing with the
+    // tape. The tape's right tip is the current match minute; the axis spans the selected window
+    // before it. A Holds/Breaks placed now settles one window later, shown top-right as its minute.
     const wsecs = windowSecs || 300
-    const clock = (ms: number) =>
-      new Date(ms).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: false })
-    const nowMs = Date.now()
+    const nowS = Date.now() / 1000
+    const mclock = (s: number) => matchClockAt(fixtureId, s)
     ctx.fillStyle = '#5a6573'
     ctx.font = '9px "JetBrains Mono"'
     ctx.textAlign = 'left'
-    ctx.fillText(clock(nowMs - wsecs * 1000), padL, h - 3)
+    ctx.fillText(mclock(nowS - wsecs), padL, h - 3)
     ctx.textAlign = 'center'
-    ctx.fillText(clock(nowMs - wsecs * 500), (padL + plotR) / 2, h - 3)
+    ctx.fillText(mclock(nowS - wsecs / 2), (padL + plotR) / 2, h - 3)
     ctx.textAlign = 'right'
-    ctx.fillText(clock(nowMs), plotR, h - 3)
-    // when a Holds/Breaks over the selected window would settle
+    ctx.fillText(mclock(nowS), plotR, h - 3)
+    // the match minute a Holds/Breaks over the selected window would settle at
     ctx.fillStyle = '#8b95a2'
-    ctx.fillText('settles ' + clock(nowMs + wsecs * 1000), plotR, padT + 9)
+    ctx.fillText('settles ' + mclock(nowS + wsecs), plotR, padT + 9)
     ctx.textAlign = 'left'
 
     // live % value pinned at the tip of the tape - drawn LAST so nothing overpaints it. Solid
@@ -250,7 +252,7 @@ export function SignalChart({
     ctx.textBaseline = 'middle'
     ctx.fillText(lv, bx + padX, by + boxH / 2 + 0.5)
     ctx.textBaseline = 'alphabetic'
-  }, [i2p, nodes, predictionLines, onLiveProb, windowSecs])
+  }, [i2p, nodes, predictionLines, onLiveProb, windowSecs, fixtureId])
 
   const stepSig = useCallback(() => {
     const sig = sigRef.current

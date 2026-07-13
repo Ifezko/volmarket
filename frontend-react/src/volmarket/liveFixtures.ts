@@ -105,6 +105,17 @@ export function matchState(f: LiveFixture, nowSecs: number): MatchState {
   return { clock: `${46 + Math.floor((t - HALF - HT_BREAK) / 60)}'`, score, live: true }
 }
 
+// The scoreboard match minute ("67'", "HT") at a given real time, from the fixture's seeded live
+// timeline - same math as matchState's live branch, exposed so the signal chart's x-axis reads in
+// match-clock context (not wall-clock time). The double-mod guards negative offsets (past times).
+export function matchClockAt(fixtureId: number, nowSecs: number): string {
+  const offset = Math.floor(rng(`clock-${fixtureId}`)() * FULL)
+  const t = (((nowSecs + offset) % FULL) + FULL) % FULL
+  if (t < HALF) return `${Math.floor(t / 60) + 1}'`
+  if (t < HALF + HT_BREAK) return 'HT'
+  return `${46 + Math.floor((t - HALF - HT_BREAK) / 60)}'`
+}
+
 // The secondary-nav filters + sort. These actually drive the board (see applyBoardView).
 export type BoardFilter = 'all' | 'trending' | 'live' | 'today' | 'upcoming'
 export type BoardSort = 'volume' | 'recent'
