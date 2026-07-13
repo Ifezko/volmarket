@@ -280,3 +280,138 @@ export async function placeRealPredictions(
   }
   return { signatures }
 }
+
+// One batch of "Send to group": create whatever markets don't exist yet (create_market_v2, same as
+// the individual place) then GROUP-deposit each pick into (group, market) instead of an individual
+// Position — funds land in the shared GroupPool and the member's GroupPosition. The signer must be
+// an approved member of `group` (enforced on-chain).
+async function placeGroupBatch(
+  connection: Connection,
+  wallet: ConnectedStandardSolanaWallet,
+  privySignTransaction: PrivySignTransaction,
+  group: PublicKey,
+  picks: PendingPick[],
+): Promise<string> {
+  const userPublicKey = new PublicKey(wallet.address)
+  const program = getReadonlyProgram(connection)
+  const userToken = getAssociatedTokenAddressSync(USDC_MINT, userPublicKey)
+
+  const tx = new Transaction()
+  tx.add(createAssociatedTokenAccountIdempotentInstruction(userPublicKey, userToken, userPublicKey, USDC_MINT))
+
+  const now = Math.floor(Date.now() / 1000)
+  const [groupMember] = PublicKey.findProgramAddressSync(
+    [Buffer.from('member'), group.toBuffer(), userPublicKey.toBuffer()],
+    program.programId,
+  )
+
+  const derived = picks.map((pick) => {
+    const marketSide = SIDE_HOLD
+    const depositSide = pick.side === 'hold' ? SIDE_YES : SIDE_NO
+    const windowStart = new BN(now)
+    const windowEnd = new BN(now + pick.windowSecs)
+    const fixtureId = new BN(pick.fixtureId)
+    const oddKey = new BN(pick.oddKey)
+    const marketParams = new BN(pick.marketParams)
+    const level = new BN(pick.levelRaw)
+    const [market] = PublicKey.findProgramAddressSync(
+      [
+        Buffer.from('market'),
+        fixtureId.toArrayLike(Buffer, 'le', 8),
+        oddKey.toArrayLike(Buffer, 'le', 8),
+        marketParams.toArrayLike(Buffer, 'le', 8),
+        Buffer.from([marketSide]),
+        level.toArrayLike(Buffer, 'le', 8),
+        windowStart.toArrayLike(Buffer, 'le', 8),
+      ],
+      program.programId,
+    )
+    const [vault] = PublicKey.findProgramAddressSync([Buffer.from('vault'), market.toBuffer()], program.programId)
+    const [groupPool] = PublicKey.findProgramAddressSync(
+      [Buffer.from('grouppool'), group.toBuffer(), market.toBuffer()],
+      program.programId,
+    )
+    const [groupPosition] = PublicKey.findProgramAddressSync(
+      [Buffer.from('grouppos'), group.toBuffer(), market.toBuffer(), userPublicKey.toBuffer(), Buffer.from([depositSide])],
+      program.programId,
+    )
+    return { pick, marketSide, depositSide, windowStart, windowEnd, fixtureId, oddKey, marketParams, level, market, vault, groupPool, groupPosition }
+  })
+
+  const marketInfos = await connection.getMultipleAccountsInfo(derived.map((d) => d.market))
+  const willCreate = new Set<string>()
+
+  for (let i = 0; i < derived.length; i++) {
+    const d = derived[i]
+    const key = d.market.toBase58()
+    if (marketInfos[i] === null && !willCreate.has(key)) {
+      willCreate.add(key)
+      const createMarketIx = await program.methods
+        .createMarketV2(d.fixtureId, d.oddKey, d.marketParams, d.marketSide, d.level, d.windowStart, d.windowEnd, FEE_BPS, FEE_RECIPIENT)
+        .accounts({
+          authority: userPublicKey,
+          market: d.market,
+          usdcMint: USDC_MINT,
+          vault: d.vault,
+          tokenProgram: TOKEN_PROGRAM_ID,
+          systemProgram: SystemProgram.programId,
+          rent: SYSVAR_RENT_PUBKEY,
+        })
+        .instruction()
+      tx.add(createMarketIx)
+    }
+
+    const groupDepositIx = await (program.methods as any)
+      .groupDeposit(d.depositSide, new BN(Math.round(d.pick.amountUsdc * 1e6)))
+      .accounts({
+        member: userPublicKey,
+        group,
+        groupMember,
+        market: d.market,
+        groupPool: d.groupPool,
+        groupPosition: d.groupPosition,
+        vault: d.vault,
+        memberToken: userToken,
+        tokenProgram: TOKEN_PROGRAM_ID,
+        systemProgram: SystemProgram.programId,
+      })
+      .instruction()
+    tx.add(groupDepositIx)
+  }
+
+  const anchorWallet = new PrivyAnchorWallet(wallet, privySignTransaction)
+  tx.feePayer = userPublicKey
+  const { blockhash, lastValidBlockHeight } = await connection.getLatestBlockhash()
+  tx.recentBlockhash = blockhash
+  const signedTx = await anchorWallet.signTransaction(tx)
+  try {
+    const signature = await connection.sendRawTransaction(signedTx.serialize())
+    await connection.confirmTransaction({ signature, blockhash, lastValidBlockHeight }, 'confirmed')
+    return signature
+  } catch (err) {
+    throw await explainSendError(err, connection)
+  }
+}
+
+/**
+ * "Send to group": the same picks as `placeRealPredictions`, but staked into a group (group_deposit)
+ * so they land in the shared pool and surface in the group's activity feed. The signer must be an
+ * approved member of `group`. Combos larger than one tx are sent as sequential batches.
+ */
+export async function placeGroupPredictions(
+  connection: Connection,
+  wallet: ConnectedStandardSolanaWallet,
+  privySignTransaction: PrivySignTransaction,
+  groupAddress: string,
+  picks: PendingPick[],
+): Promise<{ signatures: string[] }> {
+  if (!picks.length) throw new Error('no picks to send')
+  await ensureGasReady(connection, wallet.address)
+  const group = new PublicKey(groupAddress)
+  const signatures: string[] = []
+  for (let i = 0; i < picks.length; i += MAX_PICKS_PER_TX) {
+    const batch = picks.slice(i, i + MAX_PICKS_PER_TX)
+    signatures.push(await placeGroupBatch(connection, wallet, privySignTransaction, group, batch))
+  }
+  return { signatures }
+}

@@ -29,7 +29,7 @@ import {
   type GroupActivityItem,
 } from '../lib/onchainGroups'
 import { fetchRealMarkets, makeConnection } from '../lib/onchainMarkets'
-import { placeRealPredictions, FEE_BPS, type PendingPick } from '../lib/depositMarkets'
+import { placeRealPredictions, placeGroupPredictions, FEE_BPS, type PendingPick } from '../lib/depositMarkets'
 import { claimPositions, fetchWalletState, previewMultiplier, type ClaimablePosition, type ActivePosition } from '../lib/claimMarkets'
 import { resolveMarkets } from '../lib/resolveMarkets'
 import { fundWallet, fetchUsdcBalance, withdrawUsdc, fetchFundingHistory } from '../lib/funds'
@@ -101,6 +101,7 @@ export function VolmarketApp() {
   const [ticket, setTicket] = useState<Ticket | null>(null)
   const [placing, setPlacing] = useState(false)
   const [placeError, setPlaceError] = useState<string | null>(null)
+  const [sending, setSending] = useState(false)
   const [howOpen, setHowOpen] = useState(false)
   // Real on-chain groups (Group + GroupMember accounts). The board-shaped `groups` array, the
   // request/approve state and the owner's pending-approval lists are all derived from these.
@@ -215,13 +216,14 @@ export function VolmarketApp() {
   // Derive the board-shaped group list + per-group membership state from the on-chain accounts.
   // Index alignment matters: GroupsView keys its request/approve callbacks by array index, so the
   // `boardGroups` order is the source of truth the sets and pending-map are all built against.
-  const { boardGroups, requestedGroups, joinedGroups, pendingByIdx, activityByIdx } = useMemo(() => {
+  const { boardGroups, requestedGroups, joinedGroups, pendingByIdx, activityByIdx, sendableGroups } = useMemo(() => {
     const me = solanaWallet?.address
     const boardGroups: Group[] = []
     const requestedGroups = new Set<number>()
     const joinedGroups = new Set<number>()
     const pendingByIdx = new Map<number, PendingRequest[]>()
     const activityByIdx = new Map<number, GroupActivityItem[]>()
+    const sendableGroups: { address: string; name: string }[] = []
     const activityByGroup = new Map<string, GroupActivityItem[]>()
     for (const a of groupActivity) {
       const arr = activityByGroup.get(a.group) ?? []
@@ -244,8 +246,11 @@ export function VolmarketApp() {
         feeBps: g.feeBps,
       })
       const mine = me ? groupMembers.find((m) => m.group === g.address && m.member === me) : undefined
+      const isOwner = !!me && g.owner === me
       if (mine?.approved) joinedGroups.add(idx)
       else if (mine) requestedGroups.add(idx)
+      // Groups the user can stake into: owned or approved-member (matches the on-chain gate).
+      if (isOwner || mine?.approved) sendableGroups.push({ address: g.address, name: g.name })
       if (me && g.owner === me) {
         const pending = groupMembers
           .filter((m) => m.group === g.address && !m.approved)
@@ -253,7 +258,7 @@ export function VolmarketApp() {
         if (pending.length) pendingByIdx.set(idx, pending)
       }
     })
-    return { boardGroups, requestedGroups, joinedGroups, pendingByIdx, activityByIdx }
+    return { boardGroups, requestedGroups, joinedGroups, pendingByIdx, activityByIdx, sendableGroups }
   }, [onchainGroups, groupMembers, groupActivity, solanaWallet?.address])
 
   const refreshUsdc = useCallback(async () => {
@@ -540,6 +545,43 @@ export function VolmarketApp() {
     setSlip([])
   }
 
+  // "Send to group": stake the current slip into a group (group_deposit) instead of an individual
+  // position, so it lands in the shared pool and surfaces in the group activity feed. Same picks and
+  // per-pick stake split as place(); requires real picks + an approved membership in the target group.
+  async function sendToGroup(groupAddress: string) {
+    if (!slip.length) return
+    const combo = pricedSlip.reduce((a, s) => a * s.mult, 1)
+    const perStake = +(stake / slip.length).toFixed(2)
+    const picks: PendingPick[] = slip.flatMap((s) => {
+      const m = predMeta[s.id]
+      return m ? [{ ...m, amountUsdc: perStake }] : []
+    })
+    if (!picks.length) return
+    if (!authenticated) {
+      login()
+      return
+    }
+    if (!solanaWallet) {
+      setPlaceError('Wallet not ready yet — try again in a moment.')
+      return
+    }
+    setSending(true)
+    setPlaceError(null)
+    try {
+      const connection = makeConnection()
+      await placeGroupPredictions(connection, solanaWallet, signTransaction, groupAddress, picks)
+    } catch (err) {
+      setPlaceError(err instanceof Error ? err.message : String(err))
+      setSending(false)
+      return
+    }
+    setSending(false)
+    setTicket({ code: genCode(), sel: pricedSlip, stake, mult: combo })
+    setSlip([])
+    void refreshGroups()
+    void refreshUsdc()
+  }
+
   // Collects every winning position back to the wallet by calling the program's `claim`
   // (signed silently, same as placing). On success the positions flip to claimed on-chain,
   // so the next refresh drops them from the list.
@@ -766,6 +808,9 @@ export function VolmarketApp() {
           onCopyCode={copyCode}
           onMakeGroup={(code) => openGroupCreate(code)}
           onNewSlip={() => setTicket(null)}
+          sendableGroups={sendableGroups}
+          sending={sending}
+          onSendToGroup={sendToGroup}
         />
       )}
 
@@ -839,6 +884,9 @@ export function VolmarketApp() {
         onMakeGroup={(code) => openGroupCreate(code)}
         onNewSlip={() => setTicket(null)}
         onPasteCode={pasteCode}
+        sendableGroups={sendableGroups}
+        sending={sending}
+        onSendToGroup={sendToGroup}
       />
 
       <HowModal open={howOpen} onClose={() => setHowOpen(false)} />

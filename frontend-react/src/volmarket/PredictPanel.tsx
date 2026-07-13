@@ -1,5 +1,6 @@
 import { PredictBuilder, type RealPredictMeta } from './PredictBuilder'
 import { StakePicker } from './StakePicker'
+import { SendToGroupControl } from './SendToGroupControl'
 import type { LiveOdd } from './liveFixtures'
 import type { SlipItem, Ticket } from './Slip'
 
@@ -28,6 +29,9 @@ export function PredictPanel({
   onCopyCode,
   onMakeGroup,
   onNewSlip,
+  sendableGroups,
+  sending,
+  onSendToGroup,
 }: {
   odd: LiveOdd
   fixtureId: number
@@ -47,6 +51,9 @@ export function PredictPanel({
   onCopyCode: (code: string) => void
   onMakeGroup: (code: string) => void
   onNewSlip: () => void
+  sendableGroups: { address: string; name: string }[]
+  sending: boolean
+  onSendToGroup: (groupAddress: string) => void
 }) {
   const combo = slip.reduce((a, s) => a * s.mult, 1)
 
@@ -145,6 +152,9 @@ export function PredictPanel({
                   <button className="btn btn-blue" style={{ width: '100%' }} onClick={onPlace} disabled={placing}>
                     {placing ? 'Placing…' : `Place prediction · ${stake} USDC`}
                   </button>
+                )}
+                {!insufficientFunds && (
+                  <SendToGroupControl sendableGroups={sendableGroups} sending={sending} onSendToGroup={onSendToGroup} />
                 )}
               </>
             )}

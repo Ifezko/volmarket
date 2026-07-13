@@ -37,6 +37,9 @@ export function MatchDetail({
   onCopyCode,
   onMakeGroup,
   onNewSlip,
+  sendableGroups,
+  sending,
+  onSendToGroup,
 }: {
   match: LiveFixture
   activeKey: string | null
@@ -63,6 +66,9 @@ export function MatchDetail({
   onCopyCode: (code: string) => void
   onMakeGroup: (code: string) => void
   onNewSlip: () => void
+  sendableGroups: { address: string; name: string }[]
+  sending: boolean
+  onSendToGroup: (groupAddress: string) => void
 }) {
   const live = match.status === 'live'
   const curOdds = match.odds
@@ -176,6 +182,9 @@ export function MatchDetail({
                     onCopyCode={onCopyCode}
                     onMakeGroup={onMakeGroup}
                     onNewSlip={onNewSlip}
+                    sendableGroups={sendableGroups}
+                    sending={sending}
+                    onSendToGroup={onSendToGroup}
                   />
                 </div>
               </div>

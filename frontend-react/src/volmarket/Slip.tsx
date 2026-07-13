@@ -1,5 +1,6 @@
 import { useState, type ReactNode } from 'react'
 import { StakePicker } from './StakePicker'
+import { SendToGroupControl } from './SendToGroupControl'
 
 export interface SlipItem {
   id: string
@@ -37,6 +38,9 @@ export function Slip({
   onMakeGroup,
   onNewSlip,
   onPasteCode,
+  sendableGroups,
+  sending,
+  onSendToGroup,
 }: {
   open: boolean
   slip: SlipItem[]
@@ -61,6 +65,11 @@ export function Slip({
   onMakeGroup: (code: string) => void
   onNewSlip: () => void
   onPasteCode: (code: string) => void
+  // Groups the signed-in user can stake this slip into (owned or approved-member). Empty when the
+  // user is in no groups — the "Send to group" control is hidden entirely then.
+  sendableGroups: { address: string; name: string }[]
+  sending: boolean
+  onSendToGroup: (groupAddress: string) => void
 }) {
   const [codeInput, setCodeInput] = useState('')
   const combo = slip.reduce((a, s) => a * s.mult, 1)
@@ -186,6 +195,9 @@ export function Slip({
                 <button className="btn btn-blue" style={{ width: '100%' }} onClick={onPlace} disabled={placing}>
                   {placing ? 'Placing…' : `Place prediction · ${stake} USDC`}
                 </button>
+              )}
+              {!insufficientFunds && (
+                <SendToGroupControl sendableGroups={sendableGroups} sending={sending} onSendToGroup={onSendToGroup} />
               )}
               {codePaste}
             </>
