@@ -172,6 +172,43 @@ export interface GroupActivityItem {
   windowStart: number
   windowEnd: number
   status: 'open' | 'resolved'
+  outcome: 'unset' | 'yes' | 'no'
+  /** final pool sizes on the market (USDC) — for pro-rata PnL of settled calls */
+  marketTotalYes: number
+  marketTotalNo: number
+}
+
+export interface GroupStats {
+  /** number of group calls (GroupPositions) */
+  preds: number
+  /** net PnL across settled calls (USDC), fee-adjusted like claim_group */
+  pnl: number
+  /** win rate over settled calls (0–100) */
+  wr: number
+}
+
+// Live group stats from its calls + each call's market outcome — the card's Predictions / PnL /
+// Win rate. A settled winning call nets its pro-rata share of the losing pool minus the group fee;
+// a settled loser is -stake; open calls don't count toward PnL/WR yet. Mirrors claim_group math.
+export function groupStats(items: GroupActivityItem[], feeBps: number): GroupStats {
+  let pnl = 0
+  let wins = 0
+  let settled = 0
+  for (const it of items) {
+    if (it.status !== 'resolved' || it.outcome === 'unset') continue
+    settled++
+    const won = (it.side === 'hold' && it.outcome === 'yes') || (it.side === 'break' && it.outcome === 'no')
+    if (won) {
+      const winTotal = it.side === 'hold' ? it.marketTotalYes : it.marketTotalNo
+      const loseTotal = it.side === 'hold' ? it.marketTotalNo : it.marketTotalYes
+      const winnings = winTotal > 0 ? (it.amountUsdc * loseTotal) / winTotal : 0
+      pnl += winnings - (winnings * feeBps) / 10_000
+      wins++
+    } else {
+      pnl -= it.amountUsdc
+    }
+  }
+  return { preds: items.length, pnl: Math.round(pnl * 100) / 100, wr: settled ? Math.round((wins / settled) * 100) : 0 }
 }
 
 /**
@@ -206,6 +243,9 @@ export async function fetchGroupActivity(connection: Connection): Promise<GroupA
       windowStart: m.windowStart,
       windowEnd: m.windowEnd,
       status: m.status,
+      outcome: m.outcome,
+      marketTotalYes: m.totalYes,
+      marketTotalNo: m.totalNo,
     })
   }
   items.sort((a, b) => (a.status === b.status ? b.amountUsdc - a.amountUsdc : a.status === 'open' ? -1 : 1))

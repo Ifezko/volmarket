@@ -26,6 +26,7 @@ import {
   groupDepositOnchain,
   updateGroupOnchain,
   leaveGroupOnchain,
+  groupStats,
   type OnchainGroup,
   type OnchainMember,
   type GroupActivityItem,
@@ -238,14 +239,16 @@ export function VolmarketApp() {
       activityByGroup.set(a.group, arr)
     }
     onchainGroups.forEach((g, idx) => {
-      const act = activityByGroup.get(g.address)
-      if (act && act.length) activityByIdx.set(idx, act)
+      const act = activityByGroup.get(g.address) ?? []
+      if (act.length) activityByIdx.set(idx, act)
+      // Live stats derived from the group's on-chain calls + their market outcomes.
+      const stats = groupStats(act, g.feeBps)
       boardGroups.push({
         name: g.name,
         members: g.memberCount,
-        preds: 0, // activity stats not tracked on-chain yet
-        pnl: 0,
-        wr: 0,
+        preds: stats.preds,
+        pnl: stats.pnl,
+        wr: stats.wr,
         roster: g.roster,
         visibility: g.visibility,
         address: g.address,
@@ -405,9 +408,10 @@ export function VolmarketApp() {
     const id = setInterval(() => {
       refreshWalletState()
       refreshUsdc()
+      refreshGroups()
     }, 20_000)
     return () => clearInterval(id)
-  }, [refreshWalletState, refreshUsdc])
+  }, [refreshWalletState, refreshUsdc, refreshGroups])
 
   useEffect(() => {
     document.body.classList.toggle('lock', curMatch !== null || groupsViewOpen)
