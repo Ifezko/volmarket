@@ -223,6 +223,14 @@ export function describeMarket(
   return `${a} v ${b} · ${label}: ${verb} ${level}%`
 }
 
+// Just the matchup + odd ("Argentina v Switzerland · Argentina"), no side/level - so callers can
+// place the prediction's percentage/outcome elsewhere without repeating it.
+export function describeOdd(fixtureId: number, oddKey: number, marketParams: number): string {
+  const { a, b } = fixtureIdentity(fixtureId)
+  const { label } = oddLabel(oddKey, marketParams, a, b)
+  return `${a} v ${b} · ${label}`
+}
+
 /**
  * Groups the flat list of real on-chain Market accounts into board-shaped fixtures. Every
  * known fixture always offers the full canonical odd set (both teams, draw, over/under) -

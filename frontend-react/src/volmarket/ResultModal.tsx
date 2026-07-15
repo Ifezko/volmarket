@@ -1,4 +1,4 @@
-import { describeMarket, matchElapsedAt, matchClockLabel } from './liveFixtures'
+import { describeOdd, matchElapsedAt, matchClockLabel } from './liveFixtures'
 import type { ActivePosition } from '../lib/claimMarkets'
 
 // The exact level-% event that decided it, phrased per side + outcome (e.g. "held 46%", "broke 46%").
@@ -39,15 +39,13 @@ export function ResultModal({
         {results.map((r) => (
           <div className="setrow" key={r.position.toBase58()}>
             <div style={{ minWidth: 0 }}>
-              <div>{describeMarket(r.fixtureId, r.oddKey, r.marketParams, r.side, r.level)}</div>
-              {/* the exact percentage and match-clock time it won/lost at */}
+              <div>{describeOdd(r.fixtureId, r.oddKey, r.marketParams)}</div>
+              {/* the exact percentage and match-clock time it settled at - shown once */}
               <div style={{ fontSize: 12, color: 'var(--dim)', marginTop: 3 }}>
-                {r.status === 'won' ? 'Won' : 'Lost'} · {outcomePhrase(r.side, r.status, r.level)} · {matchClockLabel(matchElapsedAt(r.fixtureId, r.windowEnd))}
+                {outcomePhrase(r.side, r.status, r.level)} · {matchClockLabel(matchElapsedAt(r.fixtureId, r.windowEnd))}
               </div>
             </div>
-            <span className={r.status === 'won' ? 'pg' : 'pr'}>
-              {r.status === 'won' ? `+${r.payoutUsdc.toFixed(2)}` : 'LOST'}
-            </span>
+            <span className={r.status === 'won' ? 'pg' : 'pr'}>{r.status === 'won' ? 'WON' : 'LOST'}</span>
           </div>
         ))}
         {anyWin && (
