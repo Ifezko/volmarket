@@ -1,5 +1,11 @@
-import { describeMarket } from './liveFixtures'
+import { describeMarket, matchElapsedAt, matchClockLabel } from './liveFixtures'
 import type { ActivePosition } from '../lib/claimMarkets'
+
+// The exact level-% event that decided it, phrased per side + outcome (e.g. "held 46%", "broke 46%").
+function outcomePhrase(side: 'hold' | 'break', status: 'pending' | 'won' | 'lost', level: number): string {
+  if (side === 'hold') return status === 'won' ? `held ${level}%` : `fell below ${level}%`
+  return status === 'won' ? `broke ${level}%` : `stayed under ${level}%`
+}
 
 // Pops when one or more of the user's predictions reach the end of their window and settle
 // on-chain - the counterpart to the WINNING/LOSING chips going final. Purely informational:
@@ -32,7 +38,13 @@ export function ResultModal({
 
         {results.map((r) => (
           <div className="setrow" key={r.position.toBase58()}>
-            <span>{describeMarket(r.fixtureId, r.oddKey, r.marketParams, r.side, r.level)}</span>
+            <div style={{ minWidth: 0 }}>
+              <div>{describeMarket(r.fixtureId, r.oddKey, r.marketParams, r.side, r.level)}</div>
+              {/* the exact percentage and match-clock time it won/lost at */}
+              <div style={{ fontSize: 12, color: 'var(--dim)', marginTop: 3 }}>
+                {r.status === 'won' ? 'Won' : 'Lost'} · {outcomePhrase(r.side, r.status, r.level)} · {matchClockLabel(matchElapsedAt(r.fixtureId, r.windowEnd))}
+              </div>
+            </div>
             <span className={r.status === 'won' ? 'pg' : 'pr'}>
               {r.status === 'won' ? `+${r.payoutUsdc.toFixed(2)}` : 'LOST'}
             </span>
