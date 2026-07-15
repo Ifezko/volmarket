@@ -47,11 +47,15 @@ import type { RealPredictMeta } from './PredictBuilder'
 // keeper/src/config.ts / bootstrap.ts. BOOTSTRAP_CAP_USDC MUST match the keeper's cap: past it, the
 // house can't fully back the true odds, so the delivered odds fall to 1 + cap/stake. Combos multiply.
 const BOOTSTRAP_CAP_USDC = 1000
-// Seconds to wait past a prediction's window_end before the frontend force-resolves it via the
-// timeout path. A short grace lets a running keeper submit any in-window crossing/defeat proof
-// first; kept small so predictions settle promptly at the window the user chose. A timer fires a
-// refresh right at window_end + this, so settlement doesn't wait for the next background poll.
-const RESOLVE_GRACE_SECS = 5
+// The KEEPER is the settlement authority: it settles each market from the real TxLINE feed (the
+// same signal the chart shows), resolving crossings/defeats in-window and holds at window close.
+// The frontend must NOT preempt that with its blind timeout-resolve (which always makes Holds win
+// and Breaks lose, disagreeing with the real outcome). So the frontend only force-resolves as a
+// genuine last resort, long after close, when the keeper is clearly down. Reading the keeper's
+// outcome, by contrast, happens promptly (a timer fires a refresh shortly after window_end).
+const RESOLVE_GRACE_SECS = 45
+// How soon after window_end to read (not resolve) so the keeper's fresh outcome shows promptly.
+const SETTLE_READ_DELAY_SECS = 3
 function oddsFromLevelRaw(levelRaw: number, side: 'hold' | 'break') {
   const p = Math.min(0.98, Math.max(0.02, levelRaw / 100000))
   return side === 'hold' ? 1 / p : 1 / (1 - p)
@@ -421,14 +425,15 @@ export function VolmarketApp() {
     return () => clearInterval(id)
   }, [refreshWalletState, refreshUsdc, refreshGroups])
 
-  // Settle promptly at the chosen window: schedule a refresh right when the soonest pending
-  // prediction's window closes (+ grace), instead of waiting up to 20s for the next background poll.
-  // That refresh runs the auto-resolve, so the prediction resolves at its duration, not seconds late.
+  // Show the keeper's outcome promptly: schedule a READ (not a resolve) shortly after the soonest
+  // pending prediction's window closes, so the keeper's fresh settlement surfaces without waiting for
+  // the next 20s poll. It's a read because RESOLVE_GRACE_SECS >> SETTLE_READ_DELAY_SECS, so this
+  // refresh won't itself force-resolve - the keeper stays the settlement authority.
   useEffect(() => {
     const pending = activePositions.filter((p) => p.status === 'pending')
     if (!pending.length) return
     const nowSecs = Date.now() / 1000
-    const soonest = Math.min(...pending.map((p) => p.windowEnd + RESOLVE_GRACE_SECS))
+    const soonest = Math.min(...pending.map((p) => p.windowEnd + SETTLE_READ_DELAY_SECS))
     const delayMs = Math.max(0, (soonest - nowSecs) * 1000) + 600
     const id = setTimeout(() => refreshWalletState(), delayMs)
     return () => clearTimeout(id)
