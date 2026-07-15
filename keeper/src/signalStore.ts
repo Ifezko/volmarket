@@ -31,6 +31,20 @@ export function getSignal(fixtureId: number, oddKey: number, marketParams: numbe
   return store.get(key(fixtureId, oddKey, marketParams))?.points ?? [];
 }
 
+// The series that have a LIVE feed (updated within maxAgeSecs) - so the frontend can show only
+// fixtures actually streaming a real signal. One row per (fixtureId, oddKey, marketParams).
+export function liveSeries(maxAgeSecs = 150): { fixtureId: number; oddKey: number; marketParams: number; v: number; t: number }[] {
+  const cutoff = Date.now() / 1000 - maxAgeSecs;
+  const out: { fixtureId: number; oddKey: number; marketParams: number; v: number; t: number }[] = [];
+  for (const [k, s] of store) {
+    if (s.last < cutoff || s.points.length === 0) continue;
+    const [fixtureId, oddKey, marketParams] = k.split(":").map(Number);
+    const last = s.points[s.points.length - 1];
+    out.push({ fixtureId, oddKey, marketParams, v: last.v, t: last.t });
+  }
+  return out;
+}
+
 // Evict stale series so the map doesn't grow unbounded over a long run.
 const cleanup = setInterval(() => {
   const cutoff = Date.now() / 1000 - TTL_SECS;
