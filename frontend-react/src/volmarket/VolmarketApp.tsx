@@ -47,6 +47,11 @@ import type { RealPredictMeta } from './PredictBuilder'
 // keeper/src/config.ts / bootstrap.ts. BOOTSTRAP_CAP_USDC MUST match the keeper's cap: past it, the
 // house can't fully back the true odds, so the delivered odds fall to 1 + cap/stake. Combos multiply.
 const BOOTSTRAP_CAP_USDC = 1000
+// Seconds to wait past a prediction's window_end before the frontend force-resolves it via the
+// timeout path. A short grace lets a running keeper submit any in-window crossing/defeat proof
+// first; kept small so predictions settle promptly at the window the user chose. A timer fires a
+// refresh right at window_end + this, so settlement doesn't wait for the next background poll.
+const RESOLVE_GRACE_SECS = 5
 function oddsFromLevelRaw(levelRaw: number, side: 'hold' | 'break') {
   const p = Math.min(0.98, Math.max(0.02, levelRaw / 100000))
   return side === 'hold' ? 1 / p : 1 / (1 - p)
@@ -337,7 +342,6 @@ export function VolmarketApp() {
 
         const MAX_CLAIM_ATTEMPTS = 6
         const MAX_RESOLVE_ATTEMPTS = 6
-        const RESOLVE_GRACE_SECS = 12
 
         setClaimables(claimable)
         // manual fallback surfaces only once auto-claim has exhausted its retries on a winner
@@ -416,6 +420,19 @@ export function VolmarketApp() {
     }, 20_000)
     return () => clearInterval(id)
   }, [refreshWalletState, refreshUsdc, refreshGroups])
+
+  // Settle promptly at the chosen window: schedule a refresh right when the soonest pending
+  // prediction's window closes (+ grace), instead of waiting up to 20s for the next background poll.
+  // That refresh runs the auto-resolve, so the prediction resolves at its duration, not seconds late.
+  useEffect(() => {
+    const pending = activePositions.filter((p) => p.status === 'pending')
+    if (!pending.length) return
+    const nowSecs = Date.now() / 1000
+    const soonest = Math.min(...pending.map((p) => p.windowEnd + RESOLVE_GRACE_SECS))
+    const delayMs = Math.max(0, (soonest - nowSecs) * 1000) + 600
+    const id = setTimeout(() => refreshWalletState(), delayMs)
+    return () => clearTimeout(id)
+  }, [activePositions, refreshWalletState])
 
   useEffect(() => {
     document.body.classList.toggle('lock', curMatch !== null || groupsViewOpen)
