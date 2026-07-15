@@ -162,6 +162,7 @@ export function MatchDetail({
                     oddKey={activeOdd.key}
                     prob={activeOdd.prob}
                     fixtureId={match.fixtureId}
+                    marketParams={activeOdd.marketParams}
                     windowSecs={WSECS[activeWin]}
                     predictionLines={predictionLines}
                     onLiveProb={onLiveProb}

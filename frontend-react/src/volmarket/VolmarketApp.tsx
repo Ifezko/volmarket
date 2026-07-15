@@ -36,6 +36,7 @@ import { fetchRealMarkets, makeConnection } from '../lib/onchainMarkets'
 import { placeRealPredictions, placeGroupPredictions, FEE_BPS, type PendingPick } from '../lib/depositMarkets'
 import { claimPositions, fetchWalletState, previewMultiplier, type ClaimablePosition, type ActivePosition } from '../lib/claimMarkets'
 import { resolveMarkets } from '../lib/resolveMarkets'
+import { fetchLiveSeries } from '../lib/signalFeed'
 import { fundWallet, fetchUsdcBalance, withdrawUsdc, fetchFundingHistory } from '../lib/funds'
 import { buildLiveFixtures, applyBoardView, type LiveFixture, type BoardFilter, type BoardSort } from './liveFixtures'
 import type { PredictionLine } from './SignalChart'
@@ -162,15 +163,30 @@ export function VolmarketApp() {
   const [boardFilter, setBoardFilter] = useState<BoardFilter>('all')
   const [boardSort, setBoardSort] = useState<BoardSort>('volume')
   const [search, setSearch] = useState('')
+  // Fixtures the keeper reports as streaming a live signal right now. null = not fetched yet. The
+  // board shows ONLY these, so every chart draws a real feed and every settlement matches it.
+  const [liveFixtureIds, setLiveFixtureIds] = useState<Set<number> | null>(null)
+
+  const refreshLive = useCallback(async () => {
+    const series = await fetchLiveSeries()
+    setLiveFixtureIds(new Set(series.map((s) => s.fixtureId)))
+  }, [])
+  useEffect(() => {
+    refreshLive()
+    const id = setInterval(refreshLive, 15_000)
+    return () => clearInterval(id)
+  }, [refreshLive])
 
   const curMatch = curMatchId ? fixtures.find((m) => m.id === curMatchId) ?? null : null
   const displayedFixtures = useMemo(() => {
     const view = applyBoardView(fixtures, boardFilter, boardSort)
+    // Only surface fixtures with a live signal feed (empty until the keeper's live set loads).
+    const live = liveFixtureIds ? view.filter((f) => liveFixtureIds.has(f.fixtureId)) : []
     const q = search.trim().toLowerCase()
-    if (!q) return view
+    if (!q) return live
     // Match on either team or the competition, so "arg", "switz", "world cup" all work.
-    return view.filter((f) => `${f.a} ${f.b} ${f.comp}`.toLowerCase().includes(q))
-  }, [fixtures, boardFilter, boardSort, search])
+    return live.filter((f) => `${f.a} ${f.b} ${f.comp}`.toLowerCase().includes(q))
+  }, [fixtures, boardFilter, boardSort, search, liveFixtureIds])
 
   // Every on-chain market currently loaded (flattened from the board data), for pricing the slip.
   // The slip priced with the REAL payout multiplier. Placing ALWAYS opens a fresh market - its

@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
 import { matchElapsedAt, matchClockLabel, matchWindowLabel } from './liveFixtures'
+import { fetchSignal, type SignalPoint } from '../lib/signalFeed'
 
 // Ported verbatim (same math, same canvas calls) from the signal-sim section of
 // frontend/index.html: startSim/stepSig/drawSignal. Re-expressed with useRef/useEffect
@@ -39,6 +40,7 @@ export function SignalChart({
   oddKey,
   prob,
   fixtureId,
+  marketParams,
   windowSecs,
   predictionLines,
   onLiveProb,
@@ -49,12 +51,14 @@ export function SignalChart({
   oddKey: string
   prob: number
   fixtureId: number
+  marketParams: number
   windowSecs: number
   predictionLines: PredictionLine[]
   onLiveProb?: (prob: number) => void
 }) {
   const canvasRef = useRef<HTMLCanvasElement>(null)
   const sigRef = useRef<Sig | null>(null)
+  const realRef = useRef<SignalPoint[]>([]) // latest real feed points; when present they drive the tape
   const timerRef = useRef<ReturnType<typeof setInterval> | null>(null)
   const [fs, setFs] = useState(false)
   const [pills, setPills] = useState({ r: '-', l: '-', s: '-' })
@@ -289,6 +293,45 @@ export function SignalChart({
     sig.vol[Math.max(0, Math.min(BUCKETS - 1, p2i(sig, sig.prob)))] += 2 + Math.random() * 3
   }, [i2p, nodes, p2i])
 
+  // Drives the tape from the keeper's real feed (the same values that settle) instead of the random
+  // walk. Keeps the y-axis framed off the current level so it stays steady as points come in.
+  const syncFromReal = useCallback((points: SignalPoint[]) => {
+    const sig = sigRef.current
+    if (!sig || !points.length) return
+    const vals = points.slice(-56).map((p) => p.v)
+    const last = vals[vals.length - 1]
+    sig.prob = Math.max(1, Math.min(99, last))
+    sig.hist = Array.from({ length: 56 }, (_, i) => vals[Math.max(0, i - (56 - vals.length))] ?? vals[0])
+    // Rebuild the volume profile from where the signal has spent its time in-view.
+    const vol = new Array(BUCKETS).fill(0).map(() => Math.random() * 2)
+    for (const v of vals) vol[Math.max(0, Math.min(BUCKETS - 1, p2i(sig, v)))] += 4
+    sig.vol = vol
+  }, [p2i])
+
+  // Polls the keeper for this odd's real feed. When points arrive they take over the tape; if the
+  // feed is empty (offline / not streaming) the sim below keeps drawing so the chart is never blank.
+  useEffect(() => {
+    let cancelled = false
+    realRef.current = []
+    const oddKeyNum = Number(oddKey)
+    if (!Number.isFinite(fixtureId) || !Number.isFinite(oddKeyNum)) return
+    const pull = async () => {
+      const points = await fetchSignal(fixtureId, oddKeyNum, marketParams)
+      if (cancelled) return
+      realRef.current = points
+      if (points.length) {
+        syncFromReal(points)
+        drawSignal()
+      }
+    }
+    pull()
+    const id = setInterval(pull, 4000)
+    return () => {
+      cancelled = true
+      clearInterval(id)
+    }
+  }, [fixtureId, oddKey, marketParams, syncFromReal, drawSignal])
+
   // (re)starts the sim whenever a different odd is selected - matches startSim(prob) in the original
   useEffect(() => {
     let p = Math.max(2, Math.min(98, prob))
@@ -315,7 +358,9 @@ export function SignalChart({
     if (timerRef.current) clearInterval(timerRef.current)
     if (!reduce) {
       timerRef.current = setInterval(() => {
-        stepSig()
+        // Real feed wins when it's streaming; otherwise fall back to the sim walk.
+        if (realRef.current.length) syncFromReal(realRef.current)
+        else stepSig()
         drawSignal()
       }, 850)
     }

@@ -54,7 +54,7 @@ export function Board({
             />
             <span>
               {hasAnyMarkets
-                ? 'No matches in this view - try another filter.'
+                ? 'No fixtures are streaming a live signal right now - the board only lists matches with a real, live feed, so every chart and settlement is genuine.'
                 : 'No real markets on devnet yet - seed some with keeper/scripts/seed-devnet.ts.'}
             </span>
           </div>
