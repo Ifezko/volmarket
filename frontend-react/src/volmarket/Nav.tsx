@@ -9,8 +9,10 @@ export function Nav({
   comboCount,
   authenticated,
   usdcBalance,
+  search,
   filter,
   sortLabel,
+  onSearch,
   onSelectFilter,
   onCycleSort,
   onLogoClick,
@@ -23,8 +25,10 @@ export function Nav({
   comboCount: number
   authenticated: boolean
   usdcBalance: number | null
+  search: string
   filter: BoardFilter
   sortLabel: string
+  onSearch: (q: string) => void
   onSelectFilter: (f: BoardFilter) => void
   onCycleSort: () => void
   onLogoClick: () => void
@@ -58,8 +62,22 @@ export function Nav({
           </div>
           <div className="search">
             <span>⌕</span>
-            <input id="search" placeholder="Search matches, teams" />
-            <span className="kbd">/</span>
+            <input
+              id="search"
+              placeholder="Search matches, teams"
+              value={search}
+              onChange={(e) => onSearch(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === 'Escape') onSearch('')
+              }}
+            />
+            {search ? (
+              <span className="kbd" style={{ cursor: 'pointer' }} title="Clear" onClick={() => onSearch('')}>
+                ✕
+              </span>
+            ) : (
+              <span className="kbd">/</span>
+            )}
           </div>
           <div className="nav-right">
             {authenticated ? (

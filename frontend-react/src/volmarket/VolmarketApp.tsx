@@ -152,12 +152,16 @@ export function VolmarketApp() {
   const resolvingEnded = useRef(false)
   const [boardFilter, setBoardFilter] = useState<BoardFilter>('all')
   const [boardSort, setBoardSort] = useState<BoardSort>('volume')
+  const [search, setSearch] = useState('')
 
   const curMatch = curMatchId ? fixtures.find((m) => m.id === curMatchId) ?? null : null
-  const displayedFixtures = useMemo(
-    () => applyBoardView(fixtures, boardFilter, boardSort),
-    [fixtures, boardFilter, boardSort],
-  )
+  const displayedFixtures = useMemo(() => {
+    const view = applyBoardView(fixtures, boardFilter, boardSort)
+    const q = search.trim().toLowerCase()
+    if (!q) return view
+    // Match on either team or the competition, so "arg", "switz", "world cup" all work.
+    return view.filter((f) => `${f.a} ${f.b} ${f.comp}`.toLowerCase().includes(q))
+  }, [fixtures, boardFilter, boardSort, search])
 
   // Every on-chain market currently loaded (flattened from the board data), for pricing the slip.
   // The slip priced with the REAL payout multiplier. Placing ALWAYS opens a fresh market - its
@@ -847,8 +851,10 @@ export function VolmarketApp() {
         comboCount={slip.length}
         authenticated={authenticated}
         usdcBalance={usdcBalance}
+        search={search}
         filter={boardFilter}
         sortLabel={boardSort === 'volume' ? 'Volume' : 'Recent'}
+        onSearch={setSearch}
         onSelectFilter={setBoardFilter}
         onCycleSort={() => setBoardSort((s) => (s === 'volume' ? 'recent' : 'volume'))}
         onLogoClick={closeMatch}
