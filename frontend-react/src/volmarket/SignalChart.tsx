@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
-import { matchClockAt } from './liveFixtures'
+import { matchElapsedAt, matchClockLabel } from './liveFixtures'
 
 // Ported verbatim (same math, same canvas calls) from the signal-sim section of
 // frontend/index.html: startSim/stepSig/drawSignal. Re-expressed with useRef/useEffect
@@ -207,23 +207,24 @@ export function SignalChart({
     })
     onLiveProb?.(sig.prob)
 
-    // x time axis - in match-clock context (the scoreboard minute, e.g. "67'"), advancing with the
-    // tape. The tape's right tip is the current match minute; the axis spans the selected window
-    // before it. A Holds/Breaks placed now settles one window later, shown top-right as its minute.
+    // x time axis - match-clock context (mm:ss, e.g. "67:12"), advancing with the tape. Compute the
+    // current match time ONCE, then offset the other labels along the timeline and clamp to the
+    // match bounds - so the axis reads monotonically and never wraps around the loop boundary (the
+    // bug where a window straddling full time showed e.g. 88:10 / 90:40 / 3:10). The right tip is
+    // now; a Holds/Breaks placed now settles one window later, clamped to full time if it overruns.
     const wsecs = windowSecs || 300
-    const nowS = Date.now() / 1000
-    const mclock = (s: number) => matchClockAt(fixtureId, s)
+    const tNow = matchElapsedAt(fixtureId, Date.now() / 1000)
     ctx.fillStyle = '#5a6573'
     ctx.font = '9px "JetBrains Mono"'
     ctx.textAlign = 'left'
-    ctx.fillText(mclock(nowS - wsecs), padL, h - 3)
+    ctx.fillText(matchClockLabel(tNow - wsecs), padL, h - 3)
     ctx.textAlign = 'center'
-    ctx.fillText(mclock(nowS - wsecs / 2), (padL + plotR) / 2, h - 3)
+    ctx.fillText(matchClockLabel(tNow - wsecs / 2), (padL + plotR) / 2, h - 3)
     ctx.textAlign = 'right'
-    ctx.fillText(mclock(nowS), plotR, h - 3)
+    ctx.fillText(matchClockLabel(tNow), plotR, h - 3)
     // the match minute a Holds/Breaks over the selected window would settle at
     ctx.fillStyle = '#8b95a2'
-    ctx.fillText('settles ' + mclock(nowS + wsecs), plotR, padT + 9)
+    ctx.fillText('settles ' + matchClockLabel(tNow + wsecs), plotR, padT + 9)
     ctx.textAlign = 'left'
 
     // live % value pinned at the tip of the tape - drawn LAST so nothing overpaints it. Solid

@@ -105,17 +105,26 @@ export function matchState(f: LiveFixture, nowSecs: number): MatchState {
   return { clock: `${46 + Math.floor((t - HALF - HT_BREAK) / 60)}'`, score, live: true }
 }
 
-// The match clock as mm:ss (e.g. "67:12") at a given real time, from the fixture's seeded live
-// timeline. The minute matches the scoreboard's 1-indexed counter (matchState) so the two stay in
-// sync, with seconds added. "HT" during the break. Exposed so the signal chart's x-axis reads in
-// match-clock context (not wall-clock time). The double-mod guards negative offsets (past times).
-export function matchClockAt(fixtureId: number, nowSecs: number): string {
+// Elapsed match-timeline seconds (0..FULL) at a real time, from the fixture's seeded clock. This
+// is the same value the scoreboard derives its minute from. The chart offsets FROM this single
+// value (rather than re-computing the modulo per axis label), so the axis stays monotonic instead
+// of wrapping around the loop boundary.
+export function matchElapsedAt(fixtureId: number, nowSecs: number): number {
   const offset = Math.floor(rng(`clock-${fixtureId}`)() * FULL)
-  const t = (((nowSecs + offset) % FULL) + FULL) % FULL
+  return (((nowSecs + offset) % FULL) + FULL) % FULL
+}
+
+// Formats a match-timeline position (seconds) as mm:ss (e.g. "67:12"), matching the scoreboard's
+// 1-indexed minute so the two stay in sync. "HT" during the break. The input is CLAMPED to the
+// match bounds [0, FULL] so an offset before kickoff or past full time reads the kickoff (1:00) /
+// full-time (90:00) bound rather than wrapping into another part of the timeline.
+export function matchClockLabel(t: number): string {
+  const tt = Math.max(0, Math.min(FULL, t))
   const mmss = (min: number, sec: number) => `${min}:${String(sec).padStart(2, '0')}`
-  if (t < HALF) return mmss(Math.floor(t / 60) + 1, Math.floor(t % 60))
-  if (t < HALF + HT_BREAK) return 'HT'
-  const t2 = t - HALF - HT_BREAK
+  if (tt < HALF) return mmss(Math.floor(tt / 60) + 1, Math.floor(tt % 60))
+  if (tt < HALF + HT_BREAK) return 'HT'
+  const t2 = Math.min(HALF, tt - HALF - HT_BREAK)
+  if (t2 >= HALF) return '90:00'
   return mmss(46 + Math.floor(t2 / 60), Math.floor(t2 % 60))
 }
 
