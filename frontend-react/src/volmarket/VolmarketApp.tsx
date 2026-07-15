@@ -875,7 +875,12 @@ export function VolmarketApp() {
         onOpenMatch={openMatch}
         onOpenHow={() => setHowOpen(true)}
       />
-      <Footer />
+      <Footer
+        onGoHome={closeMatch}
+        onOpenHow={() => setHowOpen(true)}
+        onOpenGroupsView={() => setGroupsViewOpen(true)}
+        onOpenDeposit={openDeposit}
+      />
 
       {curMatch && (
         <MatchDetail
