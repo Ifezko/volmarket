@@ -845,13 +845,14 @@ export function VolmarketApp() {
     <>
       <Nav
         comboCount={slip.length}
-        walletAddress={solanaWallet?.address}
+        authenticated={authenticated}
         usdcBalance={usdcBalance}
         filter={boardFilter}
         sortLabel={boardSort === 'volume' ? 'Volume' : 'Recent'}
         onSelectFilter={setBoardFilter}
         onCycleSort={() => setBoardSort((s) => (s === 'volume' ? 'recent' : 'volume'))}
         onLogoClick={closeMatch}
+        onLogin={login}
         onOpenDeposit={openDeposit}
         onOpenSlip={() => {
           setCreatingGroup(null)

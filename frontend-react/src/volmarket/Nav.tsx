@@ -7,26 +7,28 @@ import type { BoardFilter } from './liveFixtures'
 // the board (see applyBoardView) - clicking one re-filters/re-sorts the fixtures grid.
 export function Nav({
   comboCount,
-  walletAddress,
+  authenticated,
   usdcBalance,
   filter,
   sortLabel,
   onSelectFilter,
   onCycleSort,
   onLogoClick,
+  onLogin,
   onOpenDeposit,
   onOpenSlip,
   onOpenGroupsView,
   onOpenProfile,
 }: {
   comboCount: number
-  walletAddress: string | undefined
+  authenticated: boolean
   usdcBalance: number | null
   filter: BoardFilter
   sortLabel: string
   onSelectFilter: (f: BoardFilter) => void
   onCycleSort: () => void
   onLogoClick: () => void
+  onLogin: () => void
   onOpenDeposit: () => void
   onOpenSlip: () => void
   onOpenGroupsView: () => void
@@ -60,26 +62,41 @@ export function Nav({
             <span className="kbd">/</span>
           </div>
           <div className="nav-right">
-            {walletAddress && (
-              <div className="bal">
-                <div className="k">Balance</div>
-                <div className="v mono" style={{ color: 'var(--green)' }}>
-                  {usdcBalance == null ? '-' : `$${usdcBalance.toFixed(2)}`}
+            {authenticated ? (
+              <>
+                <div className="bal">
+                  <div className="k">Balance</div>
+                  <div className="v mono" style={{ color: 'var(--green)' }}>
+                    {usdcBalance == null ? '-' : `$${usdcBalance.toFixed(2)}`}
+                  </div>
                 </div>
-              </div>
+                <button className="btn btn-blue" onClick={onOpenDeposit}>
+                  Deposit
+                </button>
+                {/* The combo slip is available before login too (predicting is free until you Place). */}
+                <button className="iconbtn" title="Combo slip" onClick={onOpenSlip}>
+                  🎟️<span className={`badge${comboCount > 0 ? ' show' : ''}`}>{comboCount}</span>
+                </button>
+                <button
+                  className="avatar"
+                  title="Profile"
+                  onClick={onOpenProfile}
+                  style={{ cursor: 'pointer', border: 'none', padding: 0 }}
+                ></button>
+              </>
+            ) : (
+              <>
+                <button className="iconbtn" title="Combo slip" onClick={onOpenSlip}>
+                  🎟️<span className={`badge${comboCount > 0 ? ' show' : ''}`}>{comboCount}</span>
+                </button>
+                <button className="btn btn-ghost" onClick={onLogin}>
+                  Log in
+                </button>
+                <button className="btn btn-blue" onClick={onLogin}>
+                  Sign up
+                </button>
+              </>
             )}
-            <button className="btn btn-blue" onClick={onOpenDeposit}>
-              Deposit
-            </button>
-            <button className="iconbtn" title="Combo slip" onClick={onOpenSlip}>
-              🎟️<span className={`badge${comboCount > 0 ? ' show' : ''}`}>{comboCount}</span>
-            </button>
-            <button
-              className="avatar"
-              title="Profile"
-              onClick={onOpenProfile}
-              style={{ cursor: 'pointer', border: 'none', padding: 0 }}
-            ></button>
           </div>
         </div>
         <div className="nav2">
