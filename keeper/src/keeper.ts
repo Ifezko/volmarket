@@ -2,11 +2,12 @@ import type { Program } from "@coral-xyz/anchor";
 import type { Connection, Keypair } from "@solana/web3.js";
 import { CONFIG, log } from "./config.js";
 import { subscribeStream, getOddsProof, resolveOutcomeValue, type TxEvent, type ProofResult } from "./txline.js";
-import { loadMarkets, crossingResolves, inWindow, oddOutcome, type WatchedMarket } from "./markets.js";
+import { loadMarkets, crossingResolves, inWindow, oddOutcome, ODD_OUTCOMES, type WatchedMarket } from "./markets.js";
 import { resolveMarket } from "./resolver.js";
 import { claimWinners } from "./claimer.js";
 import { bootstrapOpenMarkets } from "./bootstrap.js";
 import { startMockFeed, mockProof } from "./mockFeed.js";
+import { recordSignal } from "./signalStore.js";
 
 // The program's post-window timeout branch settles the DEFAULT outcome (HOLD→YES, BREAK→NO)
 // without validating a proof — no anchored update is required to finalize it — so a trivial
@@ -37,6 +38,16 @@ export async function runKeeper(program: Program, keeper: Keypair, connection: C
   // Every settlement rides the anchored odds line — internal stake never decides an outcome.
   const onEvent = async (e: TxEvent) => {
     if (e.kind !== "odds") return;
+
+    // Buffer the live signal for every odd this record covers (the demargined % the keeper settles
+    // on), so the frontend can draw the REAL feed. Done for all odds of the record regardless of
+    // whether a market exists yet - independent of the watched-markets settlement loop below.
+    for (const oddKey of Object.keys(ODD_OUTCOMES).map(Number)) {
+      if (ODD_OUTCOMES[oddKey].superOddsType !== e.superOddsType) continue;
+      const value = resolveOutcomeValue(e.raw, oddKey);
+      if (value != null) recordSignal(e.fixtureId, oddKey, e.marketParams ?? 0, value / 1000);
+    }
+
     const markets = byFixture.get(e.fixtureId);
     if (!markets?.length) return;
     const now = Math.floor(Date.now() / 1000);

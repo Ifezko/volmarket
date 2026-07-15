@@ -11,6 +11,7 @@ import { CONFIG, log } from "./config.js";
 import { buildProgram } from "./resolver.js";
 import { runKeeper } from "./keeper.js";
 import { ensureActivated } from "./auth.js";
+import { startHttpServer } from "./httpServer.js";
 
 // Retry with exponential backoff so a transient RPC/network hiccup during startup doesn't hard-exit
 // into a tight container restart-loop.
@@ -29,6 +30,8 @@ async function withRetry<T>(label: string, fn: () => Promise<T>, tries = 6, base
 
 async function main() {
   log.info("Volmarket keeper starting");
+  // Serve the live signal feed to the frontend (also gives Railway a health endpoint on $PORT).
+  startHttpServer();
   const { program, wallet, connection } = buildProgram();
   if (!CONFIG.mock) {
     // real feed needs a live TxLINE session (guest JWT -> on-chain subscribe -> signed activate)
