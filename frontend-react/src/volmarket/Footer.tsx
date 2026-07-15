@@ -37,7 +37,7 @@ export function Footer({
           </div>
           <div>
             <h5>Social</h5>
-            <a href="https://x.com/volmarketfun" target="_blank" rel="noopener noreferrer">X</a>
+            <a href="https://x.com/volmarketxyz" target="_blank" rel="noopener noreferrer">X</a>
           </div>
         </div>
         <div className="legal" style={{ color: 'var(--faint)' }}>
