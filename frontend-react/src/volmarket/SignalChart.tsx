@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
-import { matchElapsedAt, matchClockLabel } from './liveFixtures'
+import { matchElapsedAt, matchClockLabel, matchWindowLabel } from './liveFixtures'
 
 // Ported verbatim (same math, same canvas calls) from the signal-sim section of
 // frontend/index.html: startSim/stepSig/drawSignal. Re-expressed with useRef/useEffect
@@ -27,6 +27,9 @@ export interface PredictionLine {
   side: 'hold' | 'break'
   /** placed on-chain positions carry a status; undefined = a pending, not-yet-placed slip pick */
   status?: 'pending' | 'won' | 'lost'
+  /** unix seconds the placed prediction's window opens/closes (absent for not-yet-placed slip picks) */
+  windowStart?: number
+  windowEnd?: number
 }
 
 export function SignalChart({
@@ -162,14 +165,20 @@ export function SignalChart({
       if (seen.has(tag)) return
       seen.add(tag)
       const yy = y(ln.level)
+      // Placed predictions carry their window; append it as match-clock start->end so the line
+      // shows when the prediction is being judged (absent for not-yet-placed slip picks).
+      const win =
+        ln.windowStart != null && ln.windowEnd != null
+          ? ' · ' + matchWindowLabel(fixtureId, ln.windowStart, ln.windowEnd)
+          : ''
       let col: string, label: string, alpha: number
       if (ln.status === 'won') {
         col = '#2fc079'
-        label = '✓ won ' + ln.level + '%'
+        label = '✓ won ' + ln.level + '%' + win
         alpha = 0.95
       } else if (ln.status === 'lost') {
         col = '#f3596b'
-        label = '✗ lost ' + ln.level + '%'
+        label = '✗ lost ' + ln.level + '%' + win
         alpha = 0.5
       } else {
         // Live status is shown ON the call line itself (no separate chip): the line goes green
@@ -177,7 +186,7 @@ export function SignalChart({
         // the current live value (sig.prob), so it updates every sim tick as the line moves.
         const winning = sig.prob >= ln.level
         col = winning ? '#2fc079' : '#f3596b'
-        label = '◆ your call ' + ln.level + '% · ' + (winning ? 'WINNING ▲' : 'LOSING ▼')
+        label = '◆ your call ' + ln.level + '%' + win + ' · ' + (winning ? 'WINNING ▲' : 'LOSING ▼')
         alpha = 0.9
       }
       ctx.save()

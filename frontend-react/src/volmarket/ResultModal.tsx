@@ -1,4 +1,4 @@
-import { describeOdd, matchElapsedAt, matchClockLabel } from './liveFixtures'
+import { describeOdd, matchWindowLabel } from './liveFixtures'
 import type { ActivePosition } from '../lib/claimMarkets'
 
 // The exact level-% event that decided it, phrased per side + outcome (e.g. "held 46%", "broke 46%").
@@ -40,9 +40,9 @@ export function ResultModal({
           <div className="setrow" key={r.position.toBase58()}>
             <div style={{ minWidth: 0 }}>
               <div>{describeOdd(r.fixtureId, r.oddKey, r.marketParams)}</div>
-              {/* the exact percentage and match-clock time it settled at - shown once */}
+              {/* the exact percentage and the prediction's window (start->end) in match-clock time */}
               <div style={{ fontSize: 12, color: 'var(--dim)', marginTop: 3 }}>
-                {outcomePhrase(r.side, r.status, r.level)} · {matchClockLabel(matchElapsedAt(r.fixtureId, r.windowEnd))}
+                {outcomePhrase(r.side, r.status, r.level)} · {matchWindowLabel(r.fixtureId, r.windowStart, r.windowEnd)}
               </div>
             </div>
             <span className={r.status === 'won' ? 'pg' : 'pr'}>{r.status === 'won' ? 'WON' : 'LOST'}</span>

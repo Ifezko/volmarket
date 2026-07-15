@@ -231,6 +231,12 @@ export function describeOdd(fixtureId: number, oddKey: number, marketParams: num
   return `${a} v ${b} · ${label}`
 }
 
+// A prediction's window as match-clock times ("45:00→50:00") - when it starts and ends, for the
+// chart call-line labels, the settlement popups, and the profile history.
+export function matchWindowLabel(fixtureId: number, startSecs: number, endSecs: number): string {
+  return `${matchClockLabel(matchElapsedAt(fixtureId, startSecs))}→${matchClockLabel(matchElapsedAt(fixtureId, endSecs))}`
+}
+
 /**
  * Groups the flat list of real on-chain Market accounts into board-shaped fixtures. Every
  * known fixture always offers the full canonical odd set (both teams, draw, over/under) -

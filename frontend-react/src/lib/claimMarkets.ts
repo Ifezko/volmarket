@@ -24,6 +24,8 @@ export interface ClaimablePosition {
   marketParams: number
   side: 'hold' | 'break'
   level: number
+  /** unix seconds the trading window opened (prediction placed) */
+  windowStart: number
   /** unix seconds the trading window closed - when the prediction settled */
   windowEnd: number
   /** the winning stake, in whole USDC */
@@ -153,6 +155,7 @@ export async function fetchWalletState(connection: Connection, owner: PublicKey)
         marketParams: market.marketParams,
         side: direction,
         level: market.level,
+        windowStart: market.windowStart,
         windowEnd: market.windowEnd,
         stakeUsdc,
         payoutUsdc: computePayout(market, stakeUsdc, feeReturnsToOwner),

@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react'
 import type { ActivePosition } from '../lib/claimMarkets'
 import type { FundingEvent } from '../lib/funds'
-import { describeMarket } from './liveFixtures'
+import { describeMarket, matchWindowLabel } from './liveFixtures'
 import { feeLabel } from './groups'
 
 export interface MyGroup {
@@ -286,16 +286,6 @@ function FeedRow({
   )
 }
 
-// Human window length (matches the duration chips: 5s, 1m, 5m, 1h…), from the market's
-// window_start/window_end - so History shows which window the prediction was placed on.
-function formatWindow(secs: number): string {
-  if (secs <= 0) return '-'
-  if (secs < 60) return `${secs}s`
-  if (secs % 3600 === 0) return `${secs / 3600}h`
-  if (secs % 60 === 0) return `${secs / 60}m`
-  return `${(secs / 60).toFixed(1)}m`
-}
-
 type FeedEntry =
   | { kind: 'prediction'; key: string; time: number; pos: ActivePosition }
   | { kind: 'funding'; key: string; time: number; ev: FundingEvent }
@@ -336,7 +326,7 @@ function HistoryList({
           return (
             <FeedRow
               key={entry.key}
-              title={`${describeMarket(p.fixtureId, p.oddKey, p.marketParams, p.side, p.level)} · within ${formatWindow(p.windowEnd - p.windowStart)}`}
+              title={`${describeMarket(p.fixtureId, p.oddKey, p.marketParams, p.side, p.level)} · ${matchWindowLabel(p.fixtureId, p.windowStart, p.windowEnd)}`}
               subtitle={`${won ? 'WON' : lost ? 'LOST' : 'PENDING'} · ${new Date(p.windowEnd * 1000).toLocaleString()}`}
               subtitleColor={color}
               amount={won ? `+${p.payoutUsdc.toFixed(2)}` : lost ? `−${p.stakeUsdc.toFixed(2)}` : p.stakeUsdc.toFixed(2)}

@@ -1,4 +1,4 @@
-import { describeOdd, matchElapsedAt, matchClockLabel } from './liveFixtures'
+import { describeOdd, matchWindowLabel } from './liveFixtures'
 import type { ClaimablePosition } from '../lib/claimMarkets'
 
 // Real on-chain settlement popup - the counterpart to the original's mock settle modal
@@ -39,9 +39,9 @@ export function SettleModal({
           <div className="setrow" key={c.position.toBase58()}>
             <div style={{ minWidth: 0 }}>
               <div>{describeOdd(c.fixtureId, c.oddKey, c.marketParams)}</div>
-              {/* the exact percentage and match-clock time it won at - shown once */}
+              {/* the exact percentage and the prediction's window (start->end) in match-clock time */}
               <div style={{ fontSize: 12, color: 'var(--dim)', marginTop: 3 }}>
-                {c.side === 'hold' ? 'held' : 'broke'} {c.level}% · {matchClockLabel(matchElapsedAt(c.fixtureId, c.windowEnd))}
+                {c.side === 'hold' ? 'held' : 'broke'} {c.level}% · {matchWindowLabel(c.fixtureId, c.windowStart, c.windowEnd)}
               </div>
             </div>
             <span className="pg">WON</span>

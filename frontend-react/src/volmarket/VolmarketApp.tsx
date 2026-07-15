@@ -491,7 +491,7 @@ export function VolmarketApp() {
     const lines: PredictionLine[] = []
     activePositions.forEach((p) => {
       if (p.status === 'pending' && p.fixtureId === curMatch.fixtureId && p.oddKey === oddKey) {
-        lines.push({ level: p.level, side: p.side, status: 'pending' })
+        lines.push({ level: p.level, side: p.side, status: 'pending', windowStart: p.windowStart, windowEnd: p.windowEnd })
       }
     })
     slip.forEach((s) => {
