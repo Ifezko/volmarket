@@ -47,11 +47,10 @@ export function Board({
         {fixtures.length === 0 ? (
           <div className="empty" style={{ display: 'grid', justifyItems: 'center', gap: 12 }}>
             <img
-              src="/favicon.svg"
+              src="/volmarket-mark.png"
               alt=""
-              width={44}
-              height={44}
-              style={{ opacity: 0.85, filter: 'drop-shadow(0 0 16px rgba(134,59,255,.4))' }}
+              height={48}
+              style={{ width: 'auto', opacity: 0.85, filter: 'drop-shadow(0 0 16px rgba(134,59,255,.4))' }}
             />
             <span>
               {hasAnyMarkets

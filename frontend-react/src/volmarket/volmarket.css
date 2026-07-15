@@ -1,7 +1,7 @@
   :root{
     --bg:#0F1318;--surface:#171c23;--surface2:#1f262f;--hover:#232b35;
     --border:#262f3a;--border2:#33404e;--text:#eef2f6;--dim:#8b95a2;--faint:#5a6573;
-    /* Brand - from the product logo (favicon.svg): purple lightning bolt. */
+    /* Brand - from the product logo (public/volmarketlogo.png): purple lightning bolt. */
     --brand:#863bff;--brand-hi:#a06bff;--brand-lo:#7e14ff;--brandBg:rgba(134,59,255,.14);
     /* Primary accent is the brand purple. Kept as --blue so every existing var(--blue) usage
        (buttons, focus rings, selection, fab, segmented controls…) picks up the brand color. */
@@ -18,7 +18,7 @@
   nav{position:sticky;top:0;z-index:44;background:rgba(15,19,24,.9);backdrop-filter:blur(12px);border-bottom:1px solid var(--border)}
   .nav1{display:flex;align-items:center;gap:18px;height:58px}
   .logo{display:flex;align-items:center;gap:8px;font-weight:700;font-size:18px;letter-spacing:-.4px;flex-shrink:0;cursor:pointer}
-  .logo .logomark{width:24px;height:24px;display:block;filter:drop-shadow(0 0 10px rgba(134,59,255,.45))}
+  .logo .logomark{height:24px;width:auto;display:block;filter:drop-shadow(0 0 10px rgba(134,59,255,.45))}
   .search{flex:1;max-width:380px;display:flex;align-items:center;gap:8px;background:var(--surface);border:1px solid var(--border);border-radius:10px;padding:8px 12px;color:var(--dim)}
   .search input{flex:1;background:none;border:none;outline:none;color:var(--text);font-size:13.5px;font-family:var(--sans)}
   .search .kbd{font-family:var(--mono);font-size:11px;border:1px solid var(--border2);border-radius:5px;padding:1px 6px;color:var(--faint)}
