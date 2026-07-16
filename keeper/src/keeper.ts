@@ -8,6 +8,7 @@ import { claimWinners } from "./claimer.js";
 import { bootstrapOpenMarkets } from "./bootstrap.js";
 import { startMockFeed, mockProof } from "./mockFeed.js";
 import { recordSignal } from "./signalStore.js";
+import { primeSeeded, ensureBoardMarket } from "./boardSeeder.js";
 
 // The program's post-window timeout branch settles the DEFAULT outcome (HOLD→YES, BREAK→NO)
 // without validating a proof — no anchored update is required to finalize it — so a trivial
@@ -16,6 +17,8 @@ const TIMEOUT_PROOF: ProofResult = { value: 0, proofBytes: Buffer.alloc(0), acco
 
 export async function runKeeper(program: Program, keeper: Keypair, connection: Connection) {
   let byFixture = await loadMarkets(program);
+  // Prime the board-seeder's "already have a market" set from chain so a restart never duplicates.
+  primeSeeded([...byFixture.values()].flat().map((m) => ({ fixtureId: m.fixtureId, oddKey: m.oddKey, marketParams: m.marketParams })));
   // Seed any existing open market that has an empty pool before we start watching.
   await bootstrapOpenMarkets(program, keeper, connection);
   const inFlight = new Set<string>(); // market pubkeys mid-resolution
@@ -42,11 +45,21 @@ export async function runKeeper(program: Program, keeper: Keypair, connection: C
     // Buffer the live signal for every odd this record covers (the demargined % the keeper settles
     // on), so the frontend can draw the REAL feed. Done for all odds of the record regardless of
     // whether a market exists yet - independent of the watched-markets settlement loop below.
+    let createdBoardMarket = false;
     for (const oddKey of Object.keys(ODD_OUTCOMES).map(Number)) {
       if (ODD_OUTCOMES[oddKey].superOddsType !== e.superOddsType) continue;
       const value = resolveOutcomeValue(e.raw, oddKey);
-      if (value != null) recordSignal(e.fixtureId, oddKey, e.marketParams ?? 0, value / 1000);
+      if (value == null) continue;
+      recordSignal(e.fixtureId, oddKey, e.marketParams ?? 0, value / 1000);
+      // Auto-open a board market for this live odd if we don't have one yet, so the fixture shows on
+      // the board with a real chart and settles on this same feed (no manual seeding). `value` is the
+      // demargined % ×1000 — the on-chain level scale.
+      if (await ensureBoardMarket(program, keeper, connection, e.fixtureId, oddKey, e.marketParams ?? 0, value)) {
+        createdBoardMarket = true;
+      }
     }
+    // Pick up any market we just created so the settlement loop watches it too.
+    if (createdBoardMarket) byFixture = await loadMarkets(program);
 
     const markets = byFixture.get(e.fixtureId);
     if (!markets?.length) return;
