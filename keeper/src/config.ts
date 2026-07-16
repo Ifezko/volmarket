@@ -79,6 +79,12 @@ export const CONFIG = {
   // How often the in-window backstop re-checks watched markets against the latest buffered signal, so
   // a losing HOLD is settled by the real value before window_end even if no SSE event lands in-window.
   inWindowSettleMs: Number(process.env.IN_WINDOW_SETTLE_MS ?? 4000),
+  // On devnet the on-chain TXLINE_PROGRAM_ID points at the mock_validator, which approves any proof
+  // and resolves purely on the submitted `value`. So the keeper settles with the REAL signal value +
+  // an empty proof — it does NOT need (and cannot reliably fetch) a real TxLINE proof, whose
+  // /api/odds/validation endpoint currently 404s. Set MOCK_VALIDATOR=false only once the real TxLINE
+  // validator is wired on-chain, so getOddsProof is used instead.
+  mockValidator: (process.env.MOCK_VALIDATOR ?? "true") !== "false",
   // The keeper is the HOUSE: it seeds a market's empty pool so the winner is paid the FIXED decimal
   // odds implied by the market level, not a pari-mutuel share. For a bet of `S` on the filled side
   // at odds `O` (O = 1/p for Holds, 1/(1-p) for Breaks, p = level/100000), it seeds the opposing

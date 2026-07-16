@@ -65,7 +65,11 @@ export async function runKeeper(program: Program, keeper: Keypair, connection: C
     if (!crossingResolves(m.side, value, m.level)) return;
     let proof: ProofResult;
     try {
-      proof = CONFIG.mock ? await mockProof(value) : await getOddsProof(evt.messageId!, evt.ts!, m.oddKey);
+      // Mock validator (devnet) resolves on `value` alone and approves an empty proof, so settle with
+      // the real signal value directly — no unreliable getOddsProof round-trip. getOddsProof is only
+      // needed once the real TxLINE validator is on-chain (MOCK_VALIDATOR=false).
+      proof =
+        CONFIG.mock || CONFIG.mockValidator ? await mockProof(value) : await getOddsProof(evt.messageId!, evt.ts!, m.oddKey);
     } catch (err) {
       log.error("cannot build proof, skipping", m.pubkey.toBase58(), String(err));
       return;
