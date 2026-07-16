@@ -10,9 +10,17 @@ import realFixtures from './realFixtures.json'
 const REAL_FIXTURE_MIN = 18_000_000
 const REAL_NAMES = realFixtures as Record<string, { a: string; b: string; comp: string }>
 
+// Live names pushed at runtime from the keeper's TxLINE snapshot (see signalFeed.ts). The keeper
+// auto-creates board markets for whichever fixtures are live now, so their names aren't in the
+// build-time realFixtures.json - this fills them in without a redeploy. Takes precedence.
+let RUNTIME_NAMES: Record<string, { a: string; b: string; comp: string }> = {}
+export function setRuntimeNames(map: Record<number, { a: string; b: string; comp: string }>): void {
+  RUNTIME_NAMES = map as Record<string, { a: string; b: string; comp: string }>
+}
+
 function fixtureIdentity(fixtureId: number): { comp: string; a: string; b: string } {
   if (fixtureId >= REAL_FIXTURE_MIN) {
-    const real = REAL_NAMES[String(fixtureId)]
+    const real = RUNTIME_NAMES[String(fixtureId)] ?? REAL_NAMES[String(fixtureId)]
     if (real) return { comp: real.comp, a: real.a, b: real.b }
   }
   return pseudoTeams(fixtureId)

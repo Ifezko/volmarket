@@ -32,13 +32,13 @@ import {
   type GroupActivityItem,
 } from '../lib/onchainGroups'
 import { GroupDetail } from './GroupDetail'
-import { fetchRealMarkets, makeConnection } from '../lib/onchainMarkets'
+import { fetchRealMarkets, makeConnection, type RealMarket } from '../lib/onchainMarkets'
 import { placeRealPredictions, placeGroupPredictions, FEE_BPS, type PendingPick } from '../lib/depositMarkets'
 import { claimPositions, fetchWalletState, previewMultiplier, type ClaimablePosition, type ActivePosition } from '../lib/claimMarkets'
 import { resolveMarkets } from '../lib/resolveMarkets'
 import { fetchLiveSeries } from '../lib/signalFeed'
 import { fundWallet, fetchUsdcBalance, withdrawUsdc, fetchFundingHistory } from '../lib/funds'
-import { buildLiveFixtures, applyBoardView, type LiveFixture, type BoardFilter, type BoardSort } from './liveFixtures'
+import { buildLiveFixtures, applyBoardView, setRuntimeNames, type LiveFixture, type BoardFilter, type BoardSort } from './liveFixtures'
 import type { PredictionLine } from './SignalChart'
 import type { RealPredictMeta } from './PredictBuilder'
 
@@ -104,7 +104,11 @@ export function VolmarketApp() {
   const { signTransaction } = useSignTransaction()
   const solanaWallet = wallets[0]
 
-  const [fixtures, setFixtures] = useState<LiveFixture[]>([])
+  // Raw on-chain markets; the board (fixtures) is derived so it rebuilds when the keeper pushes real
+  // names (namesVersion) as well as when markets change.
+  const [rawMarkets, setRawMarkets] = useState<RealMarket[]>([])
+  const [namesVersion, setNamesVersion] = useState(0)
+  const fixtures = useMemo<LiveFixture[]>(() => buildLiveFixtures(rawMarkets), [rawMarkets, namesVersion])
   const [curMatchId, setCurMatchId] = useState<string | null>(null)
   const [activeKey, setActiveKey] = useState<string | null>(null)
   const [followed, setFollowed] = useState<Set<string>>(new Set())
@@ -167,8 +171,15 @@ export function VolmarketApp() {
   // board shows ONLY these, so every chart draws a real feed and every settlement matches it.
   const [liveFixtureIds, setLiveFixtureIds] = useState<Set<number> | null>(null)
 
+  const namesJsonRef = useRef('')
   const refreshLive = useCallback(async () => {
-    const series = await fetchLiveSeries()
+    const { series, names } = await fetchLiveSeries()
+    setRuntimeNames(names) // real match names for the auto-created live cards
+    const namesJson = JSON.stringify(names)
+    if (namesJson !== namesJsonRef.current) {
+      namesJsonRef.current = namesJson
+      setNamesVersion((v) => v + 1) // rebuild the board so the new names take effect
+    }
     setLiveFixtureIds(new Set(series.map((s) => s.fixtureId)))
   }, [])
   useEffect(() => {
@@ -215,7 +226,7 @@ export function VolmarketApp() {
     try {
       const connection = makeConnection()
       const real = await fetchRealMarkets(connection)
-      setFixtures(buildLiveFixtures(real))
+      setRawMarkets(real)
     } catch (err) {
       console.error('failed to fetch real markets', err)
     }
@@ -356,7 +367,7 @@ export function VolmarketApp() {
         const connection = makeConnection()
         const owner = new PublicKey(solanaWallet.address)
         const { markets, active, claimable } = await fetchWalletState(connection, owner)
-        setFixtures(buildLiveFixtures(markets))
+        setRawMarkets(markets)
         setActivePositions(active)
         surfaceEnded(active)
 

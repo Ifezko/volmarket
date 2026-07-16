@@ -17,15 +17,30 @@ export interface LiveSeries {
   t: number
 }
 
-// Fixtures/odds currently streaming a live signal. Empty (not throwing) if the keeper is unreachable.
-export async function fetchLiveSeries(): Promise<LiveSeries[]> {
+export interface FixtureName {
+  a: string
+  b: string
+  comp: string
+}
+
+export interface LiveFeed {
+  series: LiveSeries[]
+  names: Record<number, FixtureName>
+}
+
+// Fixtures/odds currently streaming a live signal, plus real fixture names. Empty (not throwing) if
+// the keeper is unreachable.
+export async function fetchLiveSeries(): Promise<LiveFeed> {
   try {
     const res = await fetch(`${KEEPER_URL}/fixtures`, { cache: 'no-store' })
-    if (!res.ok) return []
+    if (!res.ok) return { series: [], names: {} }
     const json = await res.json()
-    return Array.isArray(json?.series) ? json.series : []
+    return {
+      series: Array.isArray(json?.series) ? json.series : [],
+      names: json?.names && typeof json.names === 'object' ? json.names : {},
+    }
   } catch {
-    return []
+    return { series: [], names: {} }
   }
 }
 
