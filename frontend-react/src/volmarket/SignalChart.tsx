@@ -298,15 +298,33 @@ export function SignalChart({
   const syncFromReal = useCallback((points: SignalPoint[]) => {
     const sig = sigRef.current
     if (!sig || !points.length) return
-    const vals = points.slice(-56).map((p) => p.v)
-    const last = vals[vals.length - 1]
-    sig.prob = Math.max(1, Math.min(99, last))
-    sig.hist = Array.from({ length: 56 }, (_, i) => vals[Math.max(0, i - (56 - vals.length))] ?? vals[0])
-    // Rebuild the volume profile from where the signal has spent its time in-view.
+    const src = points.map((p) => p.v)
+    const last = src[src.length - 1]
+    // Frame the y-axis to the real range AND the reference level (prob), so the signal and the
+    // "your call" line are always in view. Quantized to steps of 2 so the gridlines don't jitter
+    // as points stream in.
+    const lo = Math.min(prob, ...src)
+    const hi = Math.max(prob, ...src)
+    const pad = Math.max(3, (hi - lo) * 0.3)
+    sig.pmin = Math.max(1, Math.floor((lo - pad) / 2) * 2)
+    sig.pmax = Math.min(99, Math.ceil((hi + pad) / 2) * 2)
+    sig.prob = Math.max(sig.pmin, Math.min(sig.pmax, last))
+    // Resample the real series across the full width so it spans the axis by shape (no left-pad
+    // constant + vertical-jump artifact). Linear interpolation between the nearest real samples.
+    const N = 56
+    sig.hist =
+      src.length >= 2
+        ? Array.from({ length: N }, (_, i) => {
+            const pos = (i / (N - 1)) * (src.length - 1)
+            const j = Math.floor(pos)
+            return src[j] + (src[Math.min(src.length - 1, j + 1)] - src[j]) * (pos - j)
+          })
+        : Array.from({ length: N }, () => last)
+    // Volume profile from where the signal has spent its time in-view.
     const vol = new Array(BUCKETS).fill(0).map(() => Math.random() * 2)
-    for (const v of vals) vol[Math.max(0, Math.min(BUCKETS - 1, p2i(sig, v)))] += 4
+    for (const v of src) vol[Math.max(0, Math.min(BUCKETS - 1, p2i(sig, v)))] += 4
     sig.vol = vol
-  }, [p2i])
+  }, [p2i, prob])
 
   // Polls the keeper for this odd's real feed. When points arrive they take over the tape; if the
   // feed is empty (offline / not streaming) the sim below keeps drawing so the chart is never blank.
