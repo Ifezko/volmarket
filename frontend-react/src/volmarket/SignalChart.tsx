@@ -97,6 +97,32 @@ export function SignalChart({
       padT = 8,
       padB = 14
     const y = (p: number) => padT + (1 - (p - sig.pmin) / (sig.pmax - sig.pmin)) * (h - padT - padB)
+
+    // Time axis. With a real feed we plot the signal by its actual timestamps over a span that
+    // INCLUDES the prediction windows - so a settled window (which may be minutes in the past) is
+    // shown at its true position with the signal that judged it, instead of scrolling off while the
+    // live tip keeps moving. Falls back to the sim's evenly-spaced tape when there's no real feed.
+    const nowSec = Date.now() / 1000
+    const real = realRef.current
+    const timeMode = real.length >= 2
+    let tStart = nowSec - (windowSecs || 300)
+    let tEnd = nowSec
+    if (timeMode) {
+      for (const ln of predictionLines) {
+        if (ln.windowStart != null) tStart = Math.min(tStart, ln.windowStart)
+        if (ln.windowEnd != null) tEnd = Math.max(tEnd, ln.windowEnd)
+      }
+      const tp = Math.max(4, (tEnd - tStart) * 0.04)
+      tStart -= tp
+      tEnd += tp
+      if (tEnd - tStart < 20) {
+        const c = (tStart + tEnd) / 2
+        tStart = c - 10
+        tEnd = c + 10
+      }
+    }
+    const xt = (t: number) => padL + ((t - tStart) / (tEnd - tStart)) * (plotR - padL)
+
     ctx.strokeStyle = '#262f3a'
     ctx.lineWidth = 1
     ctx.font = '9px "JetBrains Mono"'
@@ -126,16 +152,74 @@ export function SignalChart({
       ctx.stroke()
     })
     ctx.globalAlpha = 1
-    ctx.strokeStyle = '#5BC8D6'
-    ctx.lineWidth = 2
-    ctx.lineJoin = 'round'
-    ctx.beginPath()
-    sig.hist.forEach((p, i) => {
-      const x = padL + (i / (sig.hist.length - 1)) * (plotR - padL)
-      if (i) ctx.lineTo(x, y(p))
-      else ctx.moveTo(x, y(p))
-    })
-    ctx.stroke()
+    // Prediction window bands (time mode): shade each placed/pending window at its real position on
+    // the timeline so you can SEE the signal DURING the window that judged it. won=green, lost=red,
+    // pending=amber. This is what makes a correct win/loss read right even when the live tip has since
+    // moved past the level.
+    if (timeMode) {
+      predictionLines.forEach((ln) => {
+        if (ln.windowStart == null || ln.windowEnd == null) return
+        const x1 = Math.max(padL, xt(ln.windowStart))
+        const x2 = Math.min(plotR, xt(ln.windowEnd))
+        if (x2 <= x1) return
+        const bcol = ln.status === 'won' ? '#2fc079' : ln.status === 'lost' ? '#f3596b' : '#F2B43D'
+        ctx.fillStyle = bcol
+        ctx.globalAlpha = 0.1
+        ctx.fillRect(x1, padT, x2 - x1, h - padT - padB)
+        ctx.globalAlpha = 0.45
+        ctx.strokeStyle = bcol
+        ctx.lineWidth = 1
+        ctx.setLineDash([2, 2])
+        ctx.beginPath()
+        ctx.moveTo(x1, padT)
+        ctx.lineTo(x1, h - padB)
+        ctx.moveTo(x2, padT)
+        ctx.lineTo(x2, h - padB)
+        ctx.stroke()
+        ctx.setLineDash([])
+        ctx.globalAlpha = 1
+      })
+    }
+    // signal tape
+    let tipX = plotR
+    if (timeMode) {
+      tipX = Math.min(plotR, xt(Math.min(nowSec, tEnd)))
+      ctx.save()
+      ctx.beginPath()
+      ctx.rect(padL, padT, plotR - padL, h - padT - padB)
+      ctx.clip() // draw ALL points by real time, clipped to the plot, so the line spans the window
+      ctx.strokeStyle = '#5BC8D6' // even when the nearest samples fall just outside the visible span
+      ctx.lineWidth = 2
+      ctx.lineJoin = 'round'
+      ctx.beginPath()
+      let started = false
+      for (const p of real) {
+        const x = xt(p.t)
+        if (!started) {
+          ctx.moveTo(x, y(p.v))
+          started = true
+        } else ctx.lineTo(x, y(p.v))
+      }
+      if (started) ctx.lineTo(tipX, y(sig.prob))
+      else {
+        ctx.moveTo(padL, y(sig.prob))
+        ctx.lineTo(tipX, y(sig.prob))
+      }
+      ctx.stroke()
+      ctx.restore()
+    } else {
+      ctx.strokeStyle = '#5BC8D6'
+      ctx.lineWidth = 2
+      ctx.lineJoin = 'round'
+      ctx.beginPath()
+      sig.hist.forEach((p, i) => {
+        const x = padL + (i / (sig.hist.length - 1)) * (plotR - padL)
+        if (i) ctx.lineTo(x, y(p))
+        else ctx.moveTo(x, y(p))
+      })
+      ctx.stroke()
+    }
+    // live value reference line + tip dot (dot sits at 'now' on the time axis)
     ctx.strokeStyle = '#F2B43D'
     ctx.lineWidth = 1
     ctx.setLineDash([3, 3])
@@ -146,7 +230,7 @@ export function SignalChart({
     ctx.setLineDash([])
     ctx.fillStyle = '#F2B43D'
     ctx.beginPath()
-    ctx.arc(plotR, y(sig.prob), 3.5, 0, 7)
+    ctx.arc(tipX, y(sig.prob), 3.5, 0, 7)
     ctx.fill()
 
     sig.vol.forEach((v, i) => {
@@ -226,19 +310,36 @@ export function SignalChart({
     // bug where a window straddling full time showed e.g. 88:10 / 90:40 / 3:10). The right tip is
     // now; a Holds/Breaks placed now settles one window later, clamped to full time if it overruns.
     const wsecs = windowSecs || 300
-    const tNow = matchElapsedAt(fixtureId, Date.now() / 1000)
     ctx.fillStyle = '#5a6573'
     ctx.font = '9px "JetBrains Mono"'
-    ctx.textAlign = 'left'
-    ctx.fillText(matchClockLabel(tNow - wsecs), padL, h - 3)
-    ctx.textAlign = 'center'
-    ctx.fillText(matchClockLabel(tNow - wsecs / 2), (padL + plotR) / 2, h - 3)
-    ctx.textAlign = 'right'
-    ctx.fillText(matchClockLabel(tNow), plotR, h - 3)
-    // the match minute a Holds/Breaks over the selected window would settle at
-    ctx.fillStyle = '#8b95a2'
-    ctx.fillText('settles ' + matchClockLabel(tNow + wsecs), plotR, padT + 9)
-    ctx.textAlign = 'left'
+    if (timeMode) {
+      // real time span, read as match-clock (mm:ss) at the span's ends and middle
+      const lbl = (t: number) => matchClockLabel(matchElapsedAt(fixtureId, t))
+      ctx.textAlign = 'left'
+      ctx.fillText(lbl(tStart), padL, h - 3)
+      ctx.textAlign = 'center'
+      ctx.fillText(lbl((tStart + tEnd) / 2), (padL + plotR) / 2, h - 3)
+      ctx.textAlign = 'right'
+      ctx.fillText(lbl(tEnd), plotR, h - 3)
+      // mark 'now' when the span runs into the future (a pending window sits to the right of now)
+      if (tEnd > nowSec + 2 && nowSec > tStart) {
+        ctx.fillStyle = '#8b95a2'
+        ctx.textAlign = 'center'
+        ctx.fillText('now', Math.min(plotR, Math.max(padL, xt(nowSec))), padT + 9)
+      }
+      ctx.textAlign = 'left'
+    } else {
+      const tNow = matchElapsedAt(fixtureId, Date.now() / 1000)
+      ctx.textAlign = 'left'
+      ctx.fillText(matchClockLabel(tNow - wsecs), padL, h - 3)
+      ctx.textAlign = 'center'
+      ctx.fillText(matchClockLabel(tNow - wsecs / 2), (padL + plotR) / 2, h - 3)
+      ctx.textAlign = 'right'
+      ctx.fillText(matchClockLabel(tNow), plotR, h - 3)
+      ctx.fillStyle = '#8b95a2'
+      ctx.fillText('settles ' + matchClockLabel(tNow + wsecs), plotR, padT + 9)
+      ctx.textAlign = 'left'
+    }
 
     // live % value pinned at the tip of the tape - drawn LAST so nothing overpaints it. Solid
     // amber pill with dark text for high contrast, sitting just above the dot (flips below if
@@ -248,7 +349,7 @@ export function SignalChart({
     const padX = 6
     const boxH = 17
     const boxW = ctx.measureText(lv).width + padX * 2
-    let bx = Math.min(plotR - boxW + 2, w - boxW - 1)
+    let bx = Math.min(tipX - boxW / 2, plotR - boxW + 2, w - boxW - 1)
     bx = Math.max(padL, bx)
     let by = y(sig.prob) - boxH - 6
     if (by < padT) by = y(sig.prob) + 6
