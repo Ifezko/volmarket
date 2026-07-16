@@ -76,6 +76,9 @@ export const CONFIG = {
   // prediction — especially a short-window one — is picked up in time to be verified in-window
   // against the live signal, instead of only being caught by the post-window default sweep.
   marketRefreshMs: Number(process.env.MARKET_REFRESH_MS ?? 8000),
+  // How often the in-window backstop re-checks watched markets against the latest buffered signal, so
+  // a losing HOLD is settled by the real value before window_end even if no SSE event lands in-window.
+  inWindowSettleMs: Number(process.env.IN_WINDOW_SETTLE_MS ?? 4000),
   // The keeper is the HOUSE: it seeds a market's empty pool so the winner is paid the FIXED decimal
   // odds implied by the market level, not a pari-mutuel share. For a bet of `S` on the filled side
   // at odds `O` (O = 1/p for Holds, 1/(1-p) for Breaks, p = level/100000), it seeds the opposing

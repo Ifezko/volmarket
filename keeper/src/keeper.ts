@@ -23,6 +23,10 @@ export async function runKeeper(program: Program, keeper: Keypair, connection: C
   await bootstrapOpenMarkets(program, keeper, connection);
   const inFlight = new Set<string>(); // market pubkeys mid-resolution
 
+  // Latest odds event per (fixtureId:superOddsType:marketParams), so the in-window backstop can
+  // re-check markets between sparse SSE updates. recvAt is wall-clock seconds at receipt.
+  const lastEvent = new Map<string, { evt: TxEvent; recvAt: number }>();
+
   const handle = async (m: WatchedMarket, proof: ProofResult) => {
     const key = m.pubkey.toBase58();
     if (inFlight.has(key)) return;
@@ -36,6 +40,33 @@ export async function runKeeper(program: Program, keeper: Keypair, connection: C
     } finally {
       inFlight.delete(key);
     }
+  };
+
+  // Settle one watched market from a specific odds event's data (the deciding proof), if that event
+  // resolves it and we're inside the window. Shared by the live event handler and the in-window
+  // backstop timer, so both settle by the same rule: BREAK when value>=level, HOLD when value<level.
+  const trySettleFromEvent = async (m: WatchedMarket, evt: TxEvent, now: number): Promise<void> => {
+    const oc = oddOutcome(m.oddKey);
+    if (!oc) return; // odd type we don't expose
+    // A market is keyed by SuperOddsType AND MarketParameters — match both (e.g. O/U 1.5 vs 2.5).
+    if (oc.superOddsType !== evt.superOddsType) return;
+    if (m.marketParams !== (evt.marketParams ?? 0)) return;
+    if (!inWindow(now, m)) return;
+    // Resolve this market's outcome by matching its label in PriceNames[]. No match -> don't settle.
+    const value = resolveOutcomeValue(evt.raw, m.oddKey);
+    if (value == null) {
+      log.error("no PriceNames match — skipping (won't settle)", m.pubkey.toBase58(), "oddKey", m.oddKey, "label", oc.label);
+      return;
+    }
+    if (!crossingResolves(m.side, value, m.level)) return;
+    let proof: ProofResult;
+    try {
+      proof = CONFIG.mock ? await mockProof(value) : await getOddsProof(evt.messageId!, evt.ts!, m.oddKey);
+    } catch (err) {
+      log.error("cannot build proof, skipping", m.pubkey.toBase58(), String(err));
+      return;
+    }
+    await handle(m, proof);
   };
 
   // Every settlement rides the anchored odds line — internal stake never decides an outcome.
@@ -61,40 +92,14 @@ export async function runKeeper(program: Program, keeper: Keypair, connection: C
     // Pick up any market we just created so the settlement loop watches it too.
     if (createdBoardMarket) byFixture = await loadMarkets(program);
 
+    // Buffer this event so the in-window backstop can re-check markets between sparse SSE updates.
+    lastEvent.set(`${e.fixtureId}:${e.superOddsType}:${e.marketParams ?? 0}`, { evt: e, recvAt: Date.now() / 1000 });
+
     const markets = byFixture.get(e.fixtureId);
     if (!markets?.length) return;
     const now = Math.floor(Date.now() / 1000);
     log.debug("odds", "fixture", e.fixtureId, "superOddsType", e.superOddsType, "params", e.marketParams);
-
-    for (const m of markets) {
-      // A market is keyed by SuperOddsType AND MarketParameters — match both, so e.g. Over/Under
-      // 1.5 and 2.5 are distinct and never cross-settle.
-      const oc = oddOutcome(m.oddKey);
-      if (!oc) continue;                             // odd type we don't expose
-      if (oc.superOddsType !== e.superOddsType) continue;
-      if (m.marketParams !== e.marketParams) continue;
-
-      // Safety rule: resolve this market's outcome by matching its label in PriceNames[]. No match
-      // -> do NOT settle: log and skip, so a bad/missing mapping can never resolve a market wrongly.
-      const value = resolveOutcomeValue(e.raw, m.oddKey);
-      if (value == null) {
-        log.error("no PriceNames match — skipping (won't settle)", m.pubkey.toBase58(), "oddKey", m.oddKey, "label", oc.label);
-        continue;
-      }
-      if (!inWindow(now, m)) continue;
-
-      // BREAK: value>=level → YES; HOLD: value<level → NO. Submit the single deciding proof.
-      if (crossingResolves(m.side, value, m.level)) {
-        let proof: ProofResult;
-        try {
-          proof = CONFIG.mock ? await mockProof(value) : await getOddsProof(e.messageId!, e.ts!, m.oddKey);
-        } catch (err) {
-          log.error("cannot build proof, skipping", m.pubkey.toBase58(), String(err));
-          continue;
-        }
-        await handle(m, proof);
-      }
-    }
+    for (const m of markets) await trySettleFromEvent(m, e, now);
   };
 
   // Post-window sweeper: any still-open market whose window has closed settles to its default
@@ -108,6 +113,28 @@ export async function runKeeper(program: Program, keeper: Keypair, connection: C
       }
     }
   }, CONFIG.deadlineSweepMs);
+
+  // In-window backstop. The program only lets a HOLD lose while now < window_end (a proof-verified
+  // value < level); past window_end it defaults HOLD -> WIN with no value check. SSE odds events can
+  // be sparser than a short prediction window, so a losing HOLD (signal already below level) may see
+  // NO event during its window and get swept to a wrong WIN. This re-checks every watched open market
+  // against the LATEST buffered signal every few seconds and submits the deciding proof before
+  // window_end - so settlement follows the real signal, not event-arrival luck. Stale signals are
+  // skipped so we never settle on outdated data.
+  const STALE_SIGNAL_SECS = 120;
+  const inWindowSettler = setInterval(async () => {
+    const now = Math.floor(Date.now() / 1000);
+    for (const markets of byFixture.values()) {
+      for (const m of markets) {
+        if (!inWindow(now, m)) continue;
+        const oc = oddOutcome(m.oddKey);
+        if (!oc) continue;
+        const buf = lastEvent.get(`${m.fixtureId}:${oc.superOddsType}:${m.marketParams}`);
+        if (!buf || now - buf.recvAt > STALE_SIGNAL_SECS) continue;
+        await trySettleFromEvent(m, buf.evt, now);
+      }
+    }
+  }, CONFIG.inWindowSettleMs);
 
   // periodically refresh the market set (new markets created mid-tournament, resolved ones drop
   // out). Kept short (CONFIG.marketRefreshMs) so a user's just-placed prediction is watched
@@ -132,6 +159,7 @@ export async function runKeeper(program: Program, keeper: Keypair, connection: C
     stop();
     clearInterval(sweeper);
     clearInterval(refresher);
+    clearInterval(inWindowSettler);
     process.exit(0);
   };
   process.on("SIGINT", shutdown);
