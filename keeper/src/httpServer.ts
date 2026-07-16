@@ -1,5 +1,6 @@
 import http from "node:http";
 import { getSignal, liveSeries } from "./signalStore.js";
+import { getNames } from "./namesStore.js";
 import { log } from "./config.js";
 
 // Tiny read-only HTTP surface so the frontend can draw the real signal feed:
@@ -31,9 +32,9 @@ export function startHttpServer(): http.Server {
       return;
     }
     if (url.pathname === "/fixtures") {
-      // fixtures currently streaming a live signal, so the board can show only real ones
+      // fixtures currently streaming a live signal (+ real names) so the board shows only real ones
       res.writeHead(200, { "Content-Type": "application/json" });
-      res.end(JSON.stringify({ series: liveSeries() }));
+      res.end(JSON.stringify({ series: liveSeries(), names: getNames() }));
       return;
     }
     if (url.pathname === "/signal") {

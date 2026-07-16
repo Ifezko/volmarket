@@ -12,6 +12,7 @@ import { buildProgram } from "./resolver.js";
 import { runKeeper } from "./keeper.js";
 import { ensureActivated } from "./auth.js";
 import { startHttpServer } from "./httpServer.js";
+import { startNamesRefresh } from "./namesStore.js";
 
 // Retry with exponential backoff so a transient RPC/network hiccup during startup doesn't hard-exit
 // into a tight container restart-loop.
@@ -36,6 +37,8 @@ async function main() {
   if (!CONFIG.mock) {
     // real feed needs a live TxLINE session (guest JWT -> on-chain subscribe -> signed activate)
     await withRetry("TxLINE activation", () => ensureActivated(wallet.payer));
+    // Cache real fixture names so the board labels auto-created cards with the true match.
+    startNamesRefresh(wallet.payer);
   }
   await runKeeper(program, wallet.payer, connection);
   log.info("keeper running — watching for settling events");
