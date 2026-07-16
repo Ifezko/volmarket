@@ -46,6 +46,10 @@ export async function runKeeper(program: Program, keeper: Keypair, connection: C
   // resolves it and we're inside the window. Shared by the live event handler and the in-window
   // backstop timer, so both settle by the same rule: BREAK when value>=level, HOLD when value<level.
   const trySettleFromEvent = async (m: WatchedMarket, evt: TxEvent, now: number): Promise<void> => {
+    // Keeper-authored markets are board display shells (created to make a live fixture appear, empty
+    // pools, long match-length window). They must stay visible for the whole match - never settle
+    // them mid-window; the post-window sweeper cleans them up harmlessly at their window end.
+    if (m.authority.equals(keeper.publicKey)) return;
     const oc = oddOutcome(m.oddKey);
     if (!oc) return; // odd type we don't expose
     // A market is keyed by SuperOddsType AND MarketParameters — match both (e.g. O/U 1.5 vs 2.5).

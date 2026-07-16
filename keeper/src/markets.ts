@@ -40,6 +40,7 @@ export interface WatchedMarket {
   oddKey: number;      // selects SuperOddsType + outcome (see ODD_OUTCOMES)
   marketParams: number;// SuperOddsType params: Over/Under goal line × 100 (0 if none, e.g. 1X2).
                        // Part of the market identity — different lines are different markets.
+  authority: PublicKey;// market creator; keeper-authored markets are board display shells, not bets
   side: number;        // SIDE_HOLD | SIDE_BREAK
   level: number;       // L: threshold in implied probability × 1000 (same scale as the settlement
                        // value — see pctToValue in txline.ts), snapped from StablePrice at open
@@ -60,6 +61,7 @@ export async function loadMarkets(program: Program): Promise<Map<number, Watched
       fixtureId: Number(account.fixtureId),
       oddKey: Number(account.oddKey),
       marketParams: Number(account.marketParams),
+      authority: account.authority,
       side: account.side,
       level: Number(account.level),
       windowStart: Number(account.windowStart),
