@@ -77,19 +77,23 @@ export async function ensureBoardMarket(
   if (!Number.isFinite(levelRaw) || levelRaw <= 0 || levelRaw >= 100_000) return false;
   const k = skey(fixtureId, oddKey, marketParams);
   if (seeded.has(k)) return false;
+  // Reserve SYNCHRONOUSLY, before any await, so two overlapping events for the same odd can't both
+  // pass the check and double-create. On any early-out below we release it so a later signal retries.
+  seeded.add(k);
 
   let bal = 0;
   try {
     bal = await connection.getBalance(keeper.publicKey, "confirmed");
   } catch {
+    seeded.delete(k);
     return false; // can't confirm gas - skip this tick, retry on the next signal
   }
   if (bal < GAS_FLOOR_LAMPORTS) {
+    seeded.delete(k);
     log.warn(`board-seed: keeper low on SOL (${(bal / 1e9).toFixed(3)}), skipping fixture ${fixtureId} odd ${oddKey}`);
     return false;
   }
 
-  seeded.add(k); // reserve before the await so overlapping events can't double-create
   const now = Math.floor(Date.now() / 1000);
   const level = Math.round(levelRaw);
   const market = marketPda(program, fixtureId, oddKey, marketParams, level, now);
