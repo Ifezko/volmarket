@@ -191,13 +191,28 @@ pub mod signal_markets {
         Ok(())
     }
 
-    /// Permissionless single-proof settlement.
+    /// Permissionless single-proof settlement — the deterministic core of the protocol.
     ///
-    /// BREAK resolves the moment anyone submits the update where value >= L (one proof,
-    /// CPI'd through TxLINE's validator). HOLD is the mirror, settled optimistically: it
-    /// wins by default, and anyone may defeat it early by submitting the update where
-    /// value dipped below L. If the window closes with BREAK unproven or HOLD undefeated,
-    /// the default outcome wins outright — window_end doubles as HOLD's challenge close.
+    /// SCALE: `value` and the market's level `L` carry the SAME units — demargined implied
+    /// PROBABILITY × 1000 (e.g. 46.2% → 46_200), so the predicate is a plain integer compare with
+    /// no rounding ambiguity. The keeper derives `value` from the anchored TxLINE datapoint by
+    /// outcome label (see resolveOutcomeValue / pctToValue in keeper/src/txline.ts).
+    ///
+    /// HOLD/BREAK ASYMMETRY — the two sides settle by opposite rules:
+    ///   • BREAK wins the instant ANY update proves `value >= L` (the line "broke through"
+    ///     resistance). The FIRST valid crossing proof settles it YES; one proof suffices.
+    ///   • HOLD is the optimistic mirror: presumed to win, and only DISPROVEN early — a proof that
+    ///     `value < L` at some point in the window means the line was defeated → NO.
+    ///   • window_end is the challenge close: if it passes with BREAK unproven / HOLD undefeated,
+    ///     the timeout branch below settles the DEFAULT outright (BREAK → NO, HOLD → YES), no proof.
+    ///
+    /// FAIL-SAFE: the keeper NEVER calls this on a guess — if an odds record has no PriceNames
+    /// entry matching this market's outcome, it refuses to settle (returns null; see
+    /// parseOddsValidation / resolveOutcomeValue), so a bad/missing mapping can't misresolve a
+    /// market onto the wrong outcome.
+    ///
+    /// `value`/`proof` are validated by CPI into the TxLINE validator (mock_validator on devnet;
+    /// the real txoracle `validate_odds` is implemented behind a flag — see TXLINE_VALIDATOR_ID).
     pub fn resolve_market<'info>(
         ctx: Context<'_, '_, '_, 'info, ResolveMarket<'info>>,
         value: i64,
@@ -284,12 +299,21 @@ pub mod signal_markets {
         Ok(())
     }
 
-    /// Pays a winner their pro-rata payout from the vault. The fee_bps "cut" is taken on
-    /// winnings only and routes to the market authority. Non-custodial throughout.
+    /// Pays a winner their pro-rata payout from the vault. Deterministic and non-custodial.
     ///
-    /// Permissionless: any signer may `payer` the transaction — funds always route to the
-    /// position `owner`'s token account, so the keeper (or anyone) can push a winner's payout
-    /// without the winner needing to sign. The winner can still self-claim as a fallback.
+    /// ELIGIBILITY: only the winning side may claim — `position.side == market.outcome` (YES backs
+    /// the market's predicate coming true, NO backs it not); a losing position is rejected.
+    ///
+    /// PAYOUT (integer math, never rounds in the house's favour):
+    ///   winnings = stake × lose_total / win_total   — pro-rata share of the LOSING pool
+    ///   fee      = winnings × fee_bps / 10_000       — the "cut", taken on WINNINGS only
+    ///   payout   = stake + winnings − fee            — your stake back + your share of the other side
+    /// The fee routes to the market authority; the rest to the position `owner`. With an empty losing
+    /// pool winnings = 0, so the winner simply gets their stake back (no counterparty, no profit).
+    ///
+    /// Permissionless: any signer may `payer` the transaction — funds always route to the position
+    /// `owner`'s token account, so the keeper (or anyone) can push a winner's payout without the
+    /// winner needing to sign. The winner can still self-claim as a fallback.
     pub fn claim(ctx: Context<Claim>) -> Result<()> {
         // capture scalars before taking the mutable market/position borrows
         let outcome = ctx.accounts.market.outcome;

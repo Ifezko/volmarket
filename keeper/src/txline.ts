@@ -39,6 +39,11 @@ export interface TxEvent {
  * Scale it to an integer by × 1000 ("39.432" -> 39432): probability × 1000, i.e. a percent
  * with 3 decimals as an int. Market level L is stored on the SAME scale so comparisons line up.
  */
+// Pct -> the on-chain settlement scale. TxLINE's Pct is a demargined implied PROBABILITY given as a
+// 3-decimal percent string (e.g. "46.231"); ×1000 yields the integer the market's level L is stored
+// in (46_231), so resolve_market's `value >= L` / `value < L` compare is exact with no rounding
+// drift. This is deliberately NOT decimal odds (the record's Prices[], e.g. 2536 = 2.536) — those
+// carry the bookmaker margin; Pct is the fair, demargined probability the whole protocol settles on.
 function pctToValue(pct: unknown): number {
   return Math.round(parseFloat(String(pct)) * 1000);
 }

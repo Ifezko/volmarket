@@ -46,9 +46,18 @@ export async function runKeeper(program: Program, keeper: Keypair, connection: C
     }
   };
 
-  // Settle one watched market from a specific odds event's data (the deciding proof), if that event
-  // resolves it and we're inside the window. Shared by the live event handler and the in-window
-  // backstop timer, so both settle by the same rule: BREAK when value>=level, HOLD when value<level.
+  // Try to settle one watched market from a specific odds event — the keeper's half of the
+  // deterministic resolution the program enforces (resolve_market in lib.rs).
+  //
+  // HOLD/BREAK ASYMMETRY (crossingResolves): while the window is OPEN we submit the ONE deciding
+  // proof the instant the signal crosses — BREAK the moment value >= level ("broke through"), HOLD
+  // the moment value < level ("defeated"). That is the only in-window action. A HOLD that is never
+  // defeated and a BREAK that never crosses are left untouched here and settle to their on-chain
+  // DEFAULT (HOLD → wins, BREAK → loses) via the post-window sweeper's timeout branch.
+  //
+  // FAIL-SAFE: resolveOutcomeValue returns null (→ we skip) rather than a guess when the event has
+  // no PriceNames entry for this market's outcome, so a bad/missing mapping can never settle the
+  // wrong side. Shared by the live event handler and the in-window backstop timer.
   const trySettleFromEvent = async (m: WatchedMarket, evt: TxEvent, now: number): Promise<void> => {
     // Keeper-authored markets are board display shells (created to make a live fixture appear, empty
     // pools, long match-length window). They must stay visible for the whole match - never settle
