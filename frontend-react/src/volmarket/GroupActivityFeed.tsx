@@ -1,5 +1,6 @@
 import type { GroupActivityItem } from '../lib/onchainGroups'
 import { describeMarket } from './liveFixtures'
+import { userHandle } from './groups'
 
 // Recent group calls (group_deposits by members into shared markets). "Join this call" copies a
 // call's market/side into the viewer's own signed group_deposit. Shown compactly inside each group
@@ -33,7 +34,7 @@ export function GroupActivityFeed({
             <div style={{ minWidth: 0 }}>
               <div className="s" style={{ whiteSpace: 'normal' }}>{label}</div>
               <div className="s" style={{ color: 'var(--dim)' }}>
-                <span style={{ fontFamily: 'monospace' }}>{it.member.slice(0, 4)}…{it.member.slice(-4)}</span>
+                <span className="ghandle">{userHandle(it.member)}</span>
                 {mine ? ' (you)' : ''} · {it.amountUsdc} USDC · {it.side === 'hold' ? 'Holds' : 'Breaks'}
                 {it.status === 'resolved' ? ' · settled' : ''}
               </div>

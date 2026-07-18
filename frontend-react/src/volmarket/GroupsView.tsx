@@ -1,4 +1,4 @@
-import { fmtK, feeLabel, type Group } from './groups'
+import { fmtK, feeLabel, userHandle, type Group } from './groups'
 import type { GroupActivityItem } from '../lib/onchainGroups'
 
 export interface PendingRequest {
@@ -61,7 +61,7 @@ export function GroupsView({
             const isMember = joined.has(idx)
             const isOwner = !!currentUser && g.owner === currentUser
             const pending = pendingByIdx.get(idx) ?? []
-            const ownerShort = g.owner ? `${g.owner.slice(0, 4)}…${g.owner.slice(-4)}` : null
+            const ownerName = userHandle(g.owner)
             const pnlCol = g.pnl >= 0 ? 'var(--green)' : 'var(--red)'
             const pnlStr = (g.pnl >= 0 ? '+' : '−') + fmtK(g.pnl) + ' USDC'
             return (
@@ -71,8 +71,7 @@ export function GroupsView({
                   <span className="gpub">Public</span>
                 </div>
                 <div className="gowner">
-                  Owner{' '}
-                  <span className="mono">{ownerShort ?? '—'}</span>
+                  Owner <span className="ghandle">{ownerName}</span>
                   {isOwner ? ' · you' : ''}
                 </div>
                 <div className="gmeta">
@@ -105,9 +104,7 @@ export function GroupsView({
                     <div className="gk" style={{ marginBottom: 6 }}>Pending requests</div>
                     {pending.map((p) => (
                       <div className="selrow" key={p.memberAccount} style={{ marginBottom: 6 }}>
-                        <div className="s" style={{ fontFamily: 'monospace' }}>
-                          {p.member.slice(0, 4)}…{p.member.slice(-4)}
-                        </div>
+                        <div className="s">{userHandle(p.member)}</div>
                         <button className="btn btn-blue" onClick={() => onApprove(idx, p.member)}>
                           Approve
                         </button>
