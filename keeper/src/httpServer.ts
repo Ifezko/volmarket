@@ -1,6 +1,7 @@
 import http from "node:http";
 import { getSignal, liveSeries } from "./signalStore.js";
 import { getNames } from "./namesStore.js";
+import { getReceipt } from "./receiptStore.js";
 import { log } from "./config.js";
 
 // Tiny read-only HTTP surface so the frontend can draw the real signal feed:
@@ -35,6 +36,13 @@ export function startHttpServer(): http.Server {
       // fixtures currently streaming a live signal (+ real names) so the board shows only real ones
       res.writeHead(200, { "Content-Type": "application/json" });
       res.end(JSON.stringify({ series: liveSeries(), names: getNames() }));
+      return;
+    }
+    if (url.pathname === "/receipt") {
+      // Settlement proof for one market: the deciding TxLINE datapoint + the on-chain resolve tx.
+      const market = url.searchParams.get("market") ?? "";
+      res.writeHead(200, { "Content-Type": "application/json" });
+      res.end(JSON.stringify({ receipt: getReceipt(market) ?? null }));
       return;
     }
     if (url.pathname === "/signal") {

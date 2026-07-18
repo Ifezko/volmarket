@@ -1,5 +1,49 @@
+import { useEffect, useState } from 'react'
 import { describeOdd, matchWindowLabel } from './liveFixtures'
 import type { ActivePosition } from '../lib/claimMarkets'
+import { fetchReceipt, type SettlementReceipt } from '../lib/signalFeed'
+
+// Verifiable-resolution receipt: the TxLINE datapoint (messageId + ts) that decided this market and
+// a link to the on-chain resolve transaction, so the outcome can be traced without trusting us.
+// Falls back to a link to the market account when the keeper has no datapoint receipt (e.g. a market
+// that settled to its default at window close, with no crossing datapoint).
+function ProofReceipt({ market }: { market: string }) {
+  const [receipt, setReceipt] = useState<SettlementReceipt | null>(null)
+  const [loaded, setLoaded] = useState(false)
+  useEffect(() => {
+    let cancelled = false
+    fetchReceipt(market).then((r) => {
+      if (cancelled) return
+      setReceipt(r)
+      setLoaded(true)
+    })
+    return () => {
+      cancelled = true
+    }
+  }, [market])
+
+  const href = receipt
+    ? `https://explorer.solana.com/tx/${receipt.resolveTx}?cluster=devnet`
+    : `https://explorer.solana.com/address/${market}?cluster=devnet`
+
+  return (
+    <div className="setproof">
+      {receipt ? (
+        <div>
+          Settled on TxLINE datapoint <span className="mono">{receipt.messageId}</span> ·{' '}
+          {new Date(receipt.ts).toLocaleString()} · {(receipt.value / 1000).toFixed(1)}%
+        </div>
+      ) : loaded ? (
+        <div>Settled on-chain at window close.</div>
+      ) : (
+        <div>Loading proof…</div>
+      )}
+      <a href={href} target="_blank" rel="noreferrer">
+        {receipt ? 'Verify resolve tx on Solana Explorer ↗' : 'Verify on Solana Explorer ↗'}
+      </a>
+    </div>
+  )
+}
 
 // The exact level-% event that decided it, phrased per side + outcome (e.g. "held 46%", "broke 46%").
 function outcomePhrase(side: 'hold' | 'break', status: 'pending' | 'won' | 'lost', level: number): string {
@@ -37,15 +81,18 @@ export function ResultModal({
         </div>
 
         {results.map((r) => (
-          <div className="setrow" key={r.position.toBase58()}>
-            <div style={{ minWidth: 0 }}>
-              <div>{describeOdd(r.fixtureId, r.oddKey, r.marketParams)}</div>
-              {/* the exact percentage and the prediction's window (start->end) in match-clock time */}
-              <div style={{ fontSize: 12, color: 'var(--dim)', marginTop: 3 }}>
-                {outcomePhrase(r.side, r.status, r.level)} · {matchWindowLabel(r.fixtureId, r.windowStart, r.windowEnd)}
+          <div key={r.position.toBase58()}>
+            <div className="setrow">
+              <div style={{ minWidth: 0 }}>
+                <div>{describeOdd(r.fixtureId, r.oddKey, r.marketParams)}</div>
+                {/* the exact percentage and the prediction's window (start->end) in match-clock time */}
+                <div style={{ fontSize: 12, color: 'var(--dim)', marginTop: 3 }}>
+                  {outcomePhrase(r.side, r.status, r.level)} · {matchWindowLabel(r.fixtureId, r.windowStart, r.windowEnd)}
+                </div>
               </div>
+              <span className={r.status === 'won' ? 'pg' : 'pr'}>{r.status === 'won' ? 'WON' : 'LOST'}</span>
             </div>
-            <span className={r.status === 'won' ? 'pg' : 'pr'}>{r.status === 'won' ? 'WON' : 'LOST'}</span>
+            <ProofReceipt market={r.market.toBase58()} />
           </div>
         ))}
         {anyWin && (

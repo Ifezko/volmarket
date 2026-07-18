@@ -45,6 +45,29 @@ export async function fetchLiveSeries(): Promise<LiveFeed> {
   }
 }
 
+export interface SettlementReceipt {
+  market: string
+  messageId: string // TxLINE record id of the deciding odds update
+  ts: number
+  value: number // settlement value (demargined % x1000)
+  resolveTx: string // on-chain resolve_market signature
+  at: number
+}
+
+// The settlement "receipt" for a market: the TxLINE datapoint that decided it + the resolve tx.
+// null when the keeper didn't record one (e.g. a market that timed out to its default with no
+// crossing datapoint, or the keeper is unreachable).
+export async function fetchReceipt(market: string): Promise<SettlementReceipt | null> {
+  try {
+    const res = await fetch(`${KEEPER_URL}/receipt?market=${encodeURIComponent(market)}`, { cache: 'no-store' })
+    if (!res.ok) return null
+    const json = await res.json()
+    return json?.receipt ?? null
+  } catch {
+    return null
+  }
+}
+
 // Recent {t, v} points for one odd. Empty if none / unreachable.
 export async function fetchSignal(fixtureId: number, oddKey: number, marketParams: number): Promise<SignalPoint[]> {
   try {

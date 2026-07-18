@@ -9,6 +9,7 @@ import { bootstrapOpenMarkets } from "./bootstrap.js";
 import { startMockFeed, mockProof } from "./mockFeed.js";
 import { recordSignal } from "./signalStore.js";
 import { primeSeeded, ensureBoardMarket } from "./boardSeeder.js";
+import { recordReceipt } from "./receiptStore.js";
 
 // The program's post-window timeout branch settles the DEFAULT outcome (HOLD→YES, BREAK→NO)
 // without validating a proof — no anchored update is required to finalize it — so a trivial
@@ -27,16 +28,19 @@ export async function runKeeper(program: Program, keeper: Keypair, connection: C
   // re-check markets between sparse SSE updates. recvAt is wall-clock seconds at receipt.
   const lastEvent = new Map<string, { evt: TxEvent; recvAt: number }>();
 
-  const handle = async (m: WatchedMarket, proof: ProofResult) => {
+  // Returns the resolve_market signature when THIS call resolved the market (null if it was already
+  // resolved / a no-op), so the caller can record a settlement receipt tied to that transaction.
+  const handle = async (m: WatchedMarket, proof: ProofResult): Promise<string | null> => {
     const key = m.pubkey.toBase58();
-    if (inFlight.has(key)) return;
+    if (inFlight.has(key)) return null;
     inFlight.add(key);
     try {
-      await resolveMarket(program, m.pubkey, proof);
+      const sig = await resolveMarket(program, m.pubkey, proof);
       // Autonomous payout: once the outcome is on-chain, push every winner their USDC. Safe to
       // call even if the resolve was a no-op (already resolved) — claimWinners re-checks status
       // and only pays unclaimed winning positions, so it never double-pays.
       await claimWinners(program, m.pubkey);
+      return sig;
     } finally {
       inFlight.delete(key);
     }
@@ -74,7 +78,12 @@ export async function runKeeper(program: Program, keeper: Keypair, connection: C
       log.error("cannot build proof, skipping", m.pubkey.toBase58(), String(err));
       return;
     }
-    await handle(m, proof);
+    const sig = await handle(m, proof);
+    // Record a verifiable receipt: the exact TxLINE datapoint (messageId + ts) that met the
+    // predicate and the on-chain resolve tx, for the frontend's settlement proof (see httpServer).
+    if (sig && evt.messageId && evt.ts != null) {
+      recordReceipt({ market: m.pubkey.toBase58(), messageId: evt.messageId, ts: evt.ts, value, resolveTx: sig, at: Date.now() / 1000 });
+    }
   };
 
   // Every settlement rides the anchored odds line — internal stake never decides an outcome.
