@@ -137,7 +137,7 @@ export function GroupDetail({
         {activity.length === 0 ? (
           <div className="s" style={{ color: 'var(--dim)' }}>No calls yet. Send a prediction to the group to start one.</div>
         ) : (
-          <GroupActivityFeed items={activity} canJoin={role === 'member' || role === 'owner'} currentUser={currentUser} onJoin={onJoinCall} />
+          <GroupActivityFeed items={activity} canJoin={role === 'member' || role === 'owner'} currentUser={currentUser} onJoin={onJoinCall} showHeader={false} />
         )}
 
         {myCalls.length > 0 && (

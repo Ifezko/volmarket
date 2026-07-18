@@ -73,6 +73,10 @@ export function GroupsView({
                   <span className="gname">{g.name}</span>
                   <span className="gpub">Public</span>
                 </div>
+                <div className="gmeta">
+                  <span>{g.roster ? '👥 Members shown to approved joiners' : '🔒 Members private'}</span>
+                  <span className="gfee">Fee {feeLabel(g.feeBps ?? 0)}</span>
+                </div>
                 <div className="gstats">
                   <div className="gs">
                     <div className="gk">Members</div>
@@ -92,9 +96,6 @@ export function GroupsView({
                     <div className="gk">Win rate</div>
                     <div className="gv">{g.wr}%</div>
                   </div>
-                </div>
-                <div className="gpriv">
-                  {g.roster ? '👥 Members shown to approved joiners' : '🔒 Members private'} · Group fee: {feeLabel(g.feeBps ?? 0)}
                 </div>
 
                 <GroupActivityFeed
