@@ -98,12 +98,22 @@ function pseudoScore(fixtureId: number): [number, number] {
   return [Math.floor(r() * 4), Math.floor(r() * 4)]
 }
 
+// Kickoff tag for an upcoming fixture: date + time, but with a friendly Today/Tomorrow prefix so a
+// match later today or tomorrow reads at a glance (e.g. "Today 10:00 PM", "Tomorrow 8:00 PM",
+// "Jul 21, 3:00 PM"). Time alone was ambiguous across days.
+function kickoffLabel(ms: number): string {
+  const d = new Date(ms)
+  const time = d.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })
+  const startOfDay = (x: Date) => new Date(x.getFullYear(), x.getMonth(), x.getDate()).getTime()
+  const days = Math.round((startOfDay(d) - startOfDay(new Date())) / 86_400_000)
+  if (days === 0) return `Today ${time}`
+  if (days === 1) return `Tomorrow ${time}`
+  return `${d.toLocaleDateString([], { month: 'short', day: 'numeric' })}, ${time}`
+}
+
 export function matchState(f: LiveFixture, nowSecs: number): MatchState {
   if (f.status === 'soon') {
-    const clock =
-      f.kickoff != null
-        ? new Date(f.kickoff * 1000).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })
-        : (f.ko ?? 'Upcoming')
+    const clock = f.kickoff != null ? kickoffLabel(f.kickoff * 1000) : (f.ko ?? 'Upcoming')
     return { clock, score: null, live: false }
   }
   if (f.status === 'ended') {
