@@ -1,3 +1,5 @@
+import { getProfile } from '../lib/profileStore'
+
 // Board-shaped group. Was the groups2 mock; now backed by on-chain Group accounts (see
 // lib/onchainGroups.ts + buildBoardGroups in VolmarketApp). `members`/`feeBps`/`owner` are real
 // on-chain fields; `preds`/`pnl`/`wr` are activity stats not tracked on-chain yet (0 for real
@@ -44,6 +46,8 @@ const HANDLE_NOUN = ['Falcon', 'Otter', 'Trader', 'Whale', 'Shark', 'Fox', 'Hawk
 
 export function userHandle(address?: string, name?: string): string {
   if (name && name.trim()) return name.trim() // owner-set display name (when a name store exists)
+  const stored = getProfile(address).username // this browser's signed-in user, if they set one
+  if (stored && stored.trim()) return stored.trim()
   if (!address) return 'Anonymous'
   let h = 0
   for (let i = 0; i < address.length; i++) h = (h * 31 + address.charCodeAt(i)) >>> 0

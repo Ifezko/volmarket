@@ -21,10 +21,16 @@ export function Nav({
   onOpenSlip,
   onOpenGroupsView,
   onOpenProfile,
+  avatarUrl,
+  avatarBg,
+  avatarInitial,
 }: {
   comboCount: number
   authenticated: boolean
   usdcBalance: number | null
+  avatarUrl?: string
+  avatarBg?: string
+  avatarInitial?: string
   search: string
   filter: BoardFilter
   sortLabel: string
@@ -99,8 +105,15 @@ export function Nav({
                   className="avatar"
                   title="Profile"
                   onClick={onOpenProfile}
-                  style={{ cursor: 'pointer', border: 'none', padding: 0 }}
-                ></button>
+                  style={{
+                    cursor: 'pointer',
+                    border: 'none',
+                    padding: 0,
+                    ...(avatarUrl ? { backgroundImage: `url(${avatarUrl})` } : avatarBg ? { background: avatarBg } : {}),
+                  }}
+                >
+                  {!avatarUrl && avatarInitial}
+                </button>
               </>
             ) : (
               <>

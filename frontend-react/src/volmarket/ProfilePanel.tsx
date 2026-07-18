@@ -3,6 +3,7 @@ import type { ActivePosition } from '../lib/claimMarkets'
 import type { FundingEvent } from '../lib/funds'
 import { describeMarket, matchWindowLabel } from './liveFixtures'
 import { feeLabel } from './groups'
+import { getProfile, setProfile, resizeAvatar, avatarGradient } from '../lib/profileStore'
 
 export interface MyGroup {
   address: string
@@ -28,6 +29,7 @@ export function ProfilePanel({
   onOpenGroups,
   onOpenGroup,
   loadFunding,
+  onProfileSaved,
 }: {
   walletAddress: string | undefined
   balance: number
@@ -40,6 +42,8 @@ export function ProfilePanel({
   onOpenGroups: () => void
   onOpenGroup: (address: string) => void
   loadFunding: () => Promise<FundingEvent[]>
+  /** called after the user saves their username/avatar, so the nav avatar can refresh */
+  onProfileSaved?: () => void
 }) {
   const [view, setView] = useState<'account' | 'history'>('account')
   const [destination, setDestination] = useState('')
@@ -49,6 +53,35 @@ export function ProfilePanel({
   const [done, setDone] = useState<number | null>(null)
   const [copied, setCopied] = useState(false)
   const [loggingOut, setLoggingOut] = useState(false)
+
+  // Profile (username + avatar), stored locally per wallet - see lib/profileStore.
+  const [username, setUsername] = useState('')
+  const [avatar, setAvatar] = useState('')
+  const [profileSaved, setProfileSaved] = useState(false)
+  const [avatarErr, setAvatarErr] = useState<string | null>(null)
+  useEffect(() => {
+    const p = getProfile(walletAddress)
+    setUsername(p.username ?? '')
+    setAvatar(p.avatar ?? '')
+  }, [walletAddress])
+
+  function saveProfile() {
+    if (!walletAddress) return
+    setProfile(walletAddress, { username: username.trim() || undefined, avatar: avatar || undefined })
+    setProfileSaved(true)
+    setTimeout(() => setProfileSaved(false), 1500)
+    onProfileSaved?.()
+  }
+
+  async function pickAvatar(file: File | undefined) {
+    if (!file) return
+    setAvatarErr(null)
+    try {
+      setAvatar(await resizeAvatar(file))
+    } catch (err) {
+      setAvatarErr(err instanceof Error ? err.message : String(err))
+    }
+  }
 
   // Deposits/withdrawals (predictions come from `positions`, already polled). Loaded lazily the
   // first time History opens, and after a withdrawal so the new debit shows up.
@@ -120,6 +153,50 @@ export function ProfilePanel({
 
       {view === 'account' ? (
         <>
+          <div className="gfield">
+            <label className="flbl">Profile</label>
+            <div style={{ display: 'flex', gap: 12, alignItems: 'center', marginBottom: 10 }}>
+              <div
+                className="pavatar"
+                style={avatar ? { backgroundImage: `url(${avatar})` } : { background: avatarGradient(walletAddress) }}
+              >
+                {!avatar && (username || walletAddress || '?').slice(0, 1).toUpperCase()}
+              </div>
+              <input
+                className="tinput"
+                value={username}
+                onChange={(e) => setUsername(e.target.value)}
+                placeholder="Choose a username"
+                maxLength={20}
+                style={{ flex: 1 }}
+              />
+            </div>
+            <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+              <label className="btn btn-ghost" style={{ cursor: 'pointer' }}>
+                {avatar ? 'Change photo' : 'Upload photo'}
+                <input
+                  type="file"
+                  accept="image/*"
+                  onChange={(e) => pickAvatar(e.target.files?.[0] ?? undefined)}
+                  style={{ display: 'none' }}
+                />
+              </label>
+              {avatar && (
+                <button className="btn btn-ghost" onClick={() => setAvatar('')}>
+                  Remove
+                </button>
+              )}
+              <button className="btn btn-blue" onClick={saveProfile} style={{ marginLeft: 'auto' }}>
+                {profileSaved ? 'Saved ✓' : 'Save profile'}
+              </button>
+            </div>
+            {avatarErr && (
+              <div className="s" style={{ color: 'var(--red)', marginTop: 6 }}>
+                {avatarErr}
+              </div>
+            )}
+          </div>
+
           {accountLabel && (
             <div className="gfield">
               <label className="flbl">Signed in as</label>

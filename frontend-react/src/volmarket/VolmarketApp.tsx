@@ -37,6 +37,7 @@ import { placeRealPredictions, placeGroupPredictions, FEE_BPS, type PendingPick 
 import { claimPositions, fetchWalletState, previewMultiplier, type ClaimablePosition, type ActivePosition } from '../lib/claimMarkets'
 import { resolveMarkets } from '../lib/resolveMarkets'
 import { fetchLiveSeries } from '../lib/signalFeed'
+import { getProfile, avatarGradient } from '../lib/profileStore'
 import { fundWallet, fetchUsdcBalance, withdrawUsdc, fetchFundingHistory } from '../lib/funds'
 import { buildLiveFixtures, applyBoardView, setRuntimeNames, type LiveFixture, type BoardFilter, type BoardSort } from './liveFixtures'
 import type { PredictionLine } from './SignalChart'
@@ -170,6 +171,13 @@ export function VolmarketApp() {
   // Fixtures the keeper reports as streaming a live signal right now. null = not fetched yet. The
   // board shows ONLY these, so every chart draws a real feed and every settlement matches it.
   const [liveFixtureIds, setLiveFixtureIds] = useState<Set<number> | null>(null)
+
+  // The signed-in user's local profile (username + avatar). profileVersion bumps on save so the nav
+  // avatar and username re-read from the store.
+  const [profileVersion, setProfileVersion] = useState(0)
+  const myProfile = useMemo(() => getProfile(solanaWallet?.address), [solanaWallet?.address, profileVersion])
+  const avatarBg = avatarGradient(solanaWallet?.address)
+  const avatarInitial = (myProfile.username || solanaWallet?.address || '?').slice(0, 1).toUpperCase()
 
   const namesJsonRef = useRef('')
   const refreshLive = useCallback(async () => {
@@ -917,6 +925,9 @@ export function VolmarketApp() {
         }}
         onOpenGroupsView={() => setGroupsViewOpen(true)}
         onOpenProfile={openProfile}
+        avatarUrl={myProfile.avatar}
+        avatarBg={avatarBg}
+        avatarInitial={avatarInitial}
       />
       <Board
         fixtures={displayedFixtures}
@@ -1022,6 +1033,7 @@ export function VolmarketApp() {
                           const connection = makeConnection()
                           return fetchFundingHistory(connection, new PublicKey(solanaWallet.address))
                         }}
+                        onProfileSaved={() => setProfileVersion((v) => v + 1)}
                       />
                     ),
                   }
