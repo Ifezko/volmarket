@@ -30,17 +30,19 @@ export function Board({
             How signals work →
           </button>
         </div>
-        <div className="legend">
-          <span>
-            <i style={{ background: 'var(--green)' }}></i>Support
-          </span>
-          <span>
-            <i style={{ background: 'var(--red)' }}></i>Resistance
-          </span>
-          <span>
-            <i style={{ background: 'var(--cyan)' }}></i>Live line
-          </span>
-        </div>
+      </div>
+
+      {/* Chart key — sits directly above the grid it explains (was floating far-right on the heading). */}
+      <div className="legend">
+        <span>
+          <i style={{ background: 'var(--green)' }}></i>Support
+        </span>
+        <span>
+          <i style={{ background: 'var(--red)' }}></i>Resistance
+        </span>
+        <span>
+          <i style={{ background: 'var(--cyan)' }}></i>Live line
+        </span>
       </div>
 
       <div className="grid" id="grid">
