@@ -238,6 +238,8 @@
   .gctop{display:flex;align-items:center;justify-content:space-between;gap:8px;margin-bottom:8px}
   .gname{font-size:15px;font-weight:600}
   .gpub{font-family:var(--mono);font-size:10px;color:var(--green);border:1px solid var(--green);border-radius:5px;padding:1px 6px;flex-shrink:0}
+  .gowner{font-size:11.5px;color:var(--dim);margin:-2px 0 8px}
+  .gowner .mono{color:var(--faint)}
   .gmeta{display:flex;align-items:center;justify-content:space-between;gap:8px;font-size:11.5px;color:var(--dim);margin-bottom:14px}
   .gfee{font-family:var(--mono);color:var(--faint);border:1px solid var(--border2);border-radius:5px;padding:1px 6px;flex-shrink:0}
   .gstats{display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:14px}

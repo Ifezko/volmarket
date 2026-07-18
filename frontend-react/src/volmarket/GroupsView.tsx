@@ -1,5 +1,4 @@
 import { fmtK, feeLabel, type Group } from './groups'
-import { GroupActivityFeed } from './GroupActivityFeed'
 import type { GroupActivityItem } from '../lib/onchainGroups'
 
 export interface PendingRequest {
@@ -17,12 +16,10 @@ export function GroupsView({
   joined,
   currentUser,
   pendingByIdx,
-  activityByIdx,
   onClose,
   onCreateGroup,
   onRequestJoin,
   onApprove,
-  onJoinCall,
 }: {
   open: boolean
   groups: Group[]
@@ -64,7 +61,7 @@ export function GroupsView({
             const isMember = joined.has(idx)
             const isOwner = !!currentUser && g.owner === currentUser
             const pending = pendingByIdx.get(idx) ?? []
-            const activity = activityByIdx.get(idx) ?? []
+            const ownerShort = g.owner ? `${g.owner.slice(0, 4)}…${g.owner.slice(-4)}` : null
             const pnlCol = g.pnl >= 0 ? 'var(--green)' : 'var(--red)'
             const pnlStr = (g.pnl >= 0 ? '+' : '−') + fmtK(g.pnl) + ' USDC'
             return (
@@ -72,6 +69,11 @@ export function GroupsView({
                 <div className="gctop">
                   <span className="gname">{g.name}</span>
                   <span className="gpub">Public</span>
+                </div>
+                <div className="gowner">
+                  Owner{' '}
+                  <span className="mono">{ownerShort ?? '—'}</span>
+                  {isOwner ? ' · you' : ''}
                 </div>
                 <div className="gmeta">
                   <span>{g.roster ? '👥 Members shown to approved joiners' : '🔒 Members private'}</span>
@@ -97,13 +99,6 @@ export function GroupsView({
                     <div className="gv">{g.wr}%</div>
                   </div>
                 </div>
-
-                <GroupActivityFeed
-                  items={activity}
-                  canJoin={isMember || isOwner}
-                  currentUser={currentUser}
-                  onJoin={(item) => onJoinCall(idx, item)}
-                />
 
                 {isOwner && pending.length > 0 && (
                   <div style={{ margin: '4px 0 8px' }}>
