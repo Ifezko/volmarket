@@ -11,6 +11,31 @@ export interface RealPredictMeta {
   windowSecs: number
 }
 
+// The default window for a quick pick made from the board card (which has no window selector).
+// Matches MatchDetail's initial activeWin so a card pick and a detail pick share the same id.
+export const DEFAULT_WIN = 7 // '5m'
+
+// Builds a slip pick (id/label/prob/meta) for one odd + side + window. Single source of truth shared
+// by the detail's PredictBuilder and the board card's quick Holds/Breaks buttons, so their picks are
+// byte-identical (same id => the same pick, toggled consistently wherever it's tapped).
+export function buildPick(
+  fixtureId: number,
+  odd: LiveOdd,
+  side: 'hold' | 'break',
+  winIdx: number,
+): { id: string; label: string; prob: number; meta: RealPredictMeta } {
+  const level = Math.round(Math.max(8, Math.min(92, odd.prob)))
+  const prob = side === 'hold' ? holdProb(winIdx) : breakProb(winIdx)
+  const id = `${fixtureId}-${odd.oddKey}-${side}-${winIdx}`
+  const label = `${odd.label}: ${side === 'hold' ? 'holds' : 'breaks'} ${level}%+ within ${WINDOWS[winIdx]}`
+  return {
+    id,
+    label,
+    prob,
+    meta: { fixtureId, oddKey: odd.oddKey, marketParams: odd.marketParams, side, levelRaw: level * 1000, windowSecs: WSECS[winIdx] },
+  }
+}
+
 // Ported from renderCtrls() in frontend/index.html: the window selector + Holds/Breaks
 // buttons. Adding a pick here is free - no wallet, no login, no chain call - exactly like
 // the original's add(). Only "Place prediction" (in the slip) touches the chain, and only
@@ -38,11 +63,8 @@ export function PredictBuilder({
   // Holds pays 1/p, Breaks pays 1/(1-p) with p = level/100 (see VolmarketApp). "Holds L%+" bets the
   // signal stays at/above L (Holds pool); "Breaks L%+" bets it falls below L. Both are ONE market.
   const level = Math.round(Math.max(8, Math.min(92, odd.prob)))
-  const hp = holdProb(activeWin)
-  const bp = breakProb(activeWin)
-  const b = `${fixtureId}-${odd.oddKey}`
-  const holdId = `${b}-hold-${activeWin}`
-  const breakId = `${b}-break-${activeWin}`
+  const hold = buildPick(fixtureId, odd, 'hold', activeWin)
+  const brk = buildPick(fixtureId, odd, 'break', activeWin)
 
   return (
     <div>
@@ -69,33 +91,15 @@ export function PredictBuilder({
       </div>
       <div className="sigact">
         <button
-          className={`sigbtn sup${isSelected(holdId) ? ' sel' : ''}`}
-          onClick={() =>
-            onAdd(holdId, `${odd.label}: holds ${level}%+ within ${wl}`, hp, {
-              fixtureId,
-              oddKey: odd.oddKey,
-              marketParams: odd.marketParams,
-              side: 'hold',
-              levelRaw: level * 1000,
-              windowSecs: WSECS[activeWin],
-            })
-          }
+          className={`sigbtn sup${isSelected(hold.id) ? ' sel' : ''}`}
+          onClick={() => onAdd(hold.id, hold.label, hold.prob, hold.meta)}
         >
           Holds {level}%+
           <small>within {wl}</small>
         </button>
         <button
-          className={`sigbtn res${isSelected(breakId) ? ' sel' : ''}`}
-          onClick={() =>
-            onAdd(breakId, `${odd.label}: breaks ${level}%+ within ${wl}`, bp, {
-              fixtureId,
-              oddKey: odd.oddKey,
-              marketParams: odd.marketParams,
-              side: 'break',
-              levelRaw: level * 1000,
-              windowSecs: WSECS[activeWin],
-            })
-          }
+          className={`sigbtn res${isSelected(brk.id) ? ' sel' : ''}`}
+          onClick={() => onAdd(brk.id, brk.label, brk.prob, brk.meta)}
         >
           Breaks {level}%+
           <small>within {wl}</small>

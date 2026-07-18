@@ -934,6 +934,8 @@ export function VolmarketApp() {
         hasAnyMarkets={fixtures.length > 0}
         onOpenMatch={openMatch}
         onOpenHow={() => setHowOpen(true)}
+        onAdd={addPrediction}
+        isSelected={isSelected}
       />
       <Footer
         onGoHome={closeMatch}

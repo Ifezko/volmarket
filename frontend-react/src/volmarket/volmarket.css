@@ -72,6 +72,11 @@
   .sigline{display:flex;justify-content:space-between;font-family:var(--mono);font-size:11.5px;margin-top:4px;color:var(--dim)}
   .sigline .lab{color:var(--cyan)}
   .mfoot{display:flex;justify-content:space-between;margin-top:10px;color:var(--faint);font-size:12px}.mfoot .vol{font-family:var(--mono)}
+  /* quick Holds/Breaks on the card - Hold=support(green), Break=resistance(red), matching the legend */
+  .mact{display:flex;gap:8px;margin-top:6px}
+  .mactbtn{flex:1;border:1px solid;background:transparent;border-radius:9px;padding:8px 0;font-family:var(--mono);font-size:12px;font-weight:700;cursor:pointer;transition:background .12s,filter .12s}
+  .mactbtn.hold{color:var(--green);border-color:var(--green)}.mactbtn.hold:hover{background:var(--greenBg)}.mactbtn.hold.sel{background:var(--green);color:#06231a}
+  .mactbtn.break{color:var(--red);border-color:var(--red)}.mactbtn.break:hover{background:var(--redBg)}.mactbtn.break.sel{background:var(--red);color:#2a0910}
 
   /* The secondary nav (board filters + sort) belongs to the landing/board page only - hide it
      while a match-detail or groups overlay is open (body.lock). The nav's ResizeObserver then
