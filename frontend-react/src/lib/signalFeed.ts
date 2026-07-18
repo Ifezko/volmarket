@@ -21,6 +21,7 @@ export interface FixtureName {
   a: string
   b: string
   comp: string
+  startTime?: number // kickoff, unix seconds - present for real fixtures; classifies upcoming vs live
 }
 
 export interface LiveFeed {

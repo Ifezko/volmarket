@@ -13,9 +13,15 @@ const REAL_NAMES = realFixtures as Record<string, { a: string; b: string; comp: 
 // Live names pushed at runtime from the keeper's TxLINE snapshot (see signalFeed.ts). The keeper
 // auto-creates board markets for whichever fixtures are live now, so their names aren't in the
 // build-time realFixtures.json - this fills them in without a redeploy. Takes precedence.
-let RUNTIME_NAMES: Record<string, { a: string; b: string; comp: string }> = {}
-export function setRuntimeNames(map: Record<number, { a: string; b: string; comp: string }>): void {
-  RUNTIME_NAMES = map as Record<string, { a: string; b: string; comp: string }>
+type RuntimeName = { a: string; b: string; comp: string; startTime?: number }
+let RUNTIME_NAMES: Record<string, RuntimeName> = {}
+export function setRuntimeNames(map: Record<number, RuntimeName>): void {
+  RUNTIME_NAMES = map as Record<string, RuntimeName>
+}
+// Real kickoff (unix seconds) from the keeper's TxLINE snapshot, when known. Lets the board tell a
+// pre-match (upcoming) fixture from an in-play one even though both stream a live signal.
+function runtimeKickoff(fixtureId: number): number | undefined {
+  return RUNTIME_NAMES[String(fixtureId)]?.startTime
 }
 
 function fixtureIdentity(fixtureId: number): { comp: string; a: string; b: string } {
@@ -290,13 +296,35 @@ export function buildLiveFixtures(markets: RealMarket[]): LiveFixture[] {
     const openMarkets = fixtureMarkets.filter((m) => m.status === 'open')
     const liveNow = openMarkets.some((m) => m.windowStart <= now && now < m.windowEnd)
     const upcoming = openMarkets.filter((m) => now < m.windowStart).sort((x, y) => x.windowStart - y.windowStart)[0]
-    const status: LiveFixture['status'] = liveNow ? 'live' : upcoming ? 'soon' : openMarkets.length ? 'live' : 'ended'
-    const ko = upcoming ? new Date(upcoming.windowStart * 1000).toLocaleString() : undefined
+    // Real kickoff wins the classification: a match that streams pre-match odds still hasn't started,
+    // so it belongs in Upcoming (soon), not Live - even though its board market's window covers now.
+    const kick = runtimeKickoff(fixtureId)
+    const preMatch = kick != null && kick > now
+    const status: LiveFixture['status'] = preMatch
+      ? 'soon'
+      : liveNow
+        ? 'live'
+        : upcoming
+          ? 'soon'
+          : openMarkets.length
+            ? 'live'
+            : 'ended'
+    const ko = preMatch
+      ? new Date(kick * 1000).toLocaleString()
+      : upcoming
+        ? new Date(upcoming.windowStart * 1000).toLocaleString()
+        : undefined
 
-    // Clock reference: the earliest open window that's already running (the live session the
-    // minute counts from), else the next window to open (soon), else nothing (resolved).
+    // Clock reference: real kickoff if pre-match, else the earliest running window (live), else the
+    // next window to open (soon), else nothing (resolved).
     const startedOpen = openMarkets.filter((m) => m.windowStart <= now).map((m) => m.windowStart)
-    const kickoff = startedOpen.length ? Math.min(...startedOpen) : upcoming ? upcoming.windowStart : undefined
+    const kickoff = preMatch
+      ? kick
+      : startedOpen.length
+        ? Math.min(...startedOpen)
+        : upcoming
+          ? upcoming.windowStart
+          : undefined
 
     fixtures.push({ id: String(fixtureId), fixtureId, comp, a, b, status, ko, kickoff, odds })
   }

@@ -10,6 +10,7 @@ export interface FixtureName {
   a: string;
   b: string;
   comp: string;
+  startTime?: number; // kickoff, unix SECONDS - lets the frontend classify pre-match (upcoming) vs in-play (live)
 }
 
 const names = new Map<number, FixtureName>();
@@ -29,7 +30,9 @@ async function refresh(keeper: Keypair): Promise<void> {
   for (const f of fixtures) {
     const id = Number(f.FixtureId ?? f.fixtureId);
     if (!Number.isFinite(id) || !f.Participant1 || !f.Participant2) continue;
-    names.set(id, { a: String(f.Participant1), b: String(f.Participant2), comp: String(f.Competition ?? "") });
+    const startMs = Number(f.StartTime ?? f.startTime);
+    const startTime = Number.isFinite(startMs) && startMs > 0 ? Math.round(startMs / 1000) : undefined;
+    names.set(id, { a: String(f.Participant1), b: String(f.Participant2), comp: String(f.Competition ?? ""), startTime });
   }
   log.info(`names: cached ${names.size} fixture names from snapshot`);
 }
