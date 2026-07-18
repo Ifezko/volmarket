@@ -1,7 +1,6 @@
 import { MatchCard } from './MatchCard'
 import { useNow } from './useNow'
 import type { LiveFixture } from './liveFixtures'
-import type { RealPredictMeta } from './PredictBuilder'
 
 // The board's .intro/.legend header + the fixtures .grid. The filter/sort controls that used
 // to sit here moved up into the secondary nav (see Nav.tsx). `fixtures` are real on-chain
@@ -11,15 +10,11 @@ export function Board({
   hasAnyMarkets,
   onOpenMatch,
   onOpenHow,
-  onAdd,
-  isSelected,
 }: {
   fixtures: LiveFixture[]
   hasAnyMarkets: boolean
   onOpenMatch: (id: string) => void
   onOpenHow: () => void
-  onAdd: (id: string, label: string, prob: number, meta: RealPredictMeta) => void
-  isSelected: (id: string) => boolean
 }) {
   const now = Math.floor(useNow(1000) / 1000)
   return (
@@ -66,9 +61,7 @@ export function Board({
             </span>
           </div>
         ) : (
-          fixtures.map((m) => (
-            <MatchCard key={m.id} m={m} now={now} onOpen={onOpenMatch} onAdd={onAdd} isSelected={isSelected} />
-          ))
+          fixtures.map((m) => <MatchCard key={m.id} m={m} now={now} onOpen={onOpenMatch} />)
         )}
       </div>
     </div>

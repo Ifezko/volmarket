@@ -11,14 +11,9 @@ export interface RealPredictMeta {
   windowSecs: number
 }
 
-// The default window for a quick pick made from the board card (which has no window selector).
-// Matches MatchDetail's initial activeWin so a card pick and a detail pick share the same id.
-export const DEFAULT_WIN = 7 // '5m'
-
-// Builds a slip pick (id/label/prob/meta) for one odd + side + window. Single source of truth shared
-// by the detail's PredictBuilder and the board card's quick Holds/Breaks buttons, so their picks are
-// byte-identical (same id => the same pick, toggled consistently wherever it's tapped).
-export function buildPick(
+// Builds a slip pick (id/label/prob/meta) for one odd + side + window. Factored out of the two
+// Holds/Breaks buttons so their construction lives in one place.
+function buildPick(
   fixtureId: number,
   odd: LiveOdd,
   side: 'hold' | 'break',
