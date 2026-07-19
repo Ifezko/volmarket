@@ -155,7 +155,10 @@ export function VolmarketApp() {
   // user's "calls", so placed predictions and their outcome show up alongside the live tape.
   const [activePositions, setActivePositions] = useState<ActivePosition[]>([])
   // "Your prediction ended" popup: the positions that just settled this session.
-  const [endedResults, setEndedResults] = useState<ActivePosition[]>([])
+  // Positions surfaced in the result modal, tracked by KEY (not a snapshot) so the modal re-reads
+  // them from live `activePositions` - that's what lets a row flip from provisional
+  // ("verifying on-chain…") to verified in place once the on-chain settlement lands.
+  const [surfacedKeys, setSurfacedKeys] = useState<string[]>([])
   const [resultOpen, setResultOpen] = useState(false)
   // position keys already settled (so we only pop for ones that end while you're watching, not
   // for history); a per-market resolve-attempt counter (so a transient failure retries a few
@@ -339,19 +342,30 @@ export function VolmarketApp() {
   // Surfaces the "prediction ended" popup for any settled positions not seen yet. Seeds the
   // seen-set silently on the first pass so we don't pop for predictions that settled before
   // this session - only for ones that end while you're here.
+  // Surface a prediction the moment its WINDOW CLOSES, not only once it's settled on-chain: the
+  // stream already tells us the outcome, while trustless verification lags to the next 5-min proof
+  // batch (see keeper txline.ts). So the modal opens immediately showing the provisional result and
+  // upgrades itself to "Verified" when the on-chain resolution lands.
   const surfaceEnded = useCallback((positions: ActivePosition[]) => {
-    const settled = positions.filter((p) => p.status !== 'pending')
+    const now = Date.now() / 1000
+    const ended = positions.filter((p) => p.status !== 'pending' || now >= p.windowEnd)
     if (!resolveSeeded.current) {
-      resolvedSeen.current = new Set(settled.map((p) => p.position.toBase58()))
+      resolvedSeen.current = new Set(ended.map((p) => p.position.toBase58()))
       resolveSeeded.current = true
       return
     }
-    const fresh = settled.filter((p) => !resolvedSeen.current.has(p.position.toBase58()))
+    const fresh = ended.filter((p) => !resolvedSeen.current.has(p.position.toBase58()))
     if (!fresh.length) return
     fresh.forEach((p) => resolvedSeen.current.add(p.position.toBase58()))
-    setEndedResults(fresh)
+    setSurfacedKeys((prev) => [...new Set([...prev, ...fresh.map((p) => p.position.toBase58())])])
     setResultOpen(true)
   }, [])
+
+  // Live view of the surfaced positions - re-derived from activePositions each poll.
+  const endedResults = useMemo(
+    () => activePositions.filter((p) => surfacedKeys.includes(p.position.toBase58())),
+    [activePositions, surfacedKeys],
+  )
 
   // One consolidated poll: a single combined read (fetchWalletState = one position scan + one
   // market scan) drives the board, the chart's active positions, and claimables - then we

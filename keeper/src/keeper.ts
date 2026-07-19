@@ -130,6 +130,20 @@ export async function runKeeper(program: Program, keeper: Keypair, connection: C
 
   // Post-window sweeper: any still-open market whose window has closed settles to its default
   // outcome (BREAK never broke → NO; HOLD never defeated → YES) via the program's timeout branch.
+  //
+  // WHY THE TWO SIDES SETTLE ON DIFFERENT CLOCKS. The predicate is deliberately asymmetric, and that
+  // asymmetry decides how fast each side can finalise:
+  //   • HOLD is OPTIMISTIC — it wins by default and can only be DISPROVEN, by a proof that the signal
+  //     went below the level while the window was open. So if nothing defeats it, HOLD settles the
+  //     instant the window closes, right here, with no proof required.
+  //   • BREAK is the claim that must be PROVEN — it only wins on a verified datapoint at/above the
+  //     level. Under the real validator that datapoint isn't provable until TxLINE publishes its
+  //     wall-clock 5-minute batch (boundary + publication buffer, see fetchPublishedOddsProof), so a
+  //     winning BREAK finalises LATER than a winning HOLD even though the stream knew the outcome
+  //     immediately.
+  // That gap is why the UI shows a provisional result at window close and upgrades it to "verified"
+  // once the proof lands (ResultModal) — it is inherent to proof-anchored settlement, not lag we can
+  // engineer away.
   const sweeper = setInterval(async () => {
     const now = Math.floor(Date.now() / 1000);
     for (const markets of byFixture.values()) {
