@@ -296,7 +296,13 @@ export function buildLiveFixtures(markets: RealMarket[]): LiveFixture[] {
 
     const odds: LiveOdd[] = CANONICAL_ODD_KEYS.map((oddKey) => {
       const oddMarkets = byOdd.get(oddKey) ?? []
-      const primary = oddMarkets[0]
+      // The row's % is the primary market's level, so the primary must be the market that reflects
+      // the CURRENT line: the newest OPEN one. Account order from chain is arbitrary and a fixture
+      // accumulates dozens of resolved markets from earlier windows, so taking [0] blindly showed a
+      // stale level - e.g. a 1X2 card whose three rows came from different windows and summed past
+      // 100%. Only fall back to the newest resolved market when nothing is open.
+      const newest = (ms: RealMarket[]) => ms.slice().sort((x, y) => y.windowStart - x.windowStart)[0]
+      const primary = newest(oddMarkets.filter((m) => m.status === 'open')) ?? newest(oddMarkets)
       const marketParams = primary ? primary.marketParams : oddKey >= 3 ? DEFAULT_OU_LINE : 0
       const { grp, label, fl } = oddLabel(oddKey, marketParams, a, b)
       const prob = primary ? primary.level : pseudoProb(fixtureId, oddKey)
