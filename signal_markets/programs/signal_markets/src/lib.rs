@@ -13,12 +13,14 @@ pub const TXLINE_PROGRAM_ID: Pubkey = anchor_lang::pubkey!("FPnwSSp2DXcNvJnxXWc2
 // The REAL TxLINE on-chain validator ("txoracle") — the CPI target for genuine Merkle-proof
 // validation via its `validate_odds` instruction (see cpi_validate_odds).
 //
-// IMPLEMENTED-BUT-UNVERIFIED. The CPI below is encoded straight from the txoracle IDL
-// (keeper/txoracle.idl.json), but NO genuine proof has been run through it yet: TxLINE's
-// `/api/odds/validation` returns 404 for the demargined "-stab" (StablePrice) odds messageIds the
-// keeper streams and settles on, so a retrievable `Odds`/proof payload isn't available to exercise
-// it. Until that is resolved, `TXLINE_PROGRAM_ID` (mock) stays the active path and this code is
-// dormant. Do NOT treat this path as verified.
+// VERIFIED ON DEVNET. A genuine TxLINE odds Merkle proof has been verified through this CPI:
+//   tx 5vPAbG89XBZkWTFw82HFEDjZDKbK6nFr9qqhPMztfG2Qobt2GpCeBDeFrwcVHmvsno3soZmEE4aniaswhj16uML2
+//   (txoracle logs: "Stage 1 SUCCESS" snapshot->summary, "Stage 2 SUCCESS" summary->main root)
+// The earlier `/api/odds/validation` 404s were EPOCH TIMING, not a bad messageId: proofs publish in
+// wall-clock 5-minute batches, so a record is only provable shortly after its interval closes (see
+// fetchPublishedOddsProof in keeper/src/txline.ts).
+// `TXLINE_PROGRAM_ID` (mock) remains the ACTIVE demo path; this real path is selected only when the
+// keeper passes TXLINE_VALIDATOR_ID as `txline_program`.
 pub const TXLINE_VALIDATOR_ID: Pubkey = anchor_lang::pubkey!("6pW64gN1s2uqjHkn1unFeEjAwJkPGHoppGvS715wyP2J");
 
 // Anchor global-instruction discriminator for txoracle `validate_odds`, copied verbatim from its
@@ -788,10 +790,13 @@ pub struct OddsProofPayload {
 /// format = 8-byte discriminator ++ borsh(args in IDL order). The single account is the txoracle's
 /// `daily_odds_merkle_roots` PDA, passed by the keeper as the first remaining_account.
 ///
-/// UNVERIFIED — see TXLINE_VALIDATOR_ID. To ACTIVATE: (1) TxLINE must serve a retrievable proof for
-/// the odds records we settle on (today `/api/odds/validation` 404s for "-stab" messageIds);
-/// (2) the keeper packs `OddsProofPayload` into `proof` and passes `daily_odds_merkle_roots` as the
-/// first remaining_account; (3) point the keeper's TXLINE_PROGRAM_ID env at TXLINE_VALIDATOR_ID.
+/// VERIFIED — see TXLINE_VALIDATOR_ID for the proving transaction. To ACTIVATE for live settlement:
+/// (1) fetch the proof AFTER its 5-min batch publishes (keeper `fetchPublishedOddsProof`);
+/// (2) the keeper packs `OddsProofPayload` into `proof` and passes the txoracle roots account
+///     (`HFYD3hVqavHeRUkBdo7vDHA8HTGhMLY2TsXvL536kGoV` on devnet) as the first remaining_account;
+/// (3) point the keeper's TXLINE_PROGRAM_ID env at TXLINE_VALIDATOR_ID; and
+/// (4) RAISE THE COMPUTE BUDGET — two-stage Merkle verification costs ~234k CU (the whole tx ~252k),
+///     far over the 200k default, so the resolve tx needs a ComputeBudget setComputeUnitLimit ix.
 // `proof_accounts` = validate_odds's own accounts (daily_odds_merkle_roots), used to build the
 // instruction metas. `cpi_accounts` = those PLUS the validator program itself, for `invoke`. Kept as
 // two slices (rather than combining here) to avoid mixing account-info lifetimes — same shape as
