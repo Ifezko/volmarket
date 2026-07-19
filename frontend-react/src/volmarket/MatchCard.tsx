@@ -84,7 +84,7 @@ export function MatchCard({
 
       <div className="mfoot">
         <span>
-          {m.odds.length} real market{m.odds.length === 1 ? '' : 's'}
+          {m.odds.length} open market{m.odds.length === 1 ? '' : 's'}
         </span>
         <span className="vol">${vol.toFixed(2)} Vol.</span>
       </div>

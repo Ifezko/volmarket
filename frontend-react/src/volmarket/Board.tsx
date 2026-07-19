@@ -10,14 +10,11 @@ export function Board({
   hasAnyMarkets,
   onOpenMatch,
   onOpenHow,
-  replay,
 }: {
   fixtures: LiveFixture[]
   hasAnyMarkets: boolean
   onOpenMatch: (id: string, oddKey?: string) => void
   onOpenHow: () => void
-  /** keeper is replaying captured TxLINE events (no live match in play) - shown as a quiet note */
-  replay?: boolean
 }) {
   const now = Math.floor(useNow(1000) / 1000)
   return (
@@ -25,11 +22,6 @@ export function Board({
       <div className="intro">
         <div>
           <h1>Live volume signals</h1>
-          {replay && (
-            <div className="replaynote">
-              <span className="rdot" /> Replaying captured TxLINE data
-            </div>
-          )}
           <p>
             Open a match, pick a country or odd, and predict where the money holds support or breaks resistance - on
             every available line.
