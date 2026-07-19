@@ -14,6 +14,7 @@ import { runKeeper } from "./keeper.js";
 import { ensureActivated } from "./auth.js";
 import { startHttpServer } from "./httpServer.js";
 import { startNamesRefresh, seedNames } from "./namesStore.js";
+import { replayLanes } from "./replayFeed.js";
 
 // Retry with exponential backoff so a transient RPC/network hiccup during startup doesn't hard-exit
 // into a tight container restart-loop.
@@ -39,11 +40,20 @@ async function main() {
     // Replay is deliberately self-contained: it needs no TxLINE session (that's the point - it runs
     // when the live feed is unavailable). Fixture names ride along in the capture.
     const cap = JSON.parse(readFileSync(CONFIG.replayFile, "utf8"));
+    // Rebase kickoff onto the replay clock, exactly as the events are rebased: the recorded match
+    // is being replayed as if in play NOW, so the board classifies it live rather than upcoming.
+    const now = Math.floor(Date.now() / 1000);
     if (cap.names) {
-      // Rebase kickoff onto the replay clock, exactly as the events are rebased: the recorded match
-      // is being replayed as if in play NOW, so the board classifies it live rather than upcoming.
-      const kickoff = Math.floor(Date.now() / 1000) - 30 * 60;
-      seedNames(Object.fromEntries(Object.entries(cap.names).map(([id, n]: [string, any]) => [id, { ...n, startTime: kickoff }])));
+      seedNames(Object.fromEntries(Object.entries(cap.names).map(([id, n]: [string, any]) => [id, { ...n, startTime: now - 30 * 60 }])));
+    }
+    // Name every fan-out lane too, each with its own kickoff so the cards show different clocks.
+    const lanes = replayLanes(Number(cap.fixtures?.[0] ?? 0)).filter((l) => l.a && l.b);
+    if (lanes.length) {
+      seedNames(
+        Object.fromEntries(
+          lanes.map((l) => [l.fixtureId, { a: l.a!, b: l.b!, comp: l.comp ?? "World Cup", startTime: now - (l.kickoffAgoMin ?? 30) * 60 }]),
+        ),
+      );
     }
   } else if (!CONFIG.mock) {
     // real feed needs a live TxLINE session (guest JWT -> on-chain subscribe -> signed activate)

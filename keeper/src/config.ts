@@ -107,6 +107,10 @@ export const CONFIG = {
   // keeper replays it through its normal pipeline instead of subscribing to the live stream - used
   // when no match is in play. Everything on-chain stays real; only the feed source changes.
   replayFile: process.env.REPLAY_FILE ?? "",
+  // Fan-out spec for replay mode: drives the ONE capture across several fixtures, each entering the
+  // capture at its own offset with its own level shift, so the board shows a slate of live matches
+  // rather than a single card. Ignored (single-fixture replay) if the file is absent.
+  replayFanoutFile: process.env.REPLAY_FANOUT_FILE ?? "./replay/fanout.json",
 };
 
 const LEVELS = { error: 0, warn: 1, info: 2, debug: 3 } as const;
