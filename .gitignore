@@ -3,6 +3,8 @@ target/
 .anchor/
 dist/
 .env
+.env.*
+!.env.example
 test-ledger/
 *.log
 
@@ -15,3 +17,6 @@ keeper/.treasury.json
 
 # dedicated fee-collector wallet secret — never commit (host-only; only its pubkey is wired in)
 keeper/.fee-wallet.json
+
+# local agent/editor config — contains machine-specific absolute paths
+.claude/

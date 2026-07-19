@@ -27,7 +27,7 @@ export function Board({
             every available line.
           </p>
           <button className="howbtn" onClick={onOpenHow} style={{ marginTop: 8 }}>
-            How signals work →
+            How it works →
           </button>
         </div>
       </div>

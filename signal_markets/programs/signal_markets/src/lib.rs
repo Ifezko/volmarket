@@ -213,8 +213,9 @@ pub mod signal_markets {
     /// parseOddsValidation / resolveOutcomeValue), so a bad/missing mapping can't misresolve a
     /// market onto the wrong outcome.
     ///
-    /// `value`/`proof` are validated by CPI into the TxLINE validator (mock_validator on devnet;
-    /// the real txoracle `validate_odds` is implemented behind a flag — see TXLINE_VALIDATOR_ID).
+    /// `value`/`proof` are validated by CPI into whichever validator the caller passes: the real
+    /// txoracle `validate_odds` (verified on devnet) or mock_validator, the active demo path.
+    /// See TXLINE_VALIDATOR_ID.
     pub fn resolve_market<'info>(
         ctx: Context<'_, '_, '_, 'info, ResolveMarket<'info>>,
         value: i64,
@@ -251,12 +252,16 @@ pub mod signal_markets {
         require!(now >= window_start, MarketError::WindowNotStarted);
 
         // ---- TxLINE validation seam ----
-        // ACTIVE demo path = mock_validator (TXLINE_PROGRAM_ID): approves any proof, so the
-        // predicate below rides the keeper-supplied `value`. The REAL txoracle `validate_odds` CPI
-        // (TXLINE_VALIDATOR_ID) is implemented in cpi_validate_odds but UNVERIFIED and dormant —
-        // reached only if the keeper passes the real validator program. See TXLINE_VALIDATOR_ID.
+        // Two validators, selected by the `txline_program` the caller passes:
+        //   TXLINE_VALIDATOR_ID  = the REAL txoracle. VERIFIED on devnet — a genuine two-stage
+        //                          TxLINE Merkle proof passed this CPI (see TXLINE_VALIDATOR_ID for
+        //                          the tx). Costs ~234k CU, so raise the compute budget.
+        //   TXLINE_PROGRAM_ID    = mock_validator, the active demo path: approves any proof, so the
+        //                          predicate below rides the keeper-supplied `value`. Used because a
+        //                          proof only exists once TxLINE publishes the record's 5-minute
+        //                          batch, which a short window (or a replayed capture) outruns.
         if ctx.accounts.txline_program.key() == TXLINE_VALIDATOR_ID {
-            // REAL PATH (implemented-but-unverified): `proof` carries the borsh-encoded
+            // REAL PATH (verified on devnet): `proof` carries the borsh-encoded
             // OddsProofPayload; verify the Odds snapshot against the committed Merkle roots. A
             // production build would then derive `value` FROM the verified snapshot rather than
             // trusting the arg (the keeper's demargined Pct vs the snapshot's raw `prices`).
@@ -725,11 +730,12 @@ fn validate_with_txline(
 
 // ===================== Real txoracle `validate_odds` CPI =====================
 //
-// IMPLEMENTED-BUT-UNVERIFIED (see TXLINE_VALIDATOR_ID). This is the genuine on-chain validation
+// VERIFIED ON DEVNET (see TXLINE_VALIDATOR_ID for the tx). This is the genuine on-chain validation
 // using TxLINE's Merkle-proof primitives: an `Odds` snapshot is proven to belong to the committed
 // `daily_odds_merkle_roots` via a sub-tree proof (odds within a fixture's batch) and a main-tree
-// proof (that batch within the day's root). It is dormant — reached only when the keeper passes
-// TXLINE_VALIDATOR_ID as `txline_program` — because no retrievable proof exists to run it yet.
+// proof (that batch within the day's root). Reached when the caller passes TXLINE_VALIDATOR_ID as
+// `txline_program`; the demo passes the mock instead, because a proof only becomes retrievable once
+// TxLINE publishes the record's 5-minute batch.
 //
 // The argument structs below are mirrored field-for-field and IN ORDER from the txoracle IDL
 // (keeper/txoracle.idl.json), so Borsh encodes byte-identically to what the validator deserializes.
@@ -945,7 +951,7 @@ pub struct ResolveMarket<'info> {
 
     /// CHECK: the validator program to CPI into, pinned to one of two known addresses: the
     /// mock_validator (TXLINE_PROGRAM_ID, active demo path) or the real txoracle validator
-    /// (TXLINE_VALIDATOR_ID, implemented-but-unverified). resolve_market branches on which one.
+    /// (TXLINE_VALIDATOR_ID, verified on devnet). resolve_market branches on which one.
     #[account(
         constraint = txline_program.key() == TXLINE_PROGRAM_ID
             || txline_program.key() == TXLINE_VALIDATOR_ID
