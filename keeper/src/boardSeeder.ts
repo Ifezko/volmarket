@@ -20,18 +20,45 @@ const HOLD = 0;
 const FEE_BPS = 500;
 const REAL_FIXTURE_MIN = 18_000_000; // board only renders real TxLINE fixture ids (frontend liveFixtures.ts)
 const OU_DEFAULT_LINE = 250; // 2.5 goals ×100 - the O/U line the board shows by default (liveFixtures.ts)
-const MATCH_SECS = 3 * 3600; // keep the board card "live" for roughly a match's length
+// How long a board market stays open. Env-overridable so the expiry/re-seed cycle can be exercised
+// in seconds instead of hours (see scripts/verify-board-reseed.ts).
+const MATCH_SECS = Number(process.env.BOARD_MARKET_SECS ?? 3 * 3600);
 const GAS_FLOOR_LAMPORTS = 60_000_000; // 0.06 SOL - don't seed if the keeper wallet is this low
 const AUTO = (process.env.AUTO_CREATE_MARKETS ?? "true") !== "false";
 
-// (fixtureId:oddKey:marketParams) we've already given a board market. Primed from chain at startup.
-const seeded = new Set<string>();
+// (fixtureId:oddKey:marketParams) -> the windowEnd (unix secs) of the board market we have for it.
+//
+// Storing the EXPIRY, not just a flag, is what keeps the board alive: a board market only stays open
+// for MATCH_SECS, and when it lapses the fixture would otherwise have no open market and silently
+// drop off the live-only board until the keeper restarted (the old Set never forgot the key). By
+// keying on expiry, a lapsed entry stops counting as "already seeded" and the next signal re-opens a
+// fresh market for a fixture that is still streaming.
+const seeded = new Map<string, number>();
 const skey = (f: number, o: number, p: number) => `${f}:${o}:${p}`;
 
-/** Seed the "already have a market" set from the markets loaded at startup, so we never duplicate. */
-export function primeSeeded(markets: { fixtureId: number; oddKey: number; marketParams: number }[]): void {
-  for (const m of markets) seeded.add(skey(m.fixtureId, m.oddKey, m.marketParams));
-  log.info(`board-seed: primed ${seeded.size} existing (fixture,odd,params) from chain; auto-create ${AUTO ? "ON" : "OFF"}`);
+/** True if we hold a board market for this odd that is still open at `now`. */
+function hasLiveSeed(k: string, now: number): boolean {
+  const expiresAt = seeded.get(k);
+  return expiresAt != null && expiresAt > now;
+}
+
+/**
+ * Prime/refresh the seeded map from the markets currently loaded from chain. Safe to call on every
+ * market refresh, not just at startup - entries are merged by latest expiry, so a freshly created
+ * market is never forgotten, while lapsed ones age out on their own.
+ */
+export function primeSeeded(
+  markets: { fixtureId: number; oddKey: number; marketParams: number; windowEnd: number }[],
+): void {
+  for (const m of markets) {
+    const k = skey(m.fixtureId, m.oddKey, m.marketParams);
+    seeded.set(k, Math.max(seeded.get(k) ?? 0, m.windowEnd));
+  }
+  // Drop entries whose market has lapsed so the map can't grow without bound across a long run.
+  const now = Math.floor(Date.now() / 1000);
+  let live = 0;
+  for (const [k, exp] of seeded) (exp > now ? live++ : seeded.delete(k));
+  log.info(`board-seed: ${live} live (fixture,odd,params) seeded from chain; auto-create ${AUTO ? "ON" : "OFF"}`);
 }
 
 /** Only the odds the board actually renders: 1X2 (params 0) and the default O/U line (2.5). */
@@ -76,10 +103,14 @@ export async function ensureBoardMarket(
   if (!seedEligible(oddKey, marketParams)) return false;
   if (!Number.isFinite(levelRaw) || levelRaw <= 0 || levelRaw >= 100_000) return false;
   const k = skey(fixtureId, oddKey, marketParams);
-  if (seeded.has(k)) return false;
+  const now = Math.floor(Date.now() / 1000);
+  // Only skip while we hold a market that is STILL OPEN. Once it lapses this goes false and the
+  // fixture gets a fresh market, so a still-streaming match never falls off the board.
+  if (hasLiveSeed(k, now)) return false;
   // Reserve SYNCHRONOUSLY, before any await, so two overlapping events for the same odd can't both
-  // pass the check and double-create. On any early-out below we release it so a later signal retries.
-  seeded.add(k);
+  // pass the check and double-create. Reserved for the window we're about to open; on any early-out
+  // below we release it so a later signal retries.
+  seeded.set(k, now + MATCH_SECS);
 
   let bal = 0;
   try {
@@ -94,7 +125,6 @@ export async function ensureBoardMarket(
     return false;
   }
 
-  const now = Math.floor(Date.now() / 1000);
   const level = Math.round(levelRaw);
   const market = marketPda(program, fixtureId, oddKey, marketParams, level, now);
   const [vault] = PublicKey.findProgramAddressSync([Buffer.from("vault"), market.toBuffer()], program.programId);

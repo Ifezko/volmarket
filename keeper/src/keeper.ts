@@ -19,7 +19,14 @@ const TIMEOUT_PROOF: ProofResult = { value: 0, proofBytes: Buffer.alloc(0), acco
 export async function runKeeper(program: Program, keeper: Keypair, connection: Connection) {
   let byFixture = await loadMarkets(program);
   // Prime the board-seeder's "already have a market" set from chain so a restart never duplicates.
-  primeSeeded([...byFixture.values()].flat().map((m) => ({ fixtureId: m.fixtureId, oddKey: m.oddKey, marketParams: m.marketParams })));
+  const seedView = () =>
+    [...byFixture.values()].flat().map((m) => ({
+      fixtureId: m.fixtureId,
+      oddKey: m.oddKey,
+      marketParams: m.marketParams,
+      windowEnd: m.windowEnd,
+    }));
+  primeSeeded(seedView());
   // Seed any existing open market that has an empty pool before we start watching.
   await bootstrapOpenMarkets(program, keeper, connection);
   const inFlight = new Set<string>(); // market pubkeys mid-resolution
@@ -181,6 +188,10 @@ export async function runKeeper(program: Program, keeper: Keypair, connection: C
   // quickly enough to be verified in-window, not just swept to its default after the window.
   const refresher = setInterval(async () => {
     byFixture = await loadMarkets(program);
+    // Re-prime the board-seeder from chain each refresh (not just at startup): loadMarkets returns
+    // only OPEN markets, so a board market that has lapsed drops out here and stops counting as
+    // "already seeded" - that's what lets a still-live fixture get a fresh market without a restart.
+    primeSeeded(seedView());
     // Bootstrap liquidity for any newly-created market whose opposing pool is still empty.
     await bootstrapOpenMarkets(program, keeper, connection);
   }, CONFIG.marketRefreshMs);
