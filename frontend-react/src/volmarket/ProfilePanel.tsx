@@ -339,12 +339,18 @@ function FeedRow({
   subtitleColor,
   amount,
   amountColor,
+  href,
+  pending,
 }: {
   title: string
   subtitle: string
   subtitleColor: string
   amount: string
   amountColor: string
+  /** Solana Explorer target for this entry (tx for funding, market account for a prediction). */
+  href?: string
+  /** true while the prediction hasn't settled on-chain yet - the link is shown muted + inert. */
+  pending?: boolean
 }) {
   return (
     <div className="selrow" style={{ alignItems: 'flex-start' }}>
@@ -355,6 +361,15 @@ function FeedRow({
         <div className="s" style={{ color: 'var(--dim)', marginTop: 2 }}>
           <span style={{ color: subtitleColor, fontWeight: 600 }}>{subtitle}</span>
         </div>
+        {pending ? (
+          <span className="viewchain muted" title="Available once this prediction settles on-chain">
+            View onchain ↗
+          </span>
+        ) : href ? (
+          <a className="viewchain" href={href} target="_blank" rel="noreferrer" onClick={(e) => e.stopPropagation()}>
+            View onchain ↗
+          </a>
+        ) : null}
       </div>
       <span className="s mono" style={{ color: amountColor, whiteSpace: 'nowrap', fontWeight: 700, marginLeft: 8 }}>
         {amount}
@@ -408,6 +423,11 @@ function HistoryList({
               subtitleColor={color}
               amount={won ? `+${p.payoutUsdc.toFixed(2)}` : lost ? `−${p.stakeUsdc.toFixed(2)}` : p.stakeUsdc.toFixed(2)}
               amountColor={color}
+              // The market account carries the outcome + the resolve transaction, so it's the entry
+              // point for tracing a settled prediction. Muted until it settles - there's nothing
+              // resolved to inspect while the proof is still pending.
+              href={`https://explorer.solana.com/address/${p.market.toBase58()}?cluster=devnet`}
+              pending={p.status === 'pending'}
             />
           )
         }
@@ -422,6 +442,9 @@ function HistoryList({
             subtitleColor="var(--dim)"
             amount={`${isDeposit ? '+' : '−'}${ev.amountUsdc.toFixed(2)}`}
             amountColor={isDeposit ? 'var(--green)' : 'var(--text)'}
+            // Funding entries ARE a confirmed transaction, so link straight to it.
+            href={`https://explorer.solana.com/tx/${ev.signature}?cluster=devnet`}
+            pending={!ev.blockTime}
           />
         )
       })}

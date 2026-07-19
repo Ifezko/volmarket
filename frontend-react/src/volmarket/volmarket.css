@@ -279,6 +279,10 @@
   .setproof{font-size:10.5px;color:var(--dim);text-align:left;line-height:1.5;padding:6px 0 2px}
   .setproof .mono{font-family:var(--mono);color:var(--faint);word-break:break-all}
   .setproof a{display:inline-block;margin-top:3px;color:var(--cyan)}
+  /* history row -> Solana Explorer. Muted + inert while a prediction is still pending on-chain. */
+  .viewchain{display:inline-block;margin-top:4px;font-family:var(--mono);font-size:10.5px;color:var(--cyan)}
+  .viewchain:hover{text-decoration:underline}
+  .viewchain.muted{color:var(--faint);cursor:default;text-decoration:none;opacity:.65}
   .prematch{background:var(--surface);border:1px solid var(--border);border-radius:14px;padding:22px;margin:6px 0 8px}
   .pmk{font-size:16px;font-weight:700;display:flex;align-items:center;gap:8px;margin-bottom:8px}
   .pmclock{color:var(--amber)}
