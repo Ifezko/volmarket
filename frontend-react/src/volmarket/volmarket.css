@@ -82,6 +82,11 @@
   .mrowbtn{border:1px solid;background:transparent;border-radius:7px;padding:5px 11px;font-family:var(--mono);font-size:11px;font-weight:700;cursor:pointer;flex-shrink:0;transition:background .12s}
   .mrowbtn.hold{color:var(--green);border-color:var(--green)}.mrowbtn.hold:hover{background:var(--greenBg)}
   .mrowbtn.break{color:var(--red);border-color:var(--red)}.mrowbtn.break:hover{background:var(--redBg)}
+  /* pre-match: predicting isn't open until kickoff - muted + inert, reason shown below the rows */
+  .mrowbtn:disabled{color:var(--faint);border-color:var(--border2);background:transparent;cursor:not-allowed;opacity:.55}
+  .mrowbtn:disabled:hover{background:transparent}
+  .mrow-note{font-family:var(--mono);font-size:10.5px;color:var(--faint);margin-top:2px}
+  .mrow-flag svg{width:18px;height:13px;border-radius:2px;display:block}
 
   /* The secondary nav (board filters + sort) belongs to the landing/board page only - hide it
      while a match-detail or groups overlay is open (body.lock). The nav's ResizeObserver then

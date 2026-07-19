@@ -1,4 +1,5 @@
 import { LiveSparkline } from './LiveSparkline'
+import { Flag } from './Flag'
 import { matchState, type LiveFixture } from './liveFixtures'
 
 // A board card, Polymarket-style: a headline real-feed chart for the home line, then the 1X2
@@ -20,7 +21,11 @@ export function MatchCard({
   const rows = m.odds.filter((o) => o.oddKey === 0 || o.oddKey === 1 || o.oddKey === 2)
   const home = m.odds.find((o) => o.oddKey === 0) ?? m.odds[0]
   const vol = m.odds.reduce((sum, o) => sum + o.markets.reduce((s, mk) => s + mk.totalYes + mk.totalNo, 0), 0)
-  const canPredict = m.status !== 'ended'
+  // Predicting only opens once the match is in play: the signal a Hold/Break is judged against
+  // doesn't exist before kickoff. Upcoming fixtures keep the buttons visible but MUTED + inert with
+  // the reason, so the card still reads as tradeable - just not yet.
+  const preMatch = m.status === 'soon'
+  const canPredict = m.status === 'live'
 
   return (
     <div className="mcard" onClick={() => onOpen(m.id)}>
@@ -40,10 +45,12 @@ export function MatchCard({
       <div className="mrows">
         {rows.map((o) => (
           <div className="mrow" key={o.key}>
-            <span className="mrow-flag">{o.fl}</span>
+            {/* SVG flag (renders identically on every OS). o.fl is the non-country glyph for
+                Draw/Over/Under; unknown names fall back to Flag's neutral marker, never raw text. */}
+            <Flag country={o.label} className="mrow-flag" fallback={o.fl} />
             <span className="mrow-lab">{o.label}</span>
             <span className="mrow-pct">{o.prob.toFixed(0)}%</span>
-            {canPredict && (
+            {canPredict ? (
               <>
                 <button
                   className="mrowbtn hold"
@@ -64,9 +71,15 @@ export function MatchCard({
                   Break
                 </button>
               </>
-            )}
+            ) : preMatch ? (
+              <>
+                <button className="mrowbtn hold" disabled title="Opens at kickoff">Hold</button>
+                <button className="mrowbtn break" disabled title="Opens at kickoff">Break</button>
+              </>
+            ) : null}
           </div>
         ))}
+        {preMatch && <div className="mrow-note">Opens at kickoff</div>}
       </div>
 
       <div className="mfoot">
