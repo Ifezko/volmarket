@@ -7,12 +7,13 @@ import { setDefaultResultOrder } from "node:dns";
 // does network I/O at load time, so setting it here (before main runs) is early enough.
 setDefaultResultOrder("ipv4first");
 
+import { readFileSync } from "node:fs";
 import { CONFIG, log } from "./config.js";
 import { buildProgram } from "./resolver.js";
 import { runKeeper } from "./keeper.js";
 import { ensureActivated } from "./auth.js";
 import { startHttpServer } from "./httpServer.js";
-import { startNamesRefresh } from "./namesStore.js";
+import { startNamesRefresh, seedNames } from "./namesStore.js";
 
 // Retry with exponential backoff so a transient RPC/network hiccup during startup doesn't hard-exit
 // into a tight container restart-loop.
@@ -34,7 +35,17 @@ async function main() {
   // Serve the live signal feed to the frontend (also gives Railway a health endpoint on $PORT).
   startHttpServer();
   const { program, wallet, connection } = buildProgram();
-  if (!CONFIG.mock) {
+  if (CONFIG.replayFile) {
+    // Replay is deliberately self-contained: it needs no TxLINE session (that's the point - it runs
+    // when the live feed is unavailable). Fixture names ride along in the capture.
+    const cap = JSON.parse(readFileSync(CONFIG.replayFile, "utf8"));
+    if (cap.names) {
+      // Rebase kickoff onto the replay clock, exactly as the events are rebased: the recorded match
+      // is being replayed as if in play NOW, so the board classifies it live rather than upcoming.
+      const kickoff = Math.floor(Date.now() / 1000) - 30 * 60;
+      seedNames(Object.fromEntries(Object.entries(cap.names).map(([id, n]: [string, any]) => [id, { ...n, startTime: kickoff }])));
+    }
+  } else if (!CONFIG.mock) {
     // real feed needs a live TxLINE session (guest JWT -> on-chain subscribe -> signed activate)
     await withRetry("TxLINE activation", () => ensureActivated(wallet.payer));
     // Cache real fixture names so the board labels auto-created cards with the true match.

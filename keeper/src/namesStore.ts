@@ -15,6 +15,19 @@ export interface FixtureName {
 
 const names = new Map<number, FixtureName>();
 
+/**
+ * Inject names directly, bypassing the TxLINE snapshot. Used by replay mode: a capture carries the
+ * fixture names recorded alongside its events, so a replayed demo shows the real match ("Spain v
+ * Argentina") without needing a live TxLINE session at all.
+ */
+export function seedNames(map: Record<string | number, FixtureName>): void {
+  for (const [id, n] of Object.entries(map)) {
+    const fid = Number(id);
+    if (Number.isFinite(fid) && n?.a && n?.b) names.set(fid, n);
+  }
+  log.info(`names: seeded ${names.size} fixture names from replay capture`);
+}
+
 export function getNames(): Record<number, FixtureName> {
   return Object.fromEntries(names);
 }

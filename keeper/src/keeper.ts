@@ -7,6 +7,7 @@ import { resolveMarket } from "./resolver.js";
 import { claimWinners } from "./claimer.js";
 import { bootstrapOpenMarkets } from "./bootstrap.js";
 import { startMockFeed, mockProof } from "./mockFeed.js";
+import { startReplayFeed } from "./replayFeed.js";
 import { recordSignal } from "./signalStore.js";
 import { primeSeeded, ensureBoardMarket } from "./boardSeeder.js";
 import { recordReceipt } from "./receiptStore.js";
@@ -152,6 +153,7 @@ export async function runKeeper(program: Program, keeper: Keypair, connection: C
   // once the proof lands (ResultModal) — it is inherent to proof-anchored settlement, not lag we can
   // engineer away.
   const sweeper = setInterval(async () => {
+   try {
     const now = Math.floor(Date.now() / 1000);
     for (const markets of byFixture.values()) {
       for (const m of markets) {
@@ -159,6 +161,7 @@ export async function runKeeper(program: Program, keeper: Keypair, connection: C
         await handle(m, TIMEOUT_PROOF);
       }
     }
+   } catch (e) { log.warn("sweeper tick failed (will retry):", (e as Error).message); }
   }, CONFIG.deadlineSweepMs);
 
   // In-window backstop. The program only lets a HOLD lose while now < window_end (a proof-verified
@@ -170,6 +173,7 @@ export async function runKeeper(program: Program, keeper: Keypair, connection: C
   // skipped so we never settle on outdated data.
   const STALE_SIGNAL_SECS = 120;
   const inWindowSettler = setInterval(async () => {
+   try {
     const now = Math.floor(Date.now() / 1000);
     for (const markets of byFixture.values()) {
       for (const m of markets) {
@@ -181,12 +185,14 @@ export async function runKeeper(program: Program, keeper: Keypair, connection: C
         await trySettleFromEvent(m, buf.evt, now);
       }
     }
+   } catch (e) { log.warn("in-window settler tick failed (will retry):", (e as Error).message); }
   }, CONFIG.inWindowSettleMs);
 
   // periodically refresh the market set (new markets created mid-tournament, resolved ones drop
   // out). Kept short (CONFIG.marketRefreshMs) so a user's just-placed prediction is watched
   // quickly enough to be verified in-window, not just swept to its default after the window.
   const refresher = setInterval(async () => {
+   try {
     byFixture = await loadMarkets(program);
     // Re-prime the board-seeder from chain each refresh (not just at startup): loadMarkets returns
     // only OPEN markets, so a board market that has lapsed drops out here and stops counting as
@@ -194,15 +200,20 @@ export async function runKeeper(program: Program, keeper: Keypair, connection: C
     primeSeeded(seedView());
     // Bootstrap liquidity for any newly-created market whose opposing pool is still empty.
     await bootstrapOpenMarkets(program, keeper, connection);
+   } catch (e) { log.warn("market refresh failed (will retry):", (e as Error).message); }
   }, CONFIG.marketRefreshMs);
 
+  // Feed source only — every branch funnels into the SAME `onEvent`, so signal buffering, board
+  // seeding and settlement behave identically whether the data is live, replayed or synthetic.
   let stop: () => void;
-  if (CONFIG.mock) {
+  if (CONFIG.replayFile) {
+    stop = startReplayFeed(CONFIG.replayFile, (e) => void onEvent(e).catch((err) => log.warn("event handler failed:", err?.message ?? err)));
+  } else if (CONFIG.mock) {
     const fixtureId = [...byFixture.keys()][0] ?? 99001;
     log.warn(`MOCK mode — driving synthetic feed for fixture ${fixtureId}`);
-    stop = startMockFeed(fixtureId, (e) => void onEvent(e));
+    stop = startMockFeed(fixtureId, (e) => void onEvent(e).catch((err) => log.warn("event handler failed:", err?.message ?? err)));
   } else {
-    stop = subscribeStream((e) => void onEvent(e));
+    stop = subscribeStream((e) => void onEvent(e).catch((err) => log.warn("event handler failed:", err?.message ?? err)));
   }
 
   const shutdown = () => {

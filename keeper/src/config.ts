@@ -103,6 +103,10 @@ export const CONFIG = {
   // claims to succeed. Only the pubkey is needed here; the secret is held off-repo (.fee-wallet.json).
   feeRecipient: new PublicKey(process.env.FEE_RECIPIENT ?? "3NZbJWxuUp95jB8ULaeH2Lk1hfnUREdkjpUK9CWAJW2X"),
   mock: process.argv.includes("--mock"),
+  // Path to a capture of REAL recorded TxLINE odds events (scripts/capture-odds.ts). When set, the
+  // keeper replays it through its normal pipeline instead of subscribing to the live stream - used
+  // when no match is in play. Everything on-chain stays real; only the feed source changes.
+  replayFile: process.env.REPLAY_FILE ?? "",
 };
 
 const LEVELS = { error: 0, warn: 1, info: 2, debug: 3 } as const;
