@@ -1038,12 +1038,12 @@ export function VolmarketApp() {
                         }}
                         positions={activePositions}
                         myGroups={myGroups}
+                        onOpenGroup={openGroup}
                         onOpenGroups={() => {
                           setProfileOpen(false)
                           setSlipOpen(false)
                           setGroupsViewOpen(true)
                         }}
-                        onOpenGroup={openGroup}
                         loadFunding={async () => {
                           if (!solanaWallet) return []
                           const connection = makeConnection()
