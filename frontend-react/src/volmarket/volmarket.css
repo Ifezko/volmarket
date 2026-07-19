@@ -45,6 +45,9 @@
   .intro{display:flex;align-items:flex-end;gap:16px;margin:22px 0 14px}
   .intro h1{font-size:22px;margin:0;letter-spacing:-.5px}
   .intro p{margin:4px 0 0;color:var(--dim);font-size:13.5px;max-width:60ch}
+  /* quiet note when the feed is a replay of captured TxLINE events rather than a live match */
+  .replaynote{display:flex;align-items:center;gap:6px;font-family:var(--mono);font-size:11px;color:var(--faint);margin:5px 0 0}
+  .replaynote .rdot{width:5px;height:5px;border-radius:50%;background:var(--amber);opacity:.75;flex-shrink:0}
   .legend{display:flex;gap:16px;font-family:var(--mono);font-size:11.5px;color:var(--dim);white-space:nowrap;margin:0 0 12px}
   .legend i{display:inline-block;width:12px;height:2px;vertical-align:middle;margin-right:6px;border-radius:2px}
   @media(max-width:720px){.legend{display:none}}

@@ -174,6 +174,9 @@ export function VolmarketApp() {
   // Fixtures the keeper reports as streaming a live signal right now. null = not fetched yet. The
   // board shows ONLY these, so every chart draws a real feed and every settlement matches it.
   const [liveFixtureIds, setLiveFixtureIds] = useState<Set<number> | null>(null)
+  // Whether the keeper is replaying a capture of real TxLINE events instead of a live stream, so the
+  // board can say so. Reported by the keeper itself, so it clears automatically when live resumes.
+  const [feedReplay, setFeedReplay] = useState(false)
 
   // The signed-in user's local profile (username + avatar). profileVersion bumps on save so the nav
   // avatar and username re-read from the store.
@@ -184,7 +187,8 @@ export function VolmarketApp() {
 
   const namesJsonRef = useRef('')
   const refreshLive = useCallback(async () => {
-    const { series, names } = await fetchLiveSeries()
+    const { series, names, replay } = await fetchLiveSeries()
+    setFeedReplay(replay)
     setRuntimeNames(names) // real match names for the auto-created live cards
     const namesJson = JSON.stringify(names)
     if (namesJson !== namesJsonRef.current) {
@@ -950,6 +954,7 @@ export function VolmarketApp() {
         hasAnyMarkets={fixtures.length > 0}
         onOpenMatch={openMatch}
         onOpenHow={() => setHowOpen(true)}
+        replay={feedReplay}
       />
       <Footer
         onGoHome={closeMatch}

@@ -2,7 +2,7 @@ import http from "node:http";
 import { getSignal, liveSeries } from "./signalStore.js";
 import { getNames } from "./namesStore.js";
 import { getReceipt } from "./receiptStore.js";
-import { log } from "./config.js";
+import { CONFIG, log } from "./config.js";
 
 // Tiny read-only HTTP surface so the frontend can draw the real signal feed:
 //   GET /signal?fixtureId=&oddKey=&marketParams=  -> { points: [{t, v}] }
@@ -35,7 +35,9 @@ export function startHttpServer(): http.Server {
     if (url.pathname === "/fixtures") {
       // fixtures currently streaming a live signal (+ real names) so the board shows only real ones
       res.writeHead(200, { "Content-Type": "application/json" });
-      res.end(JSON.stringify({ series: liveSeries(), names: getNames() }));
+      // `replay` lets the board say so when the feed is captured rather than live (see Board.tsx).
+      // Driven by the keeper's actual mode, so the notice disappears by itself once live data is back.
+      res.end(JSON.stringify({ series: liveSeries(), names: getNames(), replay: !!CONFIG.replayFile }));
       return;
     }
     if (url.pathname === "/receipt") {

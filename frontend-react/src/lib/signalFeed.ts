@@ -27,6 +27,8 @@ export interface FixtureName {
 export interface LiveFeed {
   series: LiveSeries[]
   names: Record<number, FixtureName>
+  /** true when the keeper is replaying a capture of real TxLINE events rather than a live stream */
+  replay: boolean
 }
 
 // Fixtures/odds currently streaming a live signal, plus real fixture names. Empty (not throwing) if
@@ -34,14 +36,15 @@ export interface LiveFeed {
 export async function fetchLiveSeries(): Promise<LiveFeed> {
   try {
     const res = await fetch(`${KEEPER_URL}/fixtures`, { cache: 'no-store' })
-    if (!res.ok) return { series: [], names: {} }
+    if (!res.ok) return { series: [], names: {}, replay: false }
     const json = await res.json()
     return {
       series: Array.isArray(json?.series) ? json.series : [],
       names: json?.names && typeof json.names === 'object' ? json.names : {},
+      replay: json?.replay === true,
     }
   } catch {
-    return { series: [], names: {} }
+    return { series: [], names: {}, replay: false }
   }
 }
 
