@@ -13,7 +13,7 @@ export function Board({
 }: {
   fixtures: LiveFixture[]
   hasAnyMarkets: boolean
-  onOpenMatch: (id: string) => void
+  onOpenMatch: (id: string, oddKey?: string) => void
   onOpenHow: () => void
 }) {
   const now = Math.floor(useNow(1000) / 1000)

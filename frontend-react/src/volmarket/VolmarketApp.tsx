@@ -497,11 +497,13 @@ export function VolmarketApp() {
     return () => removeEventListener('keydown', onKeyDown)
   }, [])
 
-  function openMatch(id: string) {
+  function openMatch(id: string, oddKey?: string) {
     const m = fixtures.find((x) => x.id === id)
     if (!m) return
     setCurMatchId(id)
-    setActiveKey(m.status === 'live' ? (m.odds[0]?.key ?? null) : null)
+    // A card row can open the detail focused on a specific odd; otherwise default to the first odd
+    // (live) or leave it unselected (upcoming) as before.
+    setActiveKey(oddKey ?? (m.status === 'live' ? (m.odds[0]?.key ?? null) : null))
     window.scrollTo(0, 0)
   }
 
