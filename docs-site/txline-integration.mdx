@@ -68,7 +68,17 @@ Volmarket uses the **StablePrice** feed specifically, because its odds are demar
 
 An on-chain market's odd identity is **`SuperOddsType` + `MarketParameters` + outcome**.
 
-Including `MarketParameters` is what keeps different lines distinct. Two Over/Under markets on the same fixture share a `SuperOddsType` but differ in `MarketParameters` (the line value), so without it they would collide into one market. `market_params` is part of the market PDA, which makes the separation structural rather than conventional.
+Including `MarketParameters` is what keeps different lines distinct. Two Over/Under markets on the same fixture share a `SuperOddsType` but differ in `MarketParameters`, so without it they would collide into one market.
+
+On-chain the field is `market_params`, encoded as the **goal line × 100** — `1.5` becomes `150`, `2.5` becomes `250` — and `0` where the odd type has no line, such as 1X2. `odd_key` separately selects the `SuperOddsType` plus outcome.
+
+The separation is structural rather than conventional, because `market_params` is one of the market PDA's seeds:
+
+```
+["market", fixture_id, odd_key, market_params, side, level, window_start]
+```
+
+Two lines that differ only in `market_params` therefore derive different addresses and cannot collide.
 
 When the keeper receives a stream update, it matches on that triple plus `FixtureId` to find open markets, then reads the settling outcome's `Pct[]` entry by its index in `PriceNames[]`.
 
