@@ -65,6 +65,14 @@ A group is a named roster with its own fee that pools predictions into a shared 
 
 Because group stake flows into the market's own vault and totals, group and individual predictions settle against the same market outcome. Each side is accounted exactly once — either a `Position` or a `GroupPosition` — so the vault conserves.
 
+### Group stats
+
+The Predictions / PnL / Win rate figures on a group card are **derived from on-chain data**, not stored on-chain and not stubbed.
+
+`fetchGroupActivity` reads every `GroupPosition` account, joins each to its market, and filters to the canonical USDC mint. `groupStats` then computes the three figures, mirroring the `claim_group` payout math — a settled winner nets its pro-rata share of the losing pool minus the group fee, a settled loser is `−stake`.
+
+`preds` counts all of a group's calls. `pnl` and `wr` count only *settled* ones, so a group whose calls are all still open reads `0` for both. That is an accurate reading of no settled activity, not a placeholder.
+
 ## Deployed addresses
 
 | What | Address |

@@ -34,7 +34,6 @@ The full `create → deposit → resolve → claim` cycle and the group `create 
 Some capabilities appear in the interface but are not fully built:
 
 - **Two-sided liquidity is house-seeded, not a market.** The keeper bootstraps the opposing pool from its own USDC so a winner is paid the level's implied fixed odds rather than a thin pari-mutuel share. There is no order book and no external market maker.
-- **Group activity stats** (`preds`, `pnl`, `wr` on group cards) are not tracked on-chain and read `0` for real groups. The board also seeds demo group rows that are not on-chain accounts. Group *escrow* is real — `create_group`, `group_deposit`, and `claim_group` are live instructions, and per-member accounting lives in on-chain `GroupPool` and `GroupPosition` accounts.
 - **AI insights** are not implemented.
 </Warning>
 
