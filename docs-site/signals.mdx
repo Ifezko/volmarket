@@ -1,0 +1,52 @@
+---
+title: "How signals work"
+description: "How Volmarket's volume signal is calculated from TxLINE's demargined odds and on-chain stake, and how each layer is verified."
+---
+
+A signal has two layers. They are obtained differently, verified differently, and — critically — only one of them can settle a market.
+
+## The line: implied probability
+
+The line comes from TxLINE's **StablePrice** feed: demargined consensus odds, so the percentage reads as a true probability rather than a bookmaker's marked-up price.
+
+Each odds update is an `Odds` record:
+
+```
+FixtureId · MessageId · Ts · SuperOddsType · MarketParameters
+PriceNames[] · Prices[] · Pct[] · InRunning
+```
+
+The implied probability for an outcome is its **`Pct[]`** entry — a 3-decimal percent string (for example `"39.432"`), positionally parallel to `PriceNames[]`. That is the value that settles markets.
+
+On-chain, it is scaled to an integer as `round(Pct × 1000)`, so `"39.432"` becomes `39432`.
+
+<Warning>
+The settling value is **not** taken from `Prices[]`. That array holds decimal odds × 1000, which is a different quantity on a different scale. Reading the wrong array produces a plausible-looking number that settles markets incorrectly.
+</Warning>
+
+Every update is committed into a batch whose Merkle root is anchored on Solana.
+
+## The volume: support and resistance
+
+The volume layer comes from Volmarket's own escrow — aggregate stake-by-level, held as publicly readable on-chain state.
+
+**Volume only informs; it never settles.** It shapes the displayed profile and suggests where a level sits, but no outcome is ever decided by internal stake.
+
+This separation is what makes the market non-manipulable. Manufacturing internal volume moves the picture, not the payout.
+
+## The level that settles
+
+The level `L` is snapped from TxLINE's anchored StablePrice at market open:
+
+- **support** = current − δ
+- **resistance** = current + δ
+
+Because the level derives from public anchored odds rather than user stake, no participant can manufacture the level they are predicting against.
+
+## Verification
+
+An odds update is provable via its Merkle proof — a two-stage `subTreeProof` plus `mainTreeProof`. You reconstruct the root and compare it against the on-chain root through TxLINE's `validate_odds` instruction.
+
+This is not theoretical. The CPI is deployed and verified on devnet; see [Settlement and proof verification](/settlement#the-real-txline-cpi) for the transaction and how to reproduce it.
+
+Because the profile is a pure function of public, anchored data, anyone can recompute it identically.

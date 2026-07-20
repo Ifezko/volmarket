@@ -1,0 +1,75 @@
+---
+title: "Architecture"
+description: "The Anchor program, the keeper service, the frontend, and how they connect."
+---
+
+Volmarket is four components: an on-chain program, an off-chain keeper, a fallback validator, and a web app.
+
+```
+frontend-react (board → odd → live signal → predict / claim, solo or group)
+      │  deposit USDC / claim                          ▲ read on-chain state
+      ▼                                                │
+signal_markets (Anchor program, devnet)  ── vault PDAs · HOLD|BREAK markets · pro-rata payout minus fee · groups
+      ▲ resolve_market(value, proof)  ──CPI──▶ TxLINE txoracle validate_odds (VERIFIED on devnet) | mock_validator (fallback)
+      │
+keeper (off-chain service) ── watches TxLINE odds, matches open markets (SuperOddsType + MarketParameters),
+      ▲                        reads the outcome's demargined probability, fetches the Merkle proof, fires resolve_market
+      │
+TxLINE feed ── StablePrice odds, each update anchored on Solana (live stream, or a recorded capture replayed through the same handler)
+```
+
+## Components
+
+<AccordionGroup>
+<Accordion title="signal_markets — the Anchor program">
+The on-chain core. It holds escrow vault PDAs, `Market` and `Position` accounts, a permissionless `resolve_market` that CPIs the validator, a pro-rata `claim` minus `fee_bps`, and a full group layer (`Group`, `GroupMember`, `GroupPool`, `GroupPosition`).
+
+Non-custodial throughout — no operator ever holds user funds.
+
+Deployed on devnet at `86hERt8cdRZUBpc1Ng8coX2jwLmWGUcyc9JNfspw39yr`.
+</Accordion>
+
+<Accordion title="keeper — the off-chain service">
+A TypeScript service that watches the TxLINE odds stream, matches updates to open markets, reads the settling outcome's probability, fetches the Merkle proof, and submits `resolve_market`.
+
+It also seeds the opposing pool of new two-sided markets so payouts are real, and serves the frontend's live signal feed over HTTP (`/signal`, `/fixtures`, `/receipt`).
+
+Because it watches a stream and polls the chain, it must run as a long-lived process. See [Deployment](/deployment).
+
+**Resilience.** A rate-limit response from the devnet RPC surfaces from inside the web3.js jayson client callback with no application frames on the stack, so an ordinary `try`/`catch` around an interval tick cannot see it — it escapes as an uncaught exception. Process-level guards (`src/crashGuard.ts`) swallow transient RPC and network faults and let the keeper's own retry timers pick the work back up. Anything unrecognized still exits, so real bugs stay loud, and a sustained flood (40+ per minute) exits deliberately for a clean restart.
+</Accordion>
+
+<Accordion title="mock_validator — the fallback">
+A small native program that approves any proof.
+
+The real `validate_odds` CPI is verified on devnet, but proofs publish on a 5-minute epoch that short prediction windows outrun, so the demo runs on the mock. See [epoch timing](/settlement#epoch-timing-detection-is-instant-proof-is-not).
+
+Deployed on devnet at `FPnwSSp2DXcNvJnxXWc2JXvU4MLNfrWDT6wBcU5Eptse`.
+</Accordion>
+
+<Accordion title="frontend-react — the app">
+React + Vite + Privy. It renders the match board and the per-odd signal terminal, plus the deposit/claim, combo-slip, and group flows.
+
+It talks only to public RPC and read-only chain state, and holds no secrets. Country flags render from bundled SVGs rather than regional-indicator emoji, which do not render on Windows.
+</Accordion>
+</AccordionGroup>
+
+## Groups
+
+A group is a named roster with its own fee that pools predictions into a shared market position.
+
+- **`create_group(group_id, name, fee_bps, visibility, roster)`** — identity is `(owner, group_id)`, so one owner can run several groups. The owner is the implicit first member: `member_count` starts at 1 and no `GroupMember` is minted for them. `update_group` lets the owner edit name, fee, visibility, and roster later.
+- **`request_join`** mints a pending `GroupMember`. **`approve_member`** (owner only) flips it to approved and bumps `member_count`. **`leave_group`** closes a member's `GroupMember`; the owner cannot leave.
+- **`group_deposit(side, amount)`** stakes into a market *as part of the group*. Funds enter the same market vault and count toward `market.total_*`, so group money competes in the real pool, but per-member accounting lives in a shared `GroupPool` (group + market aggregate) and a `GroupPosition` (per member, per side). The owner deposits without a `GroupMember`; other members must be approved first.
+- **`claim_group()`** pays a member their pro-rata payout. The winnings math is identical to `claim`, but it is keyed off the `GroupPosition`, and the **group's** `fee_bps` routes to the **group owner** as the group's house.
+
+Because group stake flows into the market's own vault and totals, group and individual predictions settle against the same market outcome. Each side is accounted exactly once — either a `Position` or a `GroupPosition` — so the vault conserves.
+
+## Deployed addresses
+
+| What | Address |
+|---|---|
+| `signal_markets` program | `86hERt8cdRZUBpc1Ng8coX2jwLmWGUcyc9JNfspw39yr` |
+| TxLINE `txoracle` validator (`TXLINE_VALIDATOR_ID`) | `6pW64gN1s2uqjHkn1unFeEjAwJkPGHoppGvS715wyP2J` |
+| `mock_validator` program (`TXLINE_PROGRAM_ID`) | `FPnwSSp2DXcNvJnxXWc2JXvU4MLNfrWDT6wBcU5Eptse` |
+| App USDC mint | `3aakQUJ6vvWphAr18ZoAJfoHs3w148tWJmKsgsnUj12q` |

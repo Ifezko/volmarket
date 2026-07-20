@@ -1,0 +1,82 @@
+---
+title: "TxLINE integration"
+description: "The TxLINE hosts and endpoints Volmarket uses, the Pct and PriceNames conventions, and how odds updates key to on-chain markets."
+---
+
+TxLINE is the odds feed Volmarket settles against. This page covers the API surface used, the data conventions that matter for correctness, and how a feed update maps to an on-chain market.
+
+## Hosts
+
+The OpenAPI `servers:` block lists two hosts:
+
+| Network | Base URL |
+|---|---|
+| DevNet | `https://txline-dev.txodds.com` |
+| Production | `https://txline.txodds.com` |
+
+Both are overridable with `TXLINE_BASE_URL`. The spec is published at `/docs/docs.yaml` on either host.
+
+<Note>
+Earlier integration work targeted `oracle*.txodds.com`, which no longer resolves. The upstream repository was renamed to the two hosts above; use those.
+</Note>
+
+## Authentication
+
+Every data endpoint requires **both** headers:
+
+- `Authorization: Bearer <JWT>`
+- `X-Api-Token: <token>`
+
+The spec declares this as `httpAuth` plus `apiKeyAuth`. There is no guest-JWT-only data path — the `/api/guest/*` routes do not serve odds.
+
+## Endpoints used
+
+| Endpoint | Purpose |
+|---|---|
+| `GET /api/odds/stream` | Server-sent events stream of live `Odds` records. This is the keeper's primary input. Overridable with `TXLINE_STREAM_URL`. |
+| `GET /api/odds/validation?messageId={id}&ts={ts}` | Merkle proof for a single odds record. Returns `404` until the record's batch publishes — see below. |
+| `GET /api/scores/stat-validation?fixtureId={id}&seq={seq}&statKey={key}` | Merkle proof for a single stat (spec v1.5.2). Not used for odds settlement; the program is odds-only. |
+
+### Proof availability
+
+`GET /api/odds/validation` returns `404` for a record until its batch publishes. That is expected behavior, not an error — proofs publish on wall-clock 5-minute batches.
+
+The keeper's `fetchPublishedOddsProof` computes the batch boundary and retries with backoff across the publication buffer. See [epoch timing](/settlement#epoch-timing-detection-is-instant-proof-is-not) for what this means for settlement.
+
+## Data conventions
+
+An `Odds` record carries:
+
+```
+FixtureId · MessageId · Ts · SuperOddsType · MarketParameters
+PriceNames[] · Prices[] · Pct[] · InRunning
+```
+
+### Pct vs Prices
+
+`PriceNames[]`, `Prices[]`, and `Pct[]` are positionally parallel — index `i` in each refers to the same outcome.
+
+<Warning>
+**`Pct[]` is what settles.** It holds the demargined implied probability as a 3-decimal percent string, for example `"39.432"`. On-chain it is scaled as `round(Pct × 1000)`, so `"39.432"` becomes `39432`.
+
+**`Prices[]` is not.** It holds decimal odds × 1000 — a different quantity on a different scale. Substituting it produces a plausible-looking integer that settles markets incorrectly.
+</Warning>
+
+Volmarket uses the **StablePrice** feed specifically, because its odds are demargined — the percentage reads as a true probability rather than a bookmaker's marked-up price.
+
+## Market keying
+
+An on-chain market's odd identity is **`SuperOddsType` + `MarketParameters` + outcome**.
+
+Including `MarketParameters` is what keeps different lines distinct. Two Over/Under markets on the same fixture share a `SuperOddsType` but differ in `MarketParameters` (the line value), so without it they would collide into one market. `market_params` is part of the market PDA, which makes the separation structural rather than conventional.
+
+When the keeper receives a stream update, it matches on that triple plus `FixtureId` to find open markets, then reads the settling outcome's `Pct[]` entry by its index in `PriceNames[]`.
+
+## Anchoring
+
+Every odds update is committed into a batch whose Merkle root is anchored on Solana. A record is proven in two stages:
+
+1. **Sub-tree proof** — the odds snapshot within its fixture's batch summary.
+2. **Main-tree proof** — that batch summary within the day's root, held in `daily_odds_merkle_roots`.
+
+Both stages are checked on-chain by TxLINE's `txoracle` `validate_odds` instruction. See [the CPI](/settlement#the-real-txline-cpi) for the verified transaction and reproduction steps.
