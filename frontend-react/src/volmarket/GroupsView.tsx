@@ -1,5 +1,4 @@
-import { fmtK, feeLabel, type Group } from './groups'
-import { GroupActivityFeed } from './GroupActivityFeed'
+import { fmtK, feeLabel, userHandle, type Group } from './groups'
 import type { GroupActivityItem } from '../lib/onchainGroups'
 
 export interface PendingRequest {
@@ -17,12 +16,10 @@ export function GroupsView({
   joined,
   currentUser,
   pendingByIdx,
-  activityByIdx,
   onClose,
   onCreateGroup,
   onRequestJoin,
   onApprove,
-  onJoinCall,
 }: {
   open: boolean
   groups: Group[]
@@ -64,7 +61,7 @@ export function GroupsView({
             const isMember = joined.has(idx)
             const isOwner = !!currentUser && g.owner === currentUser
             const pending = pendingByIdx.get(idx) ?? []
-            const activity = activityByIdx.get(idx) ?? []
+            const ownerName = userHandle(g.owner)
             const pnlCol = g.pnl >= 0 ? 'var(--green)' : 'var(--red)'
             const pnlStr = (g.pnl >= 0 ? '+' : '−') + fmtK(g.pnl) + ' USDC'
             return (
@@ -72,6 +69,14 @@ export function GroupsView({
                 <div className="gctop">
                   <span className="gname">{g.name}</span>
                   <span className="gpub">Public</span>
+                </div>
+                <div className="gowner">
+                  Owner <span className="ghandle">{ownerName}</span>
+                  {isOwner ? ' · you' : ''}
+                </div>
+                <div className="gmeta">
+                  <span>{g.roster ? '👥 Members shown to approved joiners' : '🔒 Members private'}</span>
+                  <span className="gfee">Fee {feeLabel(g.feeBps ?? 0)}</span>
                 </div>
                 <div className="gstats">
                   <div className="gs">
@@ -93,25 +98,13 @@ export function GroupsView({
                     <div className="gv">{g.wr}%</div>
                   </div>
                 </div>
-                <div className="gpriv">
-                  {g.roster ? '👥 Members shown to approved joiners' : '🔒 Members private'} · Group fee: {feeLabel(g.feeBps ?? 0)}
-                </div>
-
-                <GroupActivityFeed
-                  items={activity}
-                  canJoin={isMember || isOwner}
-                  currentUser={currentUser}
-                  onJoin={(item) => onJoinCall(idx, item)}
-                />
 
                 {isOwner && pending.length > 0 && (
                   <div style={{ margin: '4px 0 8px' }}>
                     <div className="gk" style={{ marginBottom: 6 }}>Pending requests</div>
                     {pending.map((p) => (
                       <div className="selrow" key={p.memberAccount} style={{ marginBottom: 6 }}>
-                        <div className="s" style={{ fontFamily: 'monospace' }}>
-                          {p.member.slice(0, 4)}…{p.member.slice(-4)}
-                        </div>
+                        <div className="s">{userHandle(p.member)}</div>
                         <button className="btn btn-blue" onClick={() => onApprove(idx, p.member)}>
                           Approve
                         </button>

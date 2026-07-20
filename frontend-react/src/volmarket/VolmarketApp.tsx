@@ -32,12 +32,14 @@ import {
   type GroupActivityItem,
 } from '../lib/onchainGroups'
 import { GroupDetail } from './GroupDetail'
-import { fetchRealMarkets, makeConnection } from '../lib/onchainMarkets'
+import { fetchRealMarkets, makeConnection, type RealMarket } from '../lib/onchainMarkets'
 import { placeRealPredictions, placeGroupPredictions, FEE_BPS, type PendingPick } from '../lib/depositMarkets'
 import { claimPositions, fetchWalletState, previewMultiplier, type ClaimablePosition, type ActivePosition } from '../lib/claimMarkets'
 import { resolveMarkets } from '../lib/resolveMarkets'
+import { fetchLiveSeries } from '../lib/signalFeed'
+import { getProfile, avatarGradient } from '../lib/profileStore'
 import { fundWallet, fetchUsdcBalance, withdrawUsdc, fetchFundingHistory } from '../lib/funds'
-import { buildLiveFixtures, applyBoardView, type LiveFixture, type BoardFilter, type BoardSort } from './liveFixtures'
+import { buildLiveFixtures, applyBoardView, setRuntimeNames, type LiveFixture, type BoardFilter, type BoardSort } from './liveFixtures'
 import type { PredictionLine } from './SignalChart'
 import type { RealPredictMeta } from './PredictBuilder'
 
@@ -47,6 +49,15 @@ import type { RealPredictMeta } from './PredictBuilder'
 // keeper/src/config.ts / bootstrap.ts. BOOTSTRAP_CAP_USDC MUST match the keeper's cap: past it, the
 // house can't fully back the true odds, so the delivered odds fall to 1 + cap/stake. Combos multiply.
 const BOOTSTRAP_CAP_USDC = 1000
+// The KEEPER is the settlement authority: it settles each market from the real TxLINE feed (the
+// same signal the chart shows), resolving crossings/defeats in-window and holds at window close.
+// The frontend must NOT preempt that with its blind timeout-resolve (which always makes Holds win
+// and Breaks lose, disagreeing with the real outcome). So the frontend only force-resolves as a
+// genuine last resort, long after close, when the keeper is clearly down. Reading the keeper's
+// outcome, by contrast, happens promptly (a timer fires a refresh shortly after window_end).
+const RESOLVE_GRACE_SECS = 45
+// How soon after window_end to read (not resolve) so the keeper's fresh outcome shows promptly.
+const SETTLE_READ_DELAY_SECS = 3
 function oddsFromLevelRaw(levelRaw: number, side: 'hold' | 'break') {
   const p = Math.min(0.98, Math.max(0.02, levelRaw / 100000))
   return side === 'hold' ? 1 / p : 1 / (1 - p)
@@ -94,7 +105,11 @@ export function VolmarketApp() {
   const { signTransaction } = useSignTransaction()
   const solanaWallet = wallets[0]
 
-  const [fixtures, setFixtures] = useState<LiveFixture[]>([])
+  // Raw on-chain markets; the board (fixtures) is derived so it rebuilds when the keeper pushes real
+  // names (namesVersion) as well as when markets change.
+  const [rawMarkets, setRawMarkets] = useState<RealMarket[]>([])
+  const [namesVersion, setNamesVersion] = useState(0)
+  const fixtures = useMemo<LiveFixture[]>(() => buildLiveFixtures(rawMarkets), [rawMarkets, namesVersion])
   const [curMatchId, setCurMatchId] = useState<string | null>(null)
   const [activeKey, setActiveKey] = useState<string | null>(null)
   const [followed, setFollowed] = useState<Set<string>>(new Set())
@@ -140,7 +155,10 @@ export function VolmarketApp() {
   // user's "calls", so placed predictions and their outcome show up alongside the live tape.
   const [activePositions, setActivePositions] = useState<ActivePosition[]>([])
   // "Your prediction ended" popup: the positions that just settled this session.
-  const [endedResults, setEndedResults] = useState<ActivePosition[]>([])
+  // Positions surfaced in the result modal, tracked by KEY (not a snapshot) so the modal re-reads
+  // them from live `activePositions` - that's what lets a row flip from provisional
+  // ("verifying on-chain…") to verified in place once the on-chain settlement lands.
+  const [surfacedKeys, setSurfacedKeys] = useState<string[]>([])
   const [resultOpen, setResultOpen] = useState(false)
   // position keys already settled (so we only pop for ones that end while you're watching, not
   // for history); a per-market resolve-attempt counter (so a transient failure retries a few
@@ -153,15 +171,44 @@ export function VolmarketApp() {
   const [boardFilter, setBoardFilter] = useState<BoardFilter>('all')
   const [boardSort, setBoardSort] = useState<BoardSort>('volume')
   const [search, setSearch] = useState('')
+  // Fixtures the keeper reports as streaming a live signal right now. null = not fetched yet. The
+  // board shows ONLY these, so every chart draws a real feed and every settlement matches it.
+  const [liveFixtureIds, setLiveFixtureIds] = useState<Set<number> | null>(null)
+
+  // The signed-in user's local profile (username + avatar). profileVersion bumps on save so the nav
+  // avatar and username re-read from the store.
+  const [profileVersion, setProfileVersion] = useState(0)
+  const myProfile = useMemo(() => getProfile(solanaWallet?.address), [solanaWallet?.address, profileVersion])
+  const avatarBg = avatarGradient(solanaWallet?.address)
+  const avatarInitial = (myProfile.username || solanaWallet?.address || '?').slice(0, 1).toUpperCase()
+
+  const namesJsonRef = useRef('')
+  const refreshLive = useCallback(async () => {
+    const { series, names } = await fetchLiveSeries()
+    setRuntimeNames(names) // real match names for the auto-created live cards
+    const namesJson = JSON.stringify(names)
+    if (namesJson !== namesJsonRef.current) {
+      namesJsonRef.current = namesJson
+      setNamesVersion((v) => v + 1) // rebuild the board so the new names take effect
+    }
+    setLiveFixtureIds(new Set(series.map((s) => s.fixtureId)))
+  }, [])
+  useEffect(() => {
+    refreshLive()
+    const id = setInterval(refreshLive, 15_000)
+    return () => clearInterval(id)
+  }, [refreshLive])
 
   const curMatch = curMatchId ? fixtures.find((m) => m.id === curMatchId) ?? null : null
   const displayedFixtures = useMemo(() => {
     const view = applyBoardView(fixtures, boardFilter, boardSort)
+    // Only surface fixtures with a live signal feed (empty until the keeper's live set loads).
+    const live = liveFixtureIds ? view.filter((f) => liveFixtureIds.has(f.fixtureId)) : []
     const q = search.trim().toLowerCase()
-    if (!q) return view
+    if (!q) return live
     // Match on either team or the competition, so "arg", "switz", "world cup" all work.
-    return view.filter((f) => `${f.a} ${f.b} ${f.comp}`.toLowerCase().includes(q))
-  }, [fixtures, boardFilter, boardSort, search])
+    return live.filter((f) => `${f.a} ${f.b} ${f.comp}`.toLowerCase().includes(q))
+  }, [fixtures, boardFilter, boardSort, search, liveFixtureIds])
 
   // Every on-chain market currently loaded (flattened from the board data), for pricing the slip.
   // The slip priced with the REAL payout multiplier. Placing ALWAYS opens a fresh market - its
@@ -190,7 +237,7 @@ export function VolmarketApp() {
     try {
       const connection = makeConnection()
       const real = await fetchRealMarkets(connection)
-      setFixtures(buildLiveFixtures(real))
+      setRawMarkets(real)
     } catch (err) {
       console.error('failed to fetch real markets', err)
     }
@@ -295,19 +342,30 @@ export function VolmarketApp() {
   // Surfaces the "prediction ended" popup for any settled positions not seen yet. Seeds the
   // seen-set silently on the first pass so we don't pop for predictions that settled before
   // this session - only for ones that end while you're here.
+  // Surface a prediction the moment its WINDOW CLOSES, not only once it's settled on-chain: the
+  // stream already tells us the outcome, while trustless verification lags to the next 5-min proof
+  // batch (see keeper txline.ts). So the modal opens immediately showing the provisional result and
+  // upgrades itself to "Verified" when the on-chain resolution lands.
   const surfaceEnded = useCallback((positions: ActivePosition[]) => {
-    const settled = positions.filter((p) => p.status !== 'pending')
+    const now = Date.now() / 1000
+    const ended = positions.filter((p) => p.status !== 'pending' || now >= p.windowEnd)
     if (!resolveSeeded.current) {
-      resolvedSeen.current = new Set(settled.map((p) => p.position.toBase58()))
+      resolvedSeen.current = new Set(ended.map((p) => p.position.toBase58()))
       resolveSeeded.current = true
       return
     }
-    const fresh = settled.filter((p) => !resolvedSeen.current.has(p.position.toBase58()))
+    const fresh = ended.filter((p) => !resolvedSeen.current.has(p.position.toBase58()))
     if (!fresh.length) return
     fresh.forEach((p) => resolvedSeen.current.add(p.position.toBase58()))
-    setEndedResults(fresh)
+    setSurfacedKeys((prev) => [...new Set([...prev, ...fresh.map((p) => p.position.toBase58())])])
     setResultOpen(true)
   }, [])
+
+  // Live view of the surfaced positions - re-derived from activePositions each poll.
+  const endedResults = useMemo(
+    () => activePositions.filter((p) => surfacedKeys.includes(p.position.toBase58())),
+    [activePositions, surfacedKeys],
+  )
 
   // One consolidated poll: a single combined read (fetchWalletState = one position scan + one
   // market scan) drives the board, the chart's active positions, and claimables - then we
@@ -331,13 +389,12 @@ export function VolmarketApp() {
         const connection = makeConnection()
         const owner = new PublicKey(solanaWallet.address)
         const { markets, active, claimable } = await fetchWalletState(connection, owner)
-        setFixtures(buildLiveFixtures(markets))
+        setRawMarkets(markets)
         setActivePositions(active)
         surfaceEnded(active)
 
         const MAX_CLAIM_ATTEMPTS = 6
         const MAX_RESOLVE_ATTEMPTS = 6
-        const RESOLVE_GRACE_SECS = 12
 
         setClaimables(claimable)
         // manual fallback surfaces only once auto-claim has exhausted its retries on a winner
@@ -417,6 +474,20 @@ export function VolmarketApp() {
     return () => clearInterval(id)
   }, [refreshWalletState, refreshUsdc, refreshGroups])
 
+  // Show the keeper's outcome promptly: schedule a READ (not a resolve) shortly after the soonest
+  // pending prediction's window closes, so the keeper's fresh settlement surfaces without waiting for
+  // the next 20s poll. It's a read because RESOLVE_GRACE_SECS >> SETTLE_READ_DELAY_SECS, so this
+  // refresh won't itself force-resolve - the keeper stays the settlement authority.
+  useEffect(() => {
+    const pending = activePositions.filter((p) => p.status === 'pending')
+    if (!pending.length) return
+    const nowSecs = Date.now() / 1000
+    const soonest = Math.min(...pending.map((p) => p.windowEnd + SETTLE_READ_DELAY_SECS))
+    const delayMs = Math.max(0, (soonest - nowSecs) * 1000) + 600
+    const id = setTimeout(() => refreshWalletState(), delayMs)
+    return () => clearTimeout(id)
+  }, [activePositions, refreshWalletState])
+
   useEffect(() => {
     document.body.classList.toggle('lock', curMatch !== null || groupsViewOpen)
   }, [curMatch, groupsViewOpen])
@@ -440,11 +511,13 @@ export function VolmarketApp() {
     return () => removeEventListener('keydown', onKeyDown)
   }, [])
 
-  function openMatch(id: string) {
+  function openMatch(id: string, oddKey?: string) {
     const m = fixtures.find((x) => x.id === id)
     if (!m) return
     setCurMatchId(id)
-    setActiveKey(m.status === 'live' ? (m.odds[0]?.key ?? null) : null)
+    // A card row can open the detail focused on a specific odd; otherwise default to the first odd
+    // (live) or leave it unselected (upcoming) as before.
+    setActiveKey(oddKey ?? (m.status === 'live' ? (m.odds[0]?.key ?? null) : null))
     window.scrollTo(0, 0)
   }
 
@@ -868,6 +941,9 @@ export function VolmarketApp() {
         }}
         onOpenGroupsView={() => setGroupsViewOpen(true)}
         onOpenProfile={openProfile}
+        avatarUrl={myProfile.avatar}
+        avatarBg={avatarBg}
+        avatarInitial={avatarInitial}
       />
       <Board
         fixtures={displayedFixtures}
@@ -962,17 +1038,18 @@ export function VolmarketApp() {
                         }}
                         positions={activePositions}
                         myGroups={myGroups}
+                        onOpenGroup={openGroup}
                         onOpenGroups={() => {
                           setProfileOpen(false)
                           setSlipOpen(false)
                           setGroupsViewOpen(true)
                         }}
-                        onOpenGroup={openGroup}
                         loadFunding={async () => {
                           if (!solanaWallet) return []
                           const connection = makeConnection()
                           return fetchFundingHistory(connection, new PublicKey(solanaWallet.address))
                         }}
+                        onProfileSaved={() => setProfileVersion((v) => v + 1)}
                       />
                     ),
                   }

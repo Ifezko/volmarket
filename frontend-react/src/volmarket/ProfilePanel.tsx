@@ -3,6 +3,9 @@ import type { ActivePosition } from '../lib/claimMarkets'
 import type { FundingEvent } from '../lib/funds'
 import { describeMarket, matchWindowLabel } from './liveFixtures'
 import { feeLabel } from './groups'
+import { getProfile, setProfile, resizeAvatar, avatarGradient } from '../lib/profileStore'
+
+type View = 'menu' | 'groups' | 'withdraw' | 'settings' | 'history'
 
 export interface MyGroup {
   address: string
@@ -28,6 +31,7 @@ export function ProfilePanel({
   onOpenGroups,
   onOpenGroup,
   loadFunding,
+  onProfileSaved,
 }: {
   walletAddress: string | undefined
   balance: number
@@ -40,8 +44,12 @@ export function ProfilePanel({
   onOpenGroups: () => void
   onOpenGroup: (address: string) => void
   loadFunding: () => Promise<FundingEvent[]>
+  /** called after the user saves their username/avatar, so the nav avatar can refresh */
+  onProfileSaved?: () => void
 }) {
-  const [view, setView] = useState<'account' | 'history'>('account')
+  // 'menu' is the nav list; every other value is one destination opened from it. Groups isn't here
+  // because it navigates out of the panel entirely (onOpenGroups).
+  const [view, setView] = useState<View>('menu')
   const [destination, setDestination] = useState('')
   const [amount, setAmount] = useState('')
   const [busy, setBusy] = useState(false)
@@ -49,6 +57,35 @@ export function ProfilePanel({
   const [done, setDone] = useState<number | null>(null)
   const [copied, setCopied] = useState(false)
   const [loggingOut, setLoggingOut] = useState(false)
+
+  // Profile (username + avatar), stored locally per wallet - see lib/profileStore.
+  const [username, setUsername] = useState('')
+  const [avatar, setAvatar] = useState('')
+  const [profileSaved, setProfileSaved] = useState(false)
+  const [avatarErr, setAvatarErr] = useState<string | null>(null)
+  useEffect(() => {
+    const p = getProfile(walletAddress)
+    setUsername(p.username ?? '')
+    setAvatar(p.avatar ?? '')
+  }, [walletAddress])
+
+  function saveProfile() {
+    if (!walletAddress) return
+    setProfile(walletAddress, { username: username.trim() || undefined, avatar: avatar || undefined })
+    setProfileSaved(true)
+    setTimeout(() => setProfileSaved(false), 1500)
+    onProfileSaved?.()
+  }
+
+  async function pickAvatar(file: File | undefined) {
+    if (!file) return
+    setAvatarErr(null)
+    try {
+      setAvatar(await resizeAvatar(file))
+    } catch (err) {
+      setAvatarErr(err instanceof Error ? err.message : String(err))
+    }
+  }
 
   // Deposits/withdrawals (predictions come from `positions`, already polled). Loaded lazily the
   // first time History opens, and after a withdrawal so the new debit shows up.
@@ -107,150 +144,295 @@ export function ProfilePanel({
     return <div className="empty">Sign in to view your profile.</div>
   }
 
+  const short = `${walletAddress.slice(0, 4)}…${walletAddress.slice(-4)}`
+
   return (
     <>
-      <div className="seg" style={{ marginBottom: 14 }}>
-        <button className={`segbtn${view === 'account' ? ' on' : ''}`} onClick={() => setView('account')}>
-          Account
-        </button>
-        <button className={`segbtn${view === 'history' ? ' on' : ''}`} onClick={() => setView('history')}>
-          History
-        </button>
+      {/* Header: who you are + what you hold. Stays put in every view so the balance is never more
+          than a glance away while withdrawing or reading history. */}
+      <div className="phead">
+        <div
+          className="pavatar"
+          style={avatar ? { backgroundImage: `url(${avatar})` } : { background: avatarGradient(walletAddress) }}
+        >
+          {!avatar && (username || walletAddress).slice(0, 1).toUpperCase()}
+        </div>
+        <div className="phead-id">
+          <div className="phead-name">{username || short}</div>
+          {/* Don't print the address twice when there's no username to head the card - the name
+              line is already the address, so the button just offers the copy. */}
+          <button className="phead-addr" onClick={copy} title="Copy wallet address">
+            {username && short}
+            <span className="phead-copy">{copied ? 'Copied' : username ? 'Copy' : 'Copy address'}</span>
+          </button>
+        </div>
+        <div className="phead-bal">
+          <span className="phead-ballbl">Balance</span>
+          <span className="phead-amt">${balance.toFixed(2)}</span>
+        </div>
       </div>
 
-      {view === 'account' ? (
+      {view === 'menu' ? (
+        <nav className="pnav">
+          <PnavItem
+            icon={<IconGroups />}
+            label="Groups"
+            hint={myGroups.length ? `${myGroups.length} joined` : 'Create or join one'}
+            onClick={() => setView('groups')}
+          />
+          <PnavItem icon={<IconWithdraw />} label="Withdraw" hint="To any Solana address" onClick={() => setView('withdraw')} />
+          <PnavItem icon={<IconSettings />} label="Profile settings" hint="Username & photo" onClick={() => setView('settings')} />
+          <PnavItem icon={<IconHistory />} label="History" hint="Predictions & transfers" onClick={() => setView('history')} />
+          <PnavItem
+            icon={<IconSignOut />}
+            label={loggingOut ? 'Signing out…' : 'Sign out'}
+            hint={accountLabel}
+            danger
+            onClick={logout}
+          />
+        </nav>
+      ) : (
         <>
-          {accountLabel && (
-            <div className="gfield">
-              <label className="flbl">Signed in as</label>
-              <div className="l" style={{ wordBreak: 'break-all' }}>
-                {accountLabel}
-              </div>
-            </div>
-          )}
-
-          <div className="gfield">
-            <label className="flbl">Balance</label>
-            <div className="mono" style={{ fontSize: 22, fontWeight: 700, color: 'var(--green)' }}>
-              ${balance.toFixed(2)}
-            </div>
-          </div>
-
-          <div className="gfield">
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline' }}>
-              <label className="flbl">My groups</label>
-              <button
-                className="s"
-                onClick={onOpenGroups}
-                style={{ background: 'none', border: 'none', color: 'var(--blue)', cursor: 'pointer', padding: 0 }}
-              >
-                Browse all →
-              </button>
-            </div>
-            {myGroups.length === 0 ? (
-              <div className="s" style={{ color: 'var(--dim)' }}>
-                You're not in any group yet. Open Groups to create or join one.
-              </div>
-            ) : (
-              <div style={{ display: 'grid', gap: 8 }}>
-                {myGroups.map((g) => (
-                  <button
-                    className="selrow"
-                    key={g.address}
-                    onClick={() => onOpenGroup(g.address)}
-                    style={{ cursor: 'pointer', textAlign: 'left', width: '100%' }}
-                  >
-                    <div style={{ minWidth: 0 }}>
-                      <div className="l">{g.name}</div>
-                      <div className="s" style={{ color: 'var(--dim)' }}>
-                        {g.role} · {g.members} {g.members === 1 ? 'member' : 'members'} · Group fee: {feeLabel(g.feeBps)}
-                      </div>
-                    </div>
-                    <span className="s" style={{ color: 'var(--blue)', whiteSpace: 'nowrap', marginLeft: 8 }}>
-                      {g.role === 'Owner' ? 'Edit →' : 'View →'}
-                    </span>
-                  </button>
-                ))}
-              </div>
-            )}
-          </div>
-
-          <div className="gfield">
-            <label className="flbl">Wallet address</label>
-            <button
-              className="selrow"
-              onClick={copy}
-              style={{ cursor: 'pointer', textAlign: 'left', width: '100%' }}
-              title="Copy address"
-            >
-              <div className="l mono" style={{ wordBreak: 'break-all', fontSize: 12 }}>
-                {walletAddress}
-              </div>
-              <span className="s" style={{ color: 'var(--blue)', whiteSpace: 'nowrap', marginLeft: 8 }}>
-                {copied ? 'Copied' : 'Copy'}
-              </span>
-            </button>
-          </div>
-
-          <div className="gfield">
-            <label className="flbl">Withdraw USDC</label>
-            <input
-              className="tinput"
-              value={destination}
-              onChange={(e) => setDestination(e.target.value)}
-              placeholder="Destination Solana address"
-              style={{ marginBottom: 8 }}
-            />
-            <input
-              className="tinput"
-              value={amount}
-              onChange={(e) => setAmount(e.target.value.replace(/[^0-9.]/g, ''))}
-              inputMode="decimal"
-              placeholder={`Amount (max ${balance.toFixed(2)})`}
-            />
-          </div>
-
-          {error && (
-            <div className="s" style={{ color: 'var(--red)', margin: '2px 0 10px' }}>
-              {error}
-            </div>
-          )}
-          {done != null && !error && (
-            <div className="s" style={{ color: 'var(--green)', margin: '2px 0 10px' }}>
-              Withdrew {done} USDC.
-            </div>
-          )}
-
-          <button
-            className="btn btn-blue"
-            style={{ width: '100%', ...(canWithdraw ? {} : { opacity: 0.5 }) }}
-            disabled={!canWithdraw}
-            onClick={withdraw}
-          >
-            {busy ? 'Withdrawing…' : amt > balance ? 'Not enough balance' : `Withdraw${amt > 0 ? ` ${amt} USDC` : ''}`}
+          <button className="pback" onClick={() => setView('menu')}>
+            ← {view === 'groups' ? 'Groups' : view === 'withdraw' ? 'Withdraw' : view === 'settings' ? 'Profile settings' : 'History'}
           </button>
 
-          <div style={{ borderTop: '1px solid var(--border)', margin: '18px 0 0', paddingTop: 14 }}>
-            <button
-              className="btn"
-              style={{
-                width: '100%',
-                background: 'transparent',
-                border: '1px solid var(--red)',
-                color: 'var(--red)',
-                ...(loggingOut ? { opacity: 0.5 } : {}),
-              }}
-              disabled={loggingOut}
-              onClick={logout}
-            >
-              {loggingOut ? 'Disconnecting…' : 'Disconnect'}
-            </button>
-          </div>
+          {view === 'groups' && (
+            <div className="gfield">
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline' }}>
+                <label className="flbl">My groups</label>
+                <button
+                  className="s"
+                  onClick={onOpenGroups}
+                  style={{ background: 'none', border: 'none', color: 'var(--blue)', cursor: 'pointer', padding: 0 }}
+                >
+                  Browse all →
+                </button>
+              </div>
+              {myGroups.length === 0 ? (
+                <div className="s" style={{ color: 'var(--dim)' }}>
+                  You're not in any group yet. Open Groups to create or join one.
+                </div>
+              ) : (
+                <div style={{ display: 'grid', gap: 8 }}>
+                  {myGroups.map((g) => (
+                    <button
+                      className="selrow"
+                      key={g.address}
+                      onClick={() => onOpenGroup(g.address)}
+                      style={{ cursor: 'pointer', textAlign: 'left', width: '100%' }}
+                    >
+                      <div style={{ minWidth: 0 }}>
+                        <div className="l">{g.name}</div>
+                        <div className="s" style={{ color: 'var(--dim)' }}>
+                          {g.role} · {g.members} {g.members === 1 ? 'member' : 'members'} · Group fee: {feeLabel(g.feeBps)}
+                        </div>
+                      </div>
+                      <span className="s" style={{ color: 'var(--blue)', whiteSpace: 'nowrap', marginLeft: 8 }}>
+                        {g.role === 'Owner' ? 'Edit →' : 'View →'}
+                      </span>
+                    </button>
+                  ))}
+                </div>
+              )}
+            </div>
+          )}
+
+          {view === 'withdraw' && (
+            <>
+              <div className="gfield">
+                <label className="flbl">Withdraw USDC</label>
+                <input
+                  className="tinput"
+                  value={destination}
+                  onChange={(e) => setDestination(e.target.value)}
+                  placeholder="Destination Solana address"
+                  style={{ marginBottom: 8 }}
+                />
+                <input
+                  className="tinput"
+                  value={amount}
+                  onChange={(e) => setAmount(e.target.value.replace(/[^0-9.]/g, ''))}
+                  inputMode="decimal"
+                  placeholder={`Amount (max ${balance.toFixed(2)})`}
+                />
+              </div>
+
+              {error && (
+                <div className="s" style={{ color: 'var(--red)', margin: '2px 0 10px' }}>
+                  {error}
+                </div>
+              )}
+              {done != null && !error && (
+                <div className="s" style={{ color: 'var(--green)', margin: '2px 0 10px' }}>
+                  Withdrew {done} USDC.
+                </div>
+              )}
+
+              <button
+                className="btn btn-blue"
+                style={{ width: '100%', ...(canWithdraw ? {} : { opacity: 0.5 }) }}
+                disabled={!canWithdraw}
+                onClick={withdraw}
+              >
+                {busy ? 'Withdrawing…' : amt > balance ? 'Not enough balance' : `Withdraw${amt > 0 ? ` ${amt} USDC` : ''}`}
+              </button>
+            </>
+          )}
+
+          {view === 'settings' && (
+            <>
+              <div className="gfield">
+                <label className="flbl">Profile</label>
+                <div style={{ display: 'flex', gap: 12, alignItems: 'center', marginBottom: 10 }}>
+                  <div
+                    className="pavatar"
+                    style={avatar ? { backgroundImage: `url(${avatar})` } : { background: avatarGradient(walletAddress) }}
+                  >
+                    {!avatar && (username || walletAddress).slice(0, 1).toUpperCase()}
+                  </div>
+                  <input
+                    className="tinput"
+                    value={username}
+                    onChange={(e) => setUsername(e.target.value)}
+                    placeholder="Choose a username"
+                    maxLength={20}
+                    style={{ flex: 1 }}
+                  />
+                </div>
+                <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+                  <label className="btn btn-ghost" style={{ cursor: 'pointer' }}>
+                    {avatar ? 'Change photo' : 'Upload photo'}
+                    <input
+                      type="file"
+                      accept="image/*"
+                      onChange={(e) => pickAvatar(e.target.files?.[0] ?? undefined)}
+                      style={{ display: 'none' }}
+                    />
+                  </label>
+                  {avatar && (
+                    <button className="btn btn-ghost" onClick={() => setAvatar('')}>
+                      Remove
+                    </button>
+                  )}
+                  <button className="btn btn-blue" onClick={saveProfile} style={{ marginLeft: 'auto' }}>
+                    {profileSaved ? 'Saved ✓' : 'Save profile'}
+                  </button>
+                </div>
+                {avatarErr && (
+                  <div className="s" style={{ color: 'var(--red)', marginTop: 6 }}>
+                    {avatarErr}
+                  </div>
+                )}
+              </div>
+
+              {accountLabel && (
+                <div className="gfield">
+                  <label className="flbl">Signed in as</label>
+                  <div className="l" style={{ wordBreak: 'break-all' }}>
+                    {accountLabel}
+                  </div>
+                </div>
+              )}
+
+              <div className="gfield">
+                <label className="flbl">Wallet address</label>
+                <button className="selrow" onClick={copy} style={{ cursor: 'pointer', textAlign: 'left', width: '100%' }} title="Copy address">
+                  <div className="l mono" style={{ wordBreak: 'break-all', fontSize: 12 }}>
+                    {walletAddress}
+                  </div>
+                  <span className="s" style={{ color: 'var(--blue)', whiteSpace: 'nowrap', marginLeft: 8 }}>
+                    {copied ? 'Copied' : 'Copy'}
+                  </span>
+                </button>
+              </div>
+            </>
+          )}
+
+          {view === 'history' && <HistoryList positions={positions} funding={funding} fundingError={fundingError} />}
         </>
-      ) : (
-        <HistoryList positions={positions} funding={funding} fundingError={fundingError} />
       )}
     </>
+  )
+}
+
+// One nav row: icon, label, a quiet hint, chevron. `danger` tints Sign out red without making it a
+// separate control - it's the last item in the same list, not a detached button.
+function PnavItem({
+  icon,
+  label,
+  hint,
+  onClick,
+  danger,
+}: {
+  icon: React.ReactNode
+  label: string
+  hint?: string
+  onClick: () => void
+  danger?: boolean
+}) {
+  return (
+    <button className={`pnavitem${danger ? ' danger' : ''}`} onClick={onClick}>
+      <span className="pnavicon">{icon}</span>
+      <span className="pnavtext">
+        <span className="pnavlbl">{label}</span>
+        {hint && <span className="pnavhint">{hint}</span>}
+      </span>
+      <span className="pnavchev" aria-hidden="true">
+        ›
+      </span>
+    </button>
+  )
+}
+
+/* Inline SVGs (no icon dependency, and they inherit currentColor so `danger` tints the glyph too). */
+const svg = { width: 17, height: 17, viewBox: '0 0 24 24', fill: 'none', stroke: 'currentColor', strokeWidth: 1.8, strokeLinecap: 'round' as const, strokeLinejoin: 'round' as const }
+
+function IconGroups() {
+  return (
+    <svg {...svg}>
+      <path d="M16 20v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2" />
+      <circle cx="9" cy="7" r="4" />
+      <path d="M22 20v-2a4 4 0 0 0-3-3.87M16 3.13A4 4 0 0 1 16 11" />
+    </svg>
+  )
+}
+
+function IconWithdraw() {
+  return (
+    <svg {...svg}>
+      <path d="M12 19V5" />
+      <path d="M5 12l7-7 7 7" />
+      <path d="M3 21h18" />
+    </svg>
+  )
+}
+
+function IconSettings() {
+  return (
+    <svg {...svg}>
+      <circle cx="12" cy="8" r="4" />
+      <path d="M4 21v-1a6 6 0 0 1 6-6h4a6 6 0 0 1 6 6v1" />
+    </svg>
+  )
+}
+
+function IconHistory() {
+  return (
+    <svg {...svg}>
+      <circle cx="12" cy="12" r="9" />
+      <path d="M12 7v5l3.5 2" />
+    </svg>
+  )
+}
+
+function IconSignOut() {
+  return (
+    <svg {...svg}>
+      <path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4" />
+      <path d="M16 17l5-5-5-5" />
+      <path d="M21 12H9" />
+    </svg>
   )
 }
 
@@ -262,12 +444,18 @@ function FeedRow({
   subtitleColor,
   amount,
   amountColor,
+  href,
+  pending,
 }: {
   title: string
   subtitle: string
   subtitleColor: string
   amount: string
   amountColor: string
+  /** Solana Explorer target for this entry (tx for funding, market account for a prediction). */
+  href?: string
+  /** true while the prediction hasn't settled on-chain yet - the link is shown muted + inert. */
+  pending?: boolean
 }) {
   return (
     <div className="selrow" style={{ alignItems: 'flex-start' }}>
@@ -278,6 +466,15 @@ function FeedRow({
         <div className="s" style={{ color: 'var(--dim)', marginTop: 2 }}>
           <span style={{ color: subtitleColor, fontWeight: 600 }}>{subtitle}</span>
         </div>
+        {pending ? (
+          <span className="viewchain muted" title="Available once this prediction settles on-chain">
+            View onchain ↗
+          </span>
+        ) : href ? (
+          <a className="viewchain" href={href} target="_blank" rel="noreferrer" onClick={(e) => e.stopPropagation()}>
+            View onchain ↗
+          </a>
+        ) : null}
       </div>
       <span className="s mono" style={{ color: amountColor, whiteSpace: 'nowrap', fontWeight: 700, marginLeft: 8 }}>
         {amount}
@@ -331,6 +528,11 @@ function HistoryList({
               subtitleColor={color}
               amount={won ? `+${p.payoutUsdc.toFixed(2)}` : lost ? `−${p.stakeUsdc.toFixed(2)}` : p.stakeUsdc.toFixed(2)}
               amountColor={color}
+              // The market account carries the outcome + the resolve transaction, so it's the entry
+              // point for tracing a settled prediction. Muted until it settles - there's nothing
+              // resolved to inspect while the proof is still pending.
+              href={`https://explorer.solana.com/address/${p.market.toBase58()}?cluster=devnet`}
+              pending={p.status === 'pending'}
             />
           )
         }
@@ -345,6 +547,9 @@ function HistoryList({
             subtitleColor="var(--dim)"
             amount={`${isDeposit ? '+' : '−'}${ev.amountUsdc.toFixed(2)}`}
             amountColor={isDeposit ? 'var(--green)' : 'var(--text)'}
+            // Funding entries ARE a confirmed transaction, so link straight to it.
+            href={`https://explorer.solana.com/tx/${ev.signature}?cluster=devnet`}
+            pending={!ev.blockTime}
           />
         )
       })}

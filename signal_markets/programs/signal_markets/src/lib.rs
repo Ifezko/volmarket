@@ -4,9 +4,28 @@ use anchor_spl::token::{self, Mint, Token, TokenAccount, Transfer};
 declare_id!("86hERt8cdRZUBpc1Ng8coX2jwLmWGUcyc9JNfspw39yr");
 
 // CPI target for proof validation. On devnet this points at our deployed `mock_validator`
-// (approves any proof — demo only). Swap for the real TxLINE validator before mainnet:
+// (approves any proof — demo only). This is the ACTIVE demo path. The real txoracle
+// `validate_odds` CPI (TXLINE_VALIDATOR_ID + cpi_validate_odds, below) is implemented but
+// selected only when the keeper passes the real validator program instead of this one.
 // https://txline-docs.txodds.com/documentation/programs/addresses
 pub const TXLINE_PROGRAM_ID: Pubkey = anchor_lang::pubkey!("FPnwSSp2DXcNvJnxXWc2JXvU4MLNfrWDT6wBcU5Eptse");
+
+// The REAL TxLINE on-chain validator ("txoracle") — the CPI target for genuine Merkle-proof
+// validation via its `validate_odds` instruction (see cpi_validate_odds).
+//
+// VERIFIED ON DEVNET. A genuine TxLINE odds Merkle proof has been verified through this CPI:
+//   tx 5vPAbG89XBZkWTFw82HFEDjZDKbK6nFr9qqhPMztfG2Qobt2GpCeBDeFrwcVHmvsno3soZmEE4aniaswhj16uML2
+//   (txoracle logs: "Stage 1 SUCCESS" snapshot->summary, "Stage 2 SUCCESS" summary->main root)
+// The earlier `/api/odds/validation` 404s were EPOCH TIMING, not a bad messageId: proofs publish in
+// wall-clock 5-minute batches, so a record is only provable shortly after its interval closes (see
+// fetchPublishedOddsProof in keeper/src/txline.ts).
+// `TXLINE_PROGRAM_ID` (mock) remains the ACTIVE demo path; this real path is selected only when the
+// keeper passes TXLINE_VALIDATOR_ID as `txline_program`.
+pub const TXLINE_VALIDATOR_ID: Pubkey = anchor_lang::pubkey!("6pW64gN1s2uqjHkn1unFeEjAwJkPGHoppGvS715wyP2J");
+
+// Anchor global-instruction discriminator for txoracle `validate_odds`, copied verbatim from its
+// IDL (= sha256("global:validate_odds")[..8]).
+const VALIDATE_ODDS_DISCRIMINATOR: [u8; 8] = [192, 19, 91, 138, 104, 100, 212, 86];
 
 pub const BPS_DENOMINATOR: u64 = 10_000;
 
@@ -174,13 +193,29 @@ pub mod signal_markets {
         Ok(())
     }
 
-    /// Permissionless single-proof settlement.
+    /// Permissionless single-proof settlement — the deterministic core of the protocol.
     ///
-    /// BREAK resolves the moment anyone submits the update where value >= L (one proof,
-    /// CPI'd through TxLINE's validator). HOLD is the mirror, settled optimistically: it
-    /// wins by default, and anyone may defeat it early by submitting the update where
-    /// value dipped below L. If the window closes with BREAK unproven or HOLD undefeated,
-    /// the default outcome wins outright — window_end doubles as HOLD's challenge close.
+    /// SCALE: `value` and the market's level `L` carry the SAME units — demargined implied
+    /// PROBABILITY × 1000 (e.g. 46.2% → 46_200), so the predicate is a plain integer compare with
+    /// no rounding ambiguity. The keeper derives `value` from the anchored TxLINE datapoint by
+    /// outcome label (see resolveOutcomeValue / pctToValue in keeper/src/txline.ts).
+    ///
+    /// HOLD/BREAK ASYMMETRY — the two sides settle by opposite rules:
+    ///   • BREAK wins the instant ANY update proves `value >= L` (the line "broke through"
+    ///     resistance). The FIRST valid crossing proof settles it YES; one proof suffices.
+    ///   • HOLD is the optimistic mirror: presumed to win, and only DISPROVEN early — a proof that
+    ///     `value < L` at some point in the window means the line was defeated → NO.
+    ///   • window_end is the challenge close: if it passes with BREAK unproven / HOLD undefeated,
+    ///     the timeout branch below settles the DEFAULT outright (BREAK → NO, HOLD → YES), no proof.
+    ///
+    /// FAIL-SAFE: the keeper NEVER calls this on a guess — if an odds record has no PriceNames
+    /// entry matching this market's outcome, it refuses to settle (returns null; see
+    /// parseOddsValidation / resolveOutcomeValue), so a bad/missing mapping can't misresolve a
+    /// market onto the wrong outcome.
+    ///
+    /// `value`/`proof` are validated by CPI into whichever validator the caller passes: the real
+    /// txoracle `validate_odds` (verified on devnet) or mock_validator, the active demo path.
+    /// See TXLINE_VALIDATOR_ID.
     pub fn resolve_market<'info>(
         ctx: Context<'_, '_, '_, 'info, ResolveMarket<'info>>,
         value: i64,
@@ -217,21 +252,43 @@ pub mod signal_markets {
         require!(now >= window_start, MarketError::WindowNotStarted);
 
         // ---- TxLINE validation seam ----
-        // Verifies `value` is the genuine anchored StablePrice datapoint `proof` claims
-        // it is. Swap the encoding inside `validate_with_txline` for the real IDL-encoded
-        // call once available; until then point TXLINE_PROGRAM_ID at `mock_validator`.
-        let mut cpi_accounts: Vec<AccountInfo> = ctx.remaining_accounts.to_vec();
-        cpi_accounts.push(ctx.accounts.txline_program.to_account_info());
-
-        validate_with_txline(
-            ctx.accounts.txline_program.key(),
-            ctx.remaining_accounts,
-            &cpi_accounts,
-            fixture_id,
-            odd_key,
-            value,
-            &proof,
-        )?;
+        // Two validators, selected by the `txline_program` the caller passes:
+        //   TXLINE_VALIDATOR_ID  = the REAL txoracle. VERIFIED on devnet — a genuine two-stage
+        //                          TxLINE Merkle proof passed this CPI (see TXLINE_VALIDATOR_ID for
+        //                          the tx). Costs ~234k CU, so raise the compute budget.
+        //   TXLINE_PROGRAM_ID    = mock_validator, the active demo path: approves any proof, so the
+        //                          predicate below rides the keeper-supplied `value`. Used because a
+        //                          proof only exists once TxLINE publishes the record's 5-minute
+        //                          batch, which a short window (or a replayed capture) outruns.
+        if ctx.accounts.txline_program.key() == TXLINE_VALIDATOR_ID {
+            // REAL PATH (verified on devnet): `proof` carries the borsh-encoded
+            // OddsProofPayload; verify the Odds snapshot against the committed Merkle roots. A
+            // production build would then derive `value` FROM the verified snapshot rather than
+            // trusting the arg (the keeper's demargined Pct vs the snapshot's raw `prices`).
+            let payload = OddsProofPayload::try_from_slice(&proof)
+                .map_err(|_| error!(MarketError::ValidationFailed))?;
+            let mut cpi_accounts: Vec<AccountInfo> = ctx.remaining_accounts.to_vec();
+            cpi_accounts.push(ctx.accounts.txline_program.to_account_info());
+            cpi_validate_odds(
+                ctx.accounts.txline_program.key(),
+                ctx.remaining_accounts,
+                &cpi_accounts,
+                &payload,
+            )?;
+        } else {
+            // MOCK PATH (active): forward the opaque proof to the mock validator.
+            let mut cpi_accounts: Vec<AccountInfo> = ctx.remaining_accounts.to_vec();
+            cpi_accounts.push(ctx.accounts.txline_program.to_account_info());
+            validate_with_txline(
+                ctx.accounts.txline_program.key(),
+                ctx.remaining_accounts,
+                &cpi_accounts,
+                fixture_id,
+                odd_key,
+                value,
+                &proof,
+            )?;
+        }
 
         // ---- deterministic predicate over the verified value ----
         let outcome = match side {
@@ -249,12 +306,21 @@ pub mod signal_markets {
         Ok(())
     }
 
-    /// Pays a winner their pro-rata payout from the vault. The fee_bps "cut" is taken on
-    /// winnings only and routes to the market authority. Non-custodial throughout.
+    /// Pays a winner their pro-rata payout from the vault. Deterministic and non-custodial.
     ///
-    /// Permissionless: any signer may `payer` the transaction — funds always route to the
-    /// position `owner`'s token account, so the keeper (or anyone) can push a winner's payout
-    /// without the winner needing to sign. The winner can still self-claim as a fallback.
+    /// ELIGIBILITY: only the winning side may claim — `position.side == market.outcome` (YES backs
+    /// the market's predicate coming true, NO backs it not); a losing position is rejected.
+    ///
+    /// PAYOUT (integer math, never rounds in the house's favour):
+    ///   winnings = stake × lose_total / win_total   — pro-rata share of the LOSING pool
+    ///   fee      = winnings × fee_bps / 10_000       — the "cut", taken on WINNINGS only
+    ///   payout   = stake + winnings − fee            — your stake back + your share of the other side
+    /// The fee routes to the market authority; the rest to the position `owner`. With an empty losing
+    /// pool winnings = 0, so the winner simply gets their stake back (no counterparty, no profit).
+    ///
+    /// Permissionless: any signer may `payer` the transaction — funds always route to the position
+    /// `owner`'s token account, so the keeper (or anyone) can push a winner's payout without the
+    /// winner needing to sign. The winner can still self-claim as a fallback.
     pub fn claim(ctx: Context<Claim>) -> Result<()> {
         // capture scalars before taking the mutable market/position borrows
         let outcome = ctx.accounts.market.outcome;
@@ -662,6 +728,120 @@ fn validate_with_txline(
     Ok(())
 }
 
+// ===================== Real txoracle `validate_odds` CPI =====================
+//
+// VERIFIED ON DEVNET (see TXLINE_VALIDATOR_ID for the tx). This is the genuine on-chain validation
+// using TxLINE's Merkle-proof primitives: an `Odds` snapshot is proven to belong to the committed
+// `daily_odds_merkle_roots` via a sub-tree proof (odds within a fixture's batch) and a main-tree
+// proof (that batch within the day's root). Reached when the caller passes TXLINE_VALIDATOR_ID as
+// `txline_program`; the demo passes the mock instead, because a proof only becomes retrievable once
+// TxLINE publishes the record's 5-minute batch.
+//
+// The argument structs below are mirrored field-for-field and IN ORDER from the txoracle IDL
+// (keeper/txoracle.idl.json), so Borsh encodes byte-identically to what the validator deserializes.
+
+/// txoracle `Odds` — one bookmaker's odds snapshot for a fixture. `prices` are decimal odds ×1000
+/// (NOT the demargined Pct the keeper settles on — reconciling that gap is part of activation).
+#[derive(AnchorSerialize, AnchorDeserialize, Clone)]
+pub struct Odds {
+    pub fixture_id: i64,
+    pub message_id: String,
+    pub ts: i64,
+    pub bookmaker: String,
+    pub bookmaker_id: i32,
+    pub super_odds_type: String,
+    pub game_state: Option<String>,
+    pub in_running: bool,
+    pub market_parameters: Option<String>,
+    pub market_period: Option<String>,
+    pub price_names: Vec<String>,
+    pub prices: Vec<i32>,
+}
+
+#[derive(AnchorSerialize, AnchorDeserialize, Clone)]
+pub struct OddsUpdateStats {
+    pub update_count: u32,
+    pub min_timestamp: i64,
+    pub max_timestamp: i64,
+}
+
+/// txoracle `OddsBatchSummary` — the fixture's odds sub-tree root + batch stats, hashed into the
+/// main tree. Proving `odds_sub_tree_root` under the main tree is the second stage of validation.
+#[derive(AnchorSerialize, AnchorDeserialize, Clone)]
+pub struct OddsBatchSummary {
+    pub fixture_id: i64,
+    pub update_stats: OddsUpdateStats,
+    pub odds_sub_tree_root: [u8; 32],
+}
+
+/// One Merkle sibling: its hash and whether it sits to the right of the running hash.
+#[derive(AnchorSerialize, AnchorDeserialize, Clone)]
+pub struct ProofNode {
+    pub hash: [u8; 32],
+    pub is_right_sibling: bool,
+}
+
+/// The full `validate_odds` argument set the keeper packs into resolve_market's `proof` bytes when
+/// settling via the REAL validator. (The mock path ignores `proof` / passes it empty.)
+#[derive(AnchorSerialize, AnchorDeserialize, Clone)]
+pub struct OddsProofPayload {
+    pub ts: i64,
+    pub odds_snapshot: Odds,
+    pub summary: OddsBatchSummary,
+    pub sub_tree_proof: Vec<ProofNode>,
+    pub main_tree_proof: Vec<ProofNode>,
+}
+
+/// Build and invoke the real txoracle `validate_odds` CPI from an encoded payload. Anchor wire
+/// format = 8-byte discriminator ++ borsh(args in IDL order). The single account is the txoracle's
+/// `daily_odds_merkle_roots` PDA, passed by the keeper as the first remaining_account.
+///
+/// VERIFIED — see TXLINE_VALIDATOR_ID for the proving transaction. To ACTIVATE for live settlement:
+/// (1) fetch the proof AFTER its 5-min batch publishes (keeper `fetchPublishedOddsProof`);
+/// (2) the keeper packs `OddsProofPayload` into `proof` and passes the txoracle roots account
+///     (`HFYD3hVqavHeRUkBdo7vDHA8HTGhMLY2TsXvL536kGoV` on devnet) as the first remaining_account;
+/// (3) point the keeper's TXLINE_PROGRAM_ID env at TXLINE_VALIDATOR_ID; and
+/// (4) RAISE THE COMPUTE BUDGET — two-stage Merkle verification costs ~234k CU (the whole tx ~252k),
+///     far over the 200k default, so the resolve tx needs a ComputeBudget setComputeUnitLimit ix.
+// `proof_accounts` = validate_odds's own accounts (daily_odds_merkle_roots), used to build the
+// instruction metas. `cpi_accounts` = those PLUS the validator program itself, for `invoke`. Kept as
+// two slices (rather than combining here) to avoid mixing account-info lifetimes — same shape as
+// validate_with_txline; the caller, holding both in one scope with a shared 'info, combines them.
+fn cpi_validate_odds(
+    program_id: Pubkey,
+    proof_accounts: &[AccountInfo],
+    cpi_accounts: &[AccountInfo],
+    payload: &OddsProofPayload,
+) -> Result<()> {
+    use anchor_lang::solana_program::instruction::Instruction;
+    use anchor_lang::solana_program::program::invoke;
+
+    let mut data = Vec::with_capacity(256);
+    data.extend_from_slice(&VALIDATE_ODDS_DISCRIMINATOR);
+    payload.ts.serialize(&mut data)?;
+    payload.odds_snapshot.serialize(&mut data)?;
+    payload.summary.serialize(&mut data)?;
+    payload.sub_tree_proof.serialize(&mut data)?;
+    payload.main_tree_proof.serialize(&mut data)?;
+
+    let metas: Vec<AccountMeta> = proof_accounts
+        .iter()
+        .map(|a| AccountMeta {
+            pubkey: *a.key,
+            is_signer: a.is_signer,
+            is_writable: a.is_writable,
+        })
+        .collect();
+
+    let ix = Instruction {
+        program_id,
+        accounts: metas,
+        data,
+    };
+    invoke(&ix, cpi_accounts).map_err(|_| error!(MarketError::ValidationFailed))?;
+    Ok(())
+}
+
 // =========================== Accounts ===========================
 
 #[derive(Accounts)]
@@ -769,10 +949,16 @@ pub struct ResolveMarket<'info> {
     )]
     pub market: Account<'info, Market>,
 
-    /// CHECK: TxLINE validator program (or mock_validator on devnet), pinned by address.
-    #[account(address = TXLINE_PROGRAM_ID)]
+    /// CHECK: the validator program to CPI into, pinned to one of two known addresses: the
+    /// mock_validator (TXLINE_PROGRAM_ID, active demo path) or the real txoracle validator
+    /// (TXLINE_VALIDATOR_ID, verified on devnet). resolve_market branches on which one.
+    #[account(
+        constraint = txline_program.key() == TXLINE_PROGRAM_ID
+            || txline_program.key() == TXLINE_VALIDATOR_ID
+            @ MarketError::UnknownValidator
+    )]
     pub txline_program: UncheckedAccount<'info>,
-    // proof-specific accounts (e.g. the batch-commitment PDA) are passed as remaining_accounts
+    // proof-specific accounts (e.g. daily_odds_merkle_roots) are passed as remaining_accounts
 }
 
 #[derive(Accounts)]
@@ -1197,4 +1383,6 @@ pub enum MarketError {
     MemberNotApproved,
     #[msg("the group owner cannot leave their own group")]
     OwnerCannotLeave,
+    #[msg("txline_program is neither the mock nor the real TxLINE validator")]
+    UnknownValidator,
 }

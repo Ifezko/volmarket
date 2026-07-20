@@ -31,7 +31,7 @@ export function Footer({
           </div>
           <div>
             <h5>Product</h5>
-            <a style={link} onClick={onOpenHow}>How signals work</a>
+            <a style={link} onClick={onOpenHow}>How it works</a>
             <a style={link} onClick={onOpenHow}>Settlement</a>
             <a style={link} onClick={onOpenDeposit}>Deposit</a>
           </div>

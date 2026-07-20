@@ -13,7 +13,7 @@ export function Board({
 }: {
   fixtures: LiveFixture[]
   hasAnyMarkets: boolean
-  onOpenMatch: (id: string) => void
+  onOpenMatch: (id: string, oddKey?: string) => void
   onOpenHow: () => void
 }) {
   const now = Math.floor(useNow(1000) / 1000)
@@ -27,20 +27,22 @@ export function Board({
             every available line.
           </p>
           <button className="howbtn" onClick={onOpenHow} style={{ marginTop: 8 }}>
-            How signals work →
+            How it works →
           </button>
         </div>
-        <div className="legend">
-          <span>
-            <i style={{ background: 'var(--green)' }}></i>Support
-          </span>
-          <span>
-            <i style={{ background: 'var(--red)' }}></i>Resistance
-          </span>
-          <span>
-            <i style={{ background: 'var(--cyan)' }}></i>Live line
-          </span>
-        </div>
+      </div>
+
+      {/* Chart key — sits directly above the grid it explains (was floating far-right on the heading). */}
+      <div className="legend">
+        <span>
+          <i style={{ background: 'var(--green)' }}></i>Support
+        </span>
+        <span>
+          <i style={{ background: 'var(--red)' }}></i>Resistance
+        </span>
+        <span>
+          <i style={{ background: 'var(--cyan)' }}></i>Live line
+        </span>
       </div>
 
       <div className="grid" id="grid">
@@ -54,7 +56,7 @@ export function Board({
             />
             <span>
               {hasAnyMarkets
-                ? 'No matches in this view - try another filter.'
+                ? 'No fixtures are streaming a live signal right now - the board only lists matches with a real, live feed, so every chart and settlement is genuine.'
                 : 'No real markets on devnet yet - seed some with keeper/scripts/seed-devnet.ts.'}
             </span>
           </div>

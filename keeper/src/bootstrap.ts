@@ -2,6 +2,7 @@ import { Connection, Keypair, PublicKey, SystemProgram } from "@solana/web3.js";
 import { TOKEN_PROGRAM_ID, getAssociatedTokenAddressSync } from "@solana/spl-token";
 import { BN, type Program } from "@coral-xyz/anchor";
 import { CONFIG, log } from "./config.js";
+import { loadMarketAccounts } from "./markets.js";
 
 // Position.side pool selectors (mirror signal_markets/src/lib.rs).
 const SIDE_YES = 1; // Holds pool (total_yes)
@@ -85,15 +86,27 @@ export async function bootstrapMarket(
  * market (e.g. the keeper is out of USDC/gas) is logged and skipped so it never stops the keeper.
  * `connection` is accepted for symmetry with the rest of the keeper API (reads go through the
  * program's provider connection).
+ *
+ * `prescanned` lets the caller hand over a market scan it already did this tick — the refresh loop
+ * does exactly that, so the two of us share ONE getProgramAccounts instead of issuing two.
  */
-export async function bootstrapOpenMarkets(program: Program, keeper: Keypair, _connection: Connection): Promise<void> {
+export async function bootstrapOpenMarkets(
+  program: Program,
+  keeper: Keypair,
+  _connection: Connection,
+  prescanned?: { publicKey: PublicKey; account: any }[],
+): Promise<void> {
   if (CONFIG.bootstrapLiquidityUsdc <= 0) return;
   let accts: { publicKey: PublicKey; account: any }[];
-  try {
-    accts = await (program.account as any).market.all();
-  } catch (err) {
-    log.warn("bootstrap: market scan failed, skipping this pass", String(err).slice(0, 120));
-    return;
+  if (prescanned) {
+    accts = prescanned;
+  } else {
+    try {
+      accts = await loadMarketAccounts(program);
+    } catch (err) {
+      log.warn("bootstrap: market scan failed, skipping this pass", String(err).slice(0, 120));
+      return;
+    }
   }
   for (const { publicKey, account } of accts) {
     if (account.status !== STATUS_OPEN) continue;

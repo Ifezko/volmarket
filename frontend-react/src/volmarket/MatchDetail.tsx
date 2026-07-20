@@ -128,7 +128,7 @@ export function MatchDetail({
         </div>
         <div className="dsub">
           {match.comp} · ${totalVol.toFixed(2)} staked on-chain ·{' '}
-          {live ? `${curOdds.length} real market${curOdds.length === 1 ? '' : 's'}` : 'pre-match odds · signals at kickoff'}
+          {live ? `${curOdds.length} open market${curOdds.length === 1 ? '' : 's'}` : 'pre-match odds · signals at kickoff'}
         </div>
 
         {live ? (
@@ -162,6 +162,7 @@ export function MatchDetail({
                     oddKey={activeOdd.key}
                     prob={activeOdd.prob}
                     fixtureId={match.fixtureId}
+                    marketParams={activeOdd.marketParams}
                     windowSecs={WSECS[activeWin]}
                     predictionLines={predictionLines}
                     onLiveProb={onLiveProb}

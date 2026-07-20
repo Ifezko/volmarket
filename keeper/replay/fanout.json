@@ -1,0 +1,61 @@
+{
+  "_comment": [
+    "Replay fan-out: drive several fixtures from the ONE capture in replay/odds-capture.json.",
+    "Lane 0 is the capture as recorded (no offset, no shift) — the genuine Spain v Argentina line.",
+    "The other lanes are DERIVED from the same recording: they enter the capture at a different",
+    "point (offsetSec) and are shifted/detuned (shiftPct + a slow drift) so each card has its own",
+    "level and its own shape instead of four identical charts. They are labelled as replay in the",
+    "UI ('Replaying captured TxLINE data'). Fixture ids are the real World Cup ids already seeded",
+    "on-chain, so the markets and settlement path are the real ones.",
+    "offsetSec: seconds into the capture this lane starts (capture span is ~278s).",
+    "shiftPct: constant offset applied to the first outcome's demargined %, mirrored onto the rest.",
+    "driftPct / driftPeriodSec: slow sine on top of the shift, so lanes don't move in lockstep.",
+    "kickoffAgoMin: how long ago this fixture kicked off, so the board classifies it in-play."
+  ],
+  "lanes": [
+    {
+      "fixtureId": 18257739,
+      "a": "Spain",
+      "b": "Argentina",
+      "comp": "World Cup",
+      "offsetSec": 0,
+      "shiftPct": 0,
+      "driftPct": 0,
+      "driftPeriodSec": 0,
+      "kickoffAgoMin": 34
+    },
+    {
+      "fixtureId": 18222446,
+      "a": "Argentina",
+      "b": "Switzerland",
+      "comp": "World Cup",
+      "offsetSec": 71,
+      "shiftPct": 7.4,
+      "driftPct": 2.6,
+      "driftPeriodSec": 190,
+      "kickoffAgoMin": 58
+    },
+    {
+      "fixtureId": 18218149,
+      "a": "Spain",
+      "b": "Belgium",
+      "comp": "World Cup",
+      "offsetSec": 143,
+      "shiftPct": -5.1,
+      "driftPct": 3.4,
+      "driftPeriodSec": 260,
+      "kickoffAgoMin": 19
+    },
+    {
+      "fixtureId": 18213979,
+      "a": "Norway",
+      "b": "England",
+      "comp": "World Cup",
+      "offsetSec": 208,
+      "shiftPct": 3.2,
+      "driftPct": 4.1,
+      "driftPeriodSec": 145,
+      "kickoffAgoMin": 71
+    }
+  ]
+}

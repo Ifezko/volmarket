@@ -40,6 +40,7 @@ export interface WatchedMarket {
   oddKey: number;      // selects SuperOddsType + outcome (see ODD_OUTCOMES)
   marketParams: number;// SuperOddsType params: Over/Under goal line × 100 (0 if none, e.g. 1X2).
                        // Part of the market identity — different lines are different markets.
+  authority: PublicKey;// market creator; keeper-authored markets are board display shells, not bets
   side: number;        // SIDE_HOLD | SIDE_BREAK
   level: number;       // L: threshold in implied probability × 1000 (same scale as the settlement
                        // value — see pctToValue in txline.ts), snapped from StablePrice at open
@@ -48,9 +49,26 @@ export interface WatchedMarket {
   status: number;
 }
 
-/** Pull every still-open market the keeper might need to settle, indexed by fixture. */
-export async function loadMarkets(program: Program): Promise<Map<number, WatchedMarket[]>> {
-  const all = await (program.account as any).market.all();
+/**
+ * One raw `market.all()` scan. Exposed separately because that call is a `getProgramAccounts` —
+ * far and away the heaviest RPC request the keeper makes, and the first thing a provider throttles.
+ * Callers that need both the watched-market view AND the raw accounts (the refresh loop, which also
+ * bootstraps liquidity) should scan ONCE via this and pass the result into both, rather than each
+ * doing its own scan.
+ */
+export async function loadMarketAccounts(program: Program): Promise<{ publicKey: PublicKey; account: any }[]> {
+  return await (program.account as any).market.all();
+}
+
+/**
+ * Pull every still-open market the keeper might need to settle, indexed by fixture. Pass `accts` to
+ * reuse a scan already done this tick instead of paying for another getProgramAccounts.
+ */
+export async function loadMarkets(
+  program: Program,
+  accts?: { publicKey: PublicKey; account: any }[],
+): Promise<Map<number, WatchedMarket[]>> {
+  const all = accts ?? (await loadMarketAccounts(program));
   const byFixture = new Map<number, WatchedMarket[]>();
   let open = 0;
   for (const { publicKey, account } of all) {
@@ -60,6 +78,7 @@ export async function loadMarkets(program: Program): Promise<Map<number, Watched
       fixtureId: Number(account.fixtureId),
       oddKey: Number(account.oddKey),
       marketParams: Number(account.marketParams),
+      authority: account.authority,
       side: account.side,
       level: Number(account.level),
       windowStart: Number(account.windowStart),

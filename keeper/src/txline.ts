@@ -39,6 +39,11 @@ export interface TxEvent {
  * Scale it to an integer by × 1000 ("39.432" -> 39432): probability × 1000, i.e. a percent
  * with 3 decimals as an int. Market level L is stored on the SAME scale so comparisons line up.
  */
+// Pct -> the on-chain settlement scale. TxLINE's Pct is a demargined implied PROBABILITY given as a
+// 3-decimal percent string (e.g. "46.231"); ×1000 yields the integer the market's level L is stored
+// in (46_231), so resolve_market's `value >= L` / `value < L` compare is exact with no rounding
+// drift. This is deliberately NOT decimal odds (the record's Prices[], e.g. 2536 = 2.536) — those
+// carry the bookmaker margin; Pct is the fair, demargined probability the whole protocol settles on.
 function pctToValue(pct: unknown): number {
   return Math.round(parseFloat(String(pct)) * 1000);
 }
@@ -229,6 +234,71 @@ export async function getOddsProof(
   const res = await fetch(url, { headers: authHeaders() });
   if (!res.ok) throw new Error(`odds proof ${res.status} for ${messageId}@${ts}`);
   return parseOddsValidation(await res.json(), oddKey);
+}
+
+// ---- Proof publication timing (the epoch-aligned batch delay) ----
+//
+// ARCHITECTURAL NOTE. TxLINE publishes odds proofs in wall-clock-aligned 5-minute batches: a record
+// captured at 14:03:20 is committed to the tree for the [14:00,14:05) interval, which is published
+// SHORTLY AFTER 14:05:00. So the flow is intentionally two-speed:
+//   - DETECTION is real-time off the stream (the keeper knows the value the instant it arrives), but
+//   - trustless on-chain VERIFICATION lags by up to ~5 min (to the next boundary) + a publication
+//     buffer. `/api/odds/validation` returns 404 for a record until its batch publishes — that is
+//     expected, not an error. (An earlier flat 90s wait failed only because it landed before the
+//     boundary, not because the record was unprovable.)
+// This lag is inherent to proof-anchored settlement, not a bug — see the HOLD/BREAK note in
+// keeper.ts (HOLD can settle optimistically at window close; BREAK needs the published proof).
+const PROOF_EPOCH_MS = Number(process.env.PROOF_EPOCH_MS ?? 5 * 60 * 1000); // batch boundary period
+const PROOF_BUFFER_MS = Number(process.env.PROOF_BUFFER_MS ?? 60 * 1000); // wait past the boundary before first try
+const sleep = (ms: number) => new Promise<void>((r) => setTimeout(r, Math.max(0, ms)));
+
+/** The wall-clock instant a record captured at `tsMs` becomes provable = end of its 5-min interval. */
+export function proofPublishBoundary(tsMs: number): number {
+  return Math.floor(tsMs / PROOF_EPOCH_MS) * PROOF_EPOCH_MS + PROOF_EPOCH_MS;
+}
+
+/** Fetch the raw OddsValidation JSON; returns null if not published yet (404), throws on other errors. */
+export async function fetchOddsValidation(messageId: string, ts: number | string): Promise<any | null> {
+  const url = `${CONFIG.txlineBaseUrl}/api/odds/validation?messageId=${encodeURIComponent(messageId)}&ts=${encodeURIComponent(String(ts))}`;
+  const res = await fetch(url, { headers: authHeaders() });
+  if (res.status === 404) return null; // batch not published yet
+  if (!res.ok) throw new Error(`odds validation ${res.status} for ${messageId}@${ts}`);
+  return res.json();
+}
+
+/**
+ * Wait until a record's 5-min batch publishes, then fetch its Merkle proof. Computes the next
+ * epoch-aligned boundary from `tsMs`, waits to boundary + PROOF_BUFFER_MS, then GETs the validation
+ * endpoint, retrying with backoff a few times in case publication runs a touch late. Returns the raw
+ * OddsValidation payload ({ odds, summary, subTreeProof, mainTreeProof }) or throws if it never
+ * publishes. Logs the wait.
+ */
+export async function fetchPublishedOddsProof(
+  messageId: string,
+  tsMs: number,
+  opts: { retries?: number; retryBackoffMs?: number } = {}
+): Promise<any> {
+  const { retries = 5, retryBackoffMs = 30_000 } = opts;
+  const boundary = proofPublishBoundary(tsMs);
+  const firstTry = boundary + PROOF_BUFFER_MS;
+  const waitMs = firstTry - Date.now();
+  log.info(
+    `odds proof: record ${new Date(tsMs).toISOString()} publishes after boundary ${new Date(boundary).toISOString()}; ` +
+      `waiting ${Math.round(Math.max(0, waitMs) / 1000)}s (boundary + ${Math.round(PROOF_BUFFER_MS / 1000)}s buffer)`
+  );
+  await sleep(waitMs);
+  for (let i = 0; i <= retries; i++) {
+    const json = await fetchOddsValidation(messageId, tsMs);
+    if (json) {
+      if (i > 0) log.info(`odds proof published on retry ${i}`);
+      return json;
+    }
+    if (i < retries) {
+      log.warn(`odds proof not published yet (attempt ${i + 1}/${retries + 1}); retrying in ${retryBackoffMs / 1000}s`);
+      await sleep(retryBackoffMs);
+    }
+  }
+  throw new Error(`odds proof never published for ${messageId}@${tsMs} (waited past boundary + ${(retries + 1)} tries)`);
 }
 
 /**

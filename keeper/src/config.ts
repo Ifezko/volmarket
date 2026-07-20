@@ -25,7 +25,7 @@ const network = (process.env.TXLINE_NETWORK ?? "devnet") as "mainnet" | "devnet"
 const netDefaults = NETWORK_DEFAULTS[network];
 
 export const CONFIG = {
-  // CONFIRMED (TxLINE support, Discord, via aidan): Level 12 (real-time World Cup) only
+  // CONFIRMED (TxLINE support): Level 12 (real-time World Cup) only
   // exists on DEVNET right now — not mainnet. Devnet is the correct network for real-time.
   network,
   rpcUrl: process.env.SOLANA_RPC_URL ?? netDefaults.rpcUrl,
@@ -76,6 +76,19 @@ export const CONFIG = {
   // prediction — especially a short-window one — is picked up in time to be verified in-window
   // against the live signal, instead of only being caught by the post-window default sweep.
   marketRefreshMs: Number(process.env.MARKET_REFRESH_MS ?? 8000),
+  // How often the in-window backstop re-checks watched markets against the latest buffered signal, so
+  // a losing HOLD is settled by the real value before window_end even if no SSE event lands in-window.
+  inWindowSettleMs: Number(process.env.IN_WINDOW_SETTLE_MS ?? 4000),
+  // Which validator resolve_market CPIs into. true = mock_validator (approves any proof, resolves on
+  // the submitted `value`), so the keeper settles with the REAL signal value + an empty proof.
+  //
+  // The real TxLINE validate_odds CPI is implemented AND verified on devnet (see TXLINE_VALIDATOR_ID
+  // in the program: tx 5vPAbG89XBZkWTFw82HFEDjZDKbK6nFr9qqhPMztfG2Qobt2GpCeBDeFrwcVHmvsno3soZmEE4aniaswhj16uML2).
+  // The demo still runs on the mock because a proof only exists once TxLINE publishes the record's
+  // 5-minute batch (see fetchPublishedOddsProof) — a replayed capture has no *current* batch at all,
+  // and a live sub-minute window closes before the batch lands. Set MOCK_VALIDATOR=false (and point
+  // TXLINE_PROGRAM_ID at TXLINE_VALIDATOR_ID) to settle through the real validator instead.
+  mockValidator: (process.env.MOCK_VALIDATOR ?? "true") !== "false",
   // The keeper is the HOUSE: it seeds a market's empty pool so the winner is paid the FIXED decimal
   // odds implied by the market level, not a pari-mutuel share. For a bet of `S` on the filled side
   // at odds `O` (O = 1/p for Holds, 1/(1-p) for Breaks, p = level/100000), it seeds the opposing
@@ -94,6 +107,14 @@ export const CONFIG = {
   // claims to succeed. Only the pubkey is needed here; the secret is held off-repo (.fee-wallet.json).
   feeRecipient: new PublicKey(process.env.FEE_RECIPIENT ?? "3NZbJWxuUp95jB8ULaeH2Lk1hfnUREdkjpUK9CWAJW2X"),
   mock: process.argv.includes("--mock"),
+  // Path to a capture of REAL recorded TxLINE odds events (scripts/capture-odds.ts). When set, the
+  // keeper replays it through its normal pipeline instead of subscribing to the live stream - used
+  // when no match is in play. Everything on-chain stays real; only the feed source changes.
+  replayFile: process.env.REPLAY_FILE ?? "",
+  // Fan-out spec for replay mode: drives the ONE capture across several fixtures, each entering the
+  // capture at its own offset with its own level shift, so the board shows a slate of live matches
+  // rather than a single card. Ignored (single-fixture replay) if the file is absent.
+  replayFanoutFile: process.env.REPLAY_FANOUT_FILE ?? "./replay/fanout.json",
 };
 
 const LEVELS = { error: 0, warn: 1, info: 2, debug: 3 } as const;

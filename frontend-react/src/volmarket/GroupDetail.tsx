@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { feeLabel } from './groups'
+import { feeLabel, userHandle } from './groups'
 import { describeMarket } from './liveFixtures'
 import { GroupActivityFeed } from './GroupActivityFeed'
 import type { OnchainGroup, OnchainMember, GroupActivityItem } from '../lib/onchainGroups'
@@ -9,8 +9,6 @@ function pctToBps(pct: string): number {
   if (!Number.isFinite(n) || n <= 0) return 0
   return Math.min(10_000, Math.round(n * 100))
 }
-
-const short = (a: string) => `${a.slice(0, 4)}…${a.slice(-4)}`
 
 // Full-screen detail for one of the user's groups, opened from the profile's "My groups".
 // Owner: edit settings + approve pending requests + roster. Member: latest calls (Join this call),
@@ -124,7 +122,7 @@ export function GroupDetail({
                 <p className="seltitle" style={{ margin: '4px 0 10px' }}>Pending requests</p>
                 {pending.map((m) => (
                   <div className="selrow" key={m.address} style={{ marginBottom: 6 }}>
-                    <div className="s mono">{short(m.member)}</div>
+                    <div className="s mono">{userHandle(m.member)}</div>
                     <button className="btn btn-blue" onClick={() => onApprove(m.member)}>Approve</button>
                   </div>
                 ))}
@@ -137,7 +135,7 @@ export function GroupDetail({
         {activity.length === 0 ? (
           <div className="s" style={{ color: 'var(--dim)' }}>No calls yet. Send a prediction to the group to start one.</div>
         ) : (
-          <GroupActivityFeed items={activity} canJoin={role === 'member' || role === 'owner'} currentUser={currentUser} onJoin={onJoinCall} />
+          <GroupActivityFeed items={activity} canJoin={role === 'member' || role === 'owner'} currentUser={currentUser} onJoin={onJoinCall} showHeader={false} />
         )}
 
         {myCalls.length > 0 && (
@@ -158,12 +156,12 @@ export function GroupDetail({
           <>
             <p className="seltitle" style={{ margin: '14px 0 10px' }}>Members ({approved.length + 1})</p>
             <div className="selrow" style={{ marginBottom: 6 }}>
-              <div className="s mono">{short(group.owner)}</div>
+              <div className="s">{userHandle(group.owner)}{group.owner === currentUser ? ' (you)' : ''}</div>
               <span className="s" style={{ color: 'var(--dim)' }}>Owner</span>
             </div>
             {approved.map((m) => (
               <div className="selrow" key={m.address} style={{ marginBottom: 6 }}>
-                <div className="s mono">{short(m.member)}{m.member === currentUser ? ' (you)' : ''}</div>
+                <div className="s mono">{userHandle(m.member)}{m.member === currentUser ? ' (you)' : ''}</div>
                 <span className="s" style={{ color: 'var(--dim)' }}>Member</span>
               </div>
             ))}
