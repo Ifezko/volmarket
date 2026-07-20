@@ -5,7 +5,7 @@
   "description": "A non-custodial Solana protocol for predicting the volume signal on a live match's odds, settled against TxLINE's on-chain odds proofs.",
   "colors": {
     "primary": "#9341ff",
-    "light": "#9341ff",
+    "light": "#fbfbfb",
     "dark": "#9341ff"
   },
   "favicon": "/favicon.png",
