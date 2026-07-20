@@ -69,7 +69,8 @@ Set these on the host, starting from `keeper/.env.example`:
 | `TXLINE_BASE_URL` | Feed host. Blank uses the network default — `txline-dev.txodds.com` on devnet. |
 | `TXLINE_PROGRAM_ID` | The validator program the keeper CPIs into. Blank defaults to the **real** `txoracle` on devnet; set it to `FPnwSSp2…` for the mock path. |
 | `TXLINE_SERVICE_LEVEL` | `1` (World Cup and international friendlies, free) |
-| `BOOTSTRAP_LIQUIDITY_USDC` | Opposing-pool seed per new market. `0` disables. |
+| `BOOTSTRAP_LIQUIDITY_USDC` | Opposing-pool seed per new market when both sides are empty (default `10`). `0` disables seeding entirely. |
+| `BOOTSTRAP_MAX_USDC` | Cap on the house seed per pool (default `1000`), bounding exposure. Past the cap, delivered odds fall below true odds and the frontend caps the displayed odds to match. |
 | `APP_USDC_MINT` | The app's USDC mint |
 | `MOCK_VALIDATOR` | `true` (default) builds a stub proof; `false` fetches a real TxLINE Merkle proof. This selects the *proof payload*, not the program — pair it with `TXLINE_PROGRAM_ID`. |
 | `REPLAY_FILE` | Optional — replay a recorded TxLINE capture instead of the live stream, e.g. `replay/odds-capture.json` |

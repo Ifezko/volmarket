@@ -32,7 +32,7 @@ Deployed on devnet at `86hERt8cdRZUBpc1Ng8coX2jwLmWGUcyc9JNfspw39yr`.
 <Accordion title="keeper — the off-chain service">
 A TypeScript service that watches the TxLINE odds stream, matches updates to open markets, reads the settling outcome's probability, fetches the Merkle proof, and submits `resolve_market`.
 
-It also seeds the opposing pool of new two-sided markets so payouts are real, and serves the frontend's live signal feed over HTTP (`/signal`, `/fixtures`, `/receipt`).
+It also seeds the opposing pool of new two-sided markets so payouts are real, and serves the frontend's live feed over HTTP — `/signal`, `/fixtures`, `/receipt`, plus `/health` for host probes.
 
 Because it watches a stream and polls the chain, it must run as a long-lived process. See [Deployment](/deployment).
 
