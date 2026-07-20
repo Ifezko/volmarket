@@ -24,11 +24,15 @@ anchor deploy --provider.cluster devnet
 
 Deploy `mock_validator` as well (see its README) and point `TXLINE_PROGRAM_ID` at it.
 
-The program accepts two validator addresses for `resolve_market`: the real TxLINE `txoracle` (`TXLINE_VALIDATOR_ID`) and `mock_validator` (`TXLINE_PROGRAM_ID`). To settle through the real validator:
+The program accepts exactly two validator addresses for `resolve_market`: the real TxLINE `txoracle` (`6pW64gN1…`) and `mock_validator` (`FPnwSSp2…`). Which one is used depends on two keeper settings that must agree — see [selecting a path](/settlement#selecting-a-path).
 
-1. Set `MOCK_VALIDATOR=false` on the keeper.
-2. Point `TXLINE_PROGRAM_ID` at the `txoracle` address.
+To settle through the real validator:
+
+1. Set `MOCK_VALIDATOR=false` on the keeper, so it fetches a real proof instead of a stub.
+2. Point `TXLINE_PROGRAM_ID` at the `txoracle` address — this is already the devnet default, so leaving it blank also works.
 3. Raise the resolve transaction's compute budget — verification costs ~234k CU.
+
+To run the mock path, set `TXLINE_PROGRAM_ID` explicitly to the `mock_validator` address and leave `MOCK_VALIDATOR=true`. Leaving `TXLINE_PROGRAM_ID` blank here would send a stub proof to the real validator, which rejects it.
 
 ## Frontend → Vercel
 
@@ -62,10 +66,12 @@ Set these on the host, starting from `keeper/.env.example`:
 | `PROGRAM_ID` | Your deployed `signal_markets` id |
 | `IDL_PATH` | `./signal_markets.idl.json` (default) |
 | keeper signing key | Via the host's secret manager — see [Secrets](#secrets) |
-| `TXLINE_*` | Feed host, program, token, service level |
+| `TXLINE_BASE_URL` | Feed host. Blank uses the network default — `txline-dev.txodds.com` on devnet. |
+| `TXLINE_PROGRAM_ID` | The validator program the keeper CPIs into. Blank defaults to the **real** `txoracle` on devnet; set it to `FPnwSSp2…` for the mock path. |
+| `TXLINE_SERVICE_LEVEL` | `1` (World Cup and international friendlies, free) |
 | `BOOTSTRAP_LIQUIDITY_USDC` | Opposing-pool seed per new market. `0` disables. |
 | `APP_USDC_MINT` | The app's USDC mint |
-| `MOCK_VALIDATOR` | `true` (default) settles via `mock_validator`; `false` uses the real TxLINE validator |
+| `MOCK_VALIDATOR` | `true` (default) builds a stub proof; `false` fetches a real TxLINE Merkle proof. This selects the *proof payload*, not the program — pair it with `TXLINE_PROGRAM_ID`. |
 | `REPLAY_FILE` | Optional — replay a recorded TxLINE capture instead of the live stream, e.g. `replay/odds-capture.json` |
 
 For two-sided markets to pay out, the keeper must be **running** and **funded**: SOL for transaction fees, plus USDC if `BOOTSTRAP_LIQUIDITY_USDC > 0`, which it spends seeding empty pools.
