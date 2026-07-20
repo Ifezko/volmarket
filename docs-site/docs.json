@@ -4,9 +4,9 @@
   "name": "Volmarket",
   "description": "A non-custodial Solana protocol for predicting the volume signal on a live match's odds, settled against TxLINE's on-chain odds proofs.",
   "colors": {
-    "primary": "#F0B90B",
-    "light": "#FFD24A",
-    "dark": "#B98A00"
+    "primary": "#9341ff",
+    "light": "#fbfbfb",
+    "dark": "#1b1b1b"
   },
   "favicon": "/favicon.png",
   "navigation": {
@@ -55,12 +55,19 @@
   "footer": {
     "socials": {
       "website": "https://volmarket.xyz",
-      "github": "https://github.com/Ifezko/volmarket"
+      "github": "https://github.com/Ifezko/volmarket",
+      "x": "https://x.com/volmarketxyz"
     }
   },
   "logo": {
     "light": "/logo.png",
     "dark": "/logo.png",
     "href": "https://volmarket.xyz"
+  },
+  "background": {
+    "color": {
+      "light": "#fbfbfb",
+      "dark": "#1B1B1B"
+    }
   }
 }
