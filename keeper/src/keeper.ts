@@ -2,7 +2,7 @@ import type { Program } from "@coral-xyz/anchor";
 import type { Connection, Keypair } from "@solana/web3.js";
 import { CONFIG, log } from "./config.js";
 import { subscribeStream, getOddsProof, resolveOutcomeValue, type TxEvent, type ProofResult } from "./txline.js";
-import { loadMarkets, crossingResolves, inWindow, oddOutcome, ODD_OUTCOMES, type WatchedMarket } from "./markets.js";
+import { loadMarkets, loadMarketAccounts, crossingResolves, inWindow, oddOutcome, ODD_OUTCOMES, type WatchedMarket } from "./markets.js";
 import { resolveMarket } from "./resolver.js";
 import { claimWinners } from "./claimer.js";
 import { bootstrapOpenMarkets } from "./bootstrap.js";
@@ -193,13 +193,17 @@ export async function runKeeper(program: Program, keeper: Keypair, connection: C
   // quickly enough to be verified in-window, not just swept to its default after the window.
   const refresher = setInterval(async () => {
    try {
-    byFixture = await loadMarkets(program);
+    // ONE getProgramAccounts for the whole tick, shared by the watched-market view and the
+    // bootstrap pass. These used to scan independently, which doubled the heaviest RPC call the
+    // keeper makes on every single refresh - a large part of what got us rate-limited.
+    const accts = await loadMarketAccounts(program);
+    byFixture = await loadMarkets(program, accts);
     // Re-prime the board-seeder from chain each refresh (not just at startup): loadMarkets returns
     // only OPEN markets, so a board market that has lapsed drops out here and stops counting as
     // "already seeded" - that's what lets a still-live fixture get a fresh market without a restart.
     primeSeeded(seedView());
     // Bootstrap liquidity for any newly-created market whose opposing pool is still empty.
-    await bootstrapOpenMarkets(program, keeper, connection);
+    await bootstrapOpenMarkets(program, keeper, connection, accts);
    } catch (e) { log.warn("market refresh failed (will retry):", (e as Error).message); }
   }, CONFIG.marketRefreshMs);
 

@@ -8,6 +8,7 @@ import { setDefaultResultOrder } from "node:dns";
 setDefaultResultOrder("ipv4first");
 
 import { readFileSync } from "node:fs";
+import { installCrashGuards } from "./crashGuard.js";
 import { CONFIG, log } from "./config.js";
 import { buildProgram } from "./resolver.js";
 import { runKeeper } from "./keeper.js";
@@ -33,6 +34,8 @@ async function withRetry<T>(label: string, fn: () => Promise<T>, tries = 6, base
 
 async function main() {
   log.info("Volmarket keeper starting");
+  // Survive transient RPC faults that no try/catch can reach (see crashGuard.ts).
+  installCrashGuards();
   // Serve the live signal feed to the frontend (also gives Railway a health endpoint on $PORT).
   startHttpServer();
   const { program, wallet, connection } = buildProgram();

@@ -49,9 +49,26 @@ export interface WatchedMarket {
   status: number;
 }
 
-/** Pull every still-open market the keeper might need to settle, indexed by fixture. */
-export async function loadMarkets(program: Program): Promise<Map<number, WatchedMarket[]>> {
-  const all = await (program.account as any).market.all();
+/**
+ * One raw `market.all()` scan. Exposed separately because that call is a `getProgramAccounts` —
+ * far and away the heaviest RPC request the keeper makes, and the first thing a provider throttles.
+ * Callers that need both the watched-market view AND the raw accounts (the refresh loop, which also
+ * bootstraps liquidity) should scan ONCE via this and pass the result into both, rather than each
+ * doing its own scan.
+ */
+export async function loadMarketAccounts(program: Program): Promise<{ publicKey: PublicKey; account: any }[]> {
+  return await (program.account as any).market.all();
+}
+
+/**
+ * Pull every still-open market the keeper might need to settle, indexed by fixture. Pass `accts` to
+ * reuse a scan already done this tick instead of paying for another getProgramAccounts.
+ */
+export async function loadMarkets(
+  program: Program,
+  accts?: { publicKey: PublicKey; account: any }[],
+): Promise<Map<number, WatchedMarket[]>> {
+  const all = accts ?? (await loadMarketAccounts(program));
   const byFixture = new Map<number, WatchedMarket[]>();
   let open = 0;
   for (const { publicKey, account } of all) {
