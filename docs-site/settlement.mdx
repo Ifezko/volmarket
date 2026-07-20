@@ -72,14 +72,36 @@ The fee applies to winnings only, never to returned stake.
 
 ## The real TxLINE CPI
 
-`resolve_market` CPIs into a validator program to check the submitted `(value, proof)`. The program pins exactly two acceptable addresses and branches on which one the caller passes:
+`resolve_market` CPIs into a validator program to check the submitted `(value, proof)`. The program pins exactly two acceptable addresses as Rust constants in `signal_markets/src/lib.rs` and branches on which one the caller passes as the `txline_program` account:
 
-| `txline_program` passed | Path |
-|---|---|
-| `TXLINE_VALIDATOR_ID` = `6pW64gN1s2uqjHkn1unFeEjAwJkPGHoppGvS715wyP2J` | **Real TxLINE `txoracle`.** `proof` carries a borsh-encoded `OddsProofPayload`. The validator proves the `Odds` snapshot against the committed `daily_odds_merkle_roots` — a sub-tree proof for the odds within a fixture's batch, then a main-tree proof for that batch within the day's root. |
-| `TXLINE_PROGRAM_ID` = `FPnwSSp2DXcNvJnxXWc2JXvU4MLNfrWDT6wBcU5Eptse` | `mock_validator` — approves any proof, so the predicate rides on the keeper-supplied `value`. |
+| Program constant | Address | Path |
+|---|---|---|
+| `TXLINE_VALIDATOR_ID` | `6pW64gN1s2uqjHkn1unFeEjAwJkPGHoppGvS715wyP2J` | **Real TxLINE `txoracle`.** `proof` carries a borsh-encoded `OddsProofPayload`. The validator proves the `Odds` snapshot against the committed `daily_odds_merkle_roots` — a sub-tree proof for the odds within a fixture's batch, then a main-tree proof for that batch within the day's root. |
+| `TXLINE_PROGRAM_ID` | `FPnwSSp2DXcNvJnxXWc2JXvU4MLNfrWDT6wBcU5Eptse` | `mock_validator` — approves any proof, so the predicate rides on the keeper-supplied `value`. |
 
-Any other address is rejected.
+Any other address is rejected by an account constraint.
+
+<Warning>
+**The name `TXLINE_PROGRAM_ID` means two different things.**
+
+As a **Rust constant** in the program, it is the `mock_validator` address above.
+
+As a **keeper environment variable**, it is the address the keeper passes as the `txline_program` account — and its devnet default is the *real* `txoracle` (`6pW64gN1…`), not the mock. Set it explicitly to the mock address to use the mock path.
+</Warning>
+
+### Selecting a path
+
+Two independent settings must agree, because they control different things:
+
+- **`TXLINE_PROGRAM_ID`** (keeper env) selects **which program is CPI'd into**. `resolver.ts` passes it as the `txline_program` account unconditionally.
+- **`MOCK_VALIDATOR`** (keeper env, default `true`) selects **what proof payload is built** — a stub proof rather than a real one fetched from TxLINE.
+
+Setting only one is a misconfiguration. `MOCK_VALIDATOR=true` with `TXLINE_PROGRAM_ID` left at its devnet default sends a stub proof to the real validator, which rejects it.
+
+| Intent | `TXLINE_PROGRAM_ID` | `MOCK_VALIDATOR` |
+|---|---|---|
+| Mock path (the running demo) | `FPnwSSp2…` (set explicitly) | `true` |
+| Real validator | `6pW64gN1…` (or leave blank on devnet) | `false` |
 
 ### Verified on devnet
 
@@ -100,7 +122,7 @@ Two operational findings from that run:
 - The roots account is the `txoracle insert_batch_root` target.
 - Verification costs **~234k compute units**, so a resolve on this path must raise its compute budget above the default.
 
-The keeper selects the path with the `MOCK_VALIDATOR` flag (default `true`) plus the `TXLINE_PROGRAM_ID` it passes. The running demo uses the mock — not because the integration is incomplete, but because of epoch timing.
+The running demo uses the mock — not because the integration is incomplete, but because of epoch timing.
 
 ## Epoch timing: detection is instant, proof is not
 
