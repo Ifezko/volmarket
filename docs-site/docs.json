@@ -1,0 +1,66 @@
+{
+  "$schema": "https://mintlify.com/docs.json",
+  "theme": "mint",
+  "name": "Volmarket",
+  "description": "A non-custodial Solana protocol for predicting the volume signal on a live match's odds, settled against TxLINE's on-chain odds proofs.",
+  "colors": {
+    "primary": "#F0B90B",
+    "light": "#FFD24A",
+    "dark": "#B98A00"
+  },
+  "favicon": "/favicon.png",
+  "navigation": {
+    "tabs": [
+      {
+        "tab": "Documentation",
+        "groups": [
+          {
+            "group": "Overview",
+            "pages": [
+              "introduction",
+              "architecture"
+            ]
+          },
+          {
+            "group": "Protocol",
+            "pages": [
+              "signals",
+              "settlement"
+            ]
+          },
+          {
+            "group": "Operations",
+            "pages": [
+              "txline-integration",
+              "deployment"
+            ]
+          }
+        ]
+      }
+    ]
+  },
+  "navbar": {
+    "links": [
+      {
+        "label": "GitHub",
+        "href": "https://github.com/Ifezko/volmarket"
+      }
+    ],
+    "primary": {
+      "type": "button",
+      "label": "Open app",
+      "href": "https://volmarket.xyz"
+    }
+  },
+  "footer": {
+    "socials": {
+      "website": "https://volmarket.xyz",
+      "github": "https://github.com/Ifezko/volmarket"
+    }
+  },
+  "logo": {
+    "light": "/logo.png",
+    "dark": "/logo.png",
+    "href": "https://volmarket.xyz"
+  }
+}

@@ -1,0 +1,43 @@
+---
+title: "Introduction"
+description: "Volmarket is a non-custodial Solana protocol for predicting the volume signal on a live match's odds, settled trustlessly against TxLINE's on-chain odds proofs."
+---
+
+Volmarket is a non-custodial Solana protocol where you predict the *volume signal* on a live match's odds — settled trustlessly against TxLINE's on-chain odds proofs.
+
+The app runs at [volmarket.xyz](https://volmarket.xyz) on Solana devnet.
+
+## The core idea
+
+Most prediction markets settle "who won." Volmarket lets you predict the **second-order signal** on each odd of a live match — where the money builds support and resistance, and whether the line holds or breaks.
+
+Each betting line (1X2, Over/Under) becomes a chart with a live volume profile. You pick an odd, read its signal, and predict it. Predictions are non-custodial USDC escrows that settle on-chain from TxLINE's cryptographic proofs — no operator holds funds, and there is no oracle you have to trust. You can predict solo or pool with a group, and combine outcomes across odds into one shareable prediction code.
+
+## What you can do
+
+- **Browse the board.** Live and upcoming matches, each showing a live signal sparkline.
+- **Read a signal.** Open a match, select any odd, and read its volume signal — a live probability tape plus a support/resistance profile derived from on-chain stake.
+- **Predict it.** Choose **Holds** (the odd stays at or above a support level) or **Breaks** (it reaches a resistance level) within a time window you pick. Combine several predictions into one slip with a copyable share code.
+- **Group up.** Create a public or invite-only group with a per-group fee, pool predictions into a shared market position, and settle on-chain.
+
+## What makes it non-manipulable
+
+Volume shapes what you see; it never decides what you get paid. The level a market settles on is snapped from TxLINE's anchored odds, and the value that settles it is a proven datapoint from the same feed. Manufacturing internal stake moves the picture, not the payout.
+
+See [How signals work](/signals) for how that separation is enforced, and [Settlement and proof verification](/settlement) for the settlement design.
+
+## Current state
+
+The full `create → deposit → resolve → claim` cycle and the group `create → join → group_deposit → claim_group` cycle both run end-to-end on devnet with real transaction signatures, against real TxLINE odds. The real `validate_odds` CPI is verified on devnet.
+
+<Warning>
+Some capabilities appear in the interface but are not fully built:
+
+- **Two-sided liquidity is house-seeded, not a market.** The keeper bootstraps the opposing pool from its own USDC so a winner is paid the level's implied fixed odds rather than a thin pari-mutuel share. There is no order book and no external market maker.
+- **Group activity stats** (`preds`, `pnl`, `wr` on group cards) are not tracked on-chain and read `0` for real groups. The board also seeds demo group rows that are not on-chain accounts. Group *escrow* is real — `create_group`, `group_deposit`, and `claim_group` are live instructions, and per-member accounting lives in on-chain `GroupPool` and `GroupPosition` accounts.
+- **AI insights** are not implemented.
+</Warning>
+
+## Not legal or financial advice
+
+This is a betting-adjacent product, and regulatory treatment varies by jurisdiction. Seek counsel before operating in specific markets.

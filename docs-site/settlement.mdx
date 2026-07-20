@@ -1,0 +1,149 @@
+---
+title: "Settlement and proof verification"
+description: "Volmarket's single-proof settlement design, the real TxLINE validate_odds CPI, epoch timing, and the settlement receipts that let you verify an outcome yourself."
+---
+
+Settlement is the part of Volmarket that has to be trustless, because it is the part that moves money. This page covers how a market is defined, how it resolves from a single proof, how that proof is verified on-chain, and why verification lags detection.
+
+## What a market is
+
+A market is identified by:
+
+**fixture · odd (SuperOddsType + MarketParameters + outcome) · side (HOLD / BREAK) · level `L` · window `[t₀ … t₀+W]`**
+
+The odd identity keys on `SuperOddsType` **and** `MarketParameters`, so different Over/Under lines are distinct on-chain markets — `market_params` is part of the market PDA.
+
+`L` is snapped from the anchored StablePrice at `t₀`. `L` and the settling value share one scale: **demargined probability × 1000**, read from `Pct[]`.
+
+The two sides:
+
+- **HOLD** wins if the odd's implied probability stays **≥ L** for the whole window.
+- **BREAK** wins if it reaches **≥ L** at any point in the window.
+
+The program is odds-only. Score and stat markets are not implemented.
+
+## Single-proof settlement
+
+You never prove "the odd stayed above `L` for the entire window." Proving a negative over a continuous interval would require submitting every datapoint in it. Instead, each side resolves from *one* anchored odds update.
+
+<CardGroup cols={2}>
+<Card title="BREAK — proven" icon="check">
+Resolves the moment anyone submits the update where prob ≥ L. One Merkle proof, one CPI into the validator. If no such update arrives by `t₀+W`, BREAK loses — window close is the timeout.
+</Card>
+<Card title="HOLD — optimistic" icon="clock">
+The mirror image. Anyone may submit the single update where prob dipped **below** `L` to defeat it. If none is submitted by challenge close (window end), HOLD wins.
+</Card>
+</CardGroup>
+
+Both sides therefore need at most one proof, and the burden always falls on the party asserting that a crossing happened.
+
+Everything settles on the anchored line. Internal stake never decides an outcome.
+
+## Market instructions
+
+<Steps>
+<Step title="create_market">
+`create_market(fixture_id, odd_key, market_params, side, level, window_start, window_end, fee_bps)` opens the market and initializes its USDC vault PDA. The signer is the market authority, and the fee washes back to them.
+
+`create_market_v2(…, fee_recipient)` is identical but takes an explicit fee recipient, so the protocol fee routes to a dedicated house wallet. Both instructions coexist on the live program with identical account layouts.
+</Step>
+<Step title="deposit">
+`deposit(side, amount)` stakes USDC into the vault on YES or NO and records a `Position`.
+</Step>
+<Step title="resolve_market">
+`resolve_market(value, proof)` is permissionless single-proof settlement, as described above. Anyone can call it.
+</Step>
+<Step title="claim">
+`claim()` pays winners their pro-rata share of the vault, minus `fee_bps` on winnings.
+</Step>
+</Steps>
+
+### Payout math
+
+Computed in `claim`, entirely in `u128` with checked operations:
+
+```
+winnings = stake * losing_total / winning_total     // pro-rata share of the losing pool
+fee      = winnings * fee_bps / 10_000              // cut on winnings only
+payout   = stake + (winnings − fee)
+```
+
+The fee applies to winnings only, never to returned stake.
+
+## The real TxLINE CPI
+
+`resolve_market` CPIs into a validator program to check the submitted `(value, proof)`. The program pins exactly two acceptable addresses and branches on which one the caller passes:
+
+| `txline_program` passed | Path |
+|---|---|
+| `TXLINE_VALIDATOR_ID` = `6pW64gN1s2uqjHkn1unFeEjAwJkPGHoppGvS715wyP2J` | **Real TxLINE `txoracle`.** `proof` carries a borsh-encoded `OddsProofPayload`. The validator proves the `Odds` snapshot against the committed `daily_odds_merkle_roots` — a sub-tree proof for the odds within a fixture's batch, then a main-tree proof for that batch within the day's root. |
+| `TXLINE_PROGRAM_ID` = `FPnwSSp2DXcNvJnxXWc2JXvU4MLNfrWDT6wBcU5Eptse` | `mock_validator` — approves any proof, so the predicate rides on the keeper-supplied `value`. |
+
+Any other address is rejected.
+
+### Verified on devnet
+
+The real path is deployed and verified. A genuine two-stage TxLINE Merkle proof passed through the CPI in:
+
+```
+tx 5vPAbG89XBZkWTFw82HFEDjZDKbK6nFr9qqhPMztfG2Qobt2GpCeBDeFrwcVHmvsno3soZmEE4aniaswhj16uML2
+
+txoracle logs:
+  Stage 1 SUCCESS (snapshot → summary)
+  Stage 2 SUCCESS (summary → main root)
+```
+
+Reproduce it with `keeper/scripts/verify-odds-proof-onchain.ts`, which borsh-encodes `OddsProofPayload` to mirror the Rust struct field for field.
+
+Two operational findings from that run:
+
+- The roots account is the `txoracle insert_batch_root` target.
+- Verification costs **~234k compute units**, so a resolve on this path must raise its compute budget above the default.
+
+The keeper selects the path with the `MOCK_VALIDATOR` flag (default `true`) plus the `TXLINE_PROGRAM_ID` it passes. The running demo uses the mock — not because the integration is incomplete, but because of epoch timing.
+
+## Epoch timing: detection is instant, proof is not
+
+TxLINE publishes odds proofs in **wall-clock 5-minute batches**. A datapoint becomes provable only after its interval closes and the batch publishes. The keeper's `fetchPublishedOddsProof` computes the boundary and retries across the publication buffer.
+
+That splits settlement into two clocks:
+
+<CardGroup cols={2}>
+<Card title="Detection" icon="bolt">
+**Real-time.** The keeper sees a crossing on the stream the instant it happens, and settles on it.
+</Card>
+<Card title="Trustless verification" icon="hourglass">
+**Lags ~5 minutes plus a publication buffer** — the time until the datapoint's batch is anchored.
+</Card>
+</CardGroup>
+
+This is inherent to proof-anchored settlement, not lag that can be engineered away.
+
+It interacts with the HOLD/BREAK asymmetry in a specific way. A winning HOLD is optimistic, so it finalizes the moment its window closes with no proof required. A winning BREAK must be *proven*, so it cannot finalize until its batch publishes.
+
+The interface states this honestly: a result shows **provisional** at window close and upgrades to **verified** once the proof lands.
+
+It is also why a demo runs on `mock_validator` — a sub-minute prediction window closes long before its proof batch exists.
+
+## Settlement receipts
+
+Every keeper settlement records the exact datapoint that decided it:
+
+- `messageId`
+- `ts`
+- the settling value
+- the `resolve_market` transaction signature
+
+These are served over `GET /receipt?market=<pubkey>`. The result modal renders that TxLINE datapoint beside a Solana Explorer link to the resolve transaction, so you can verify a settlement against the feed and the chain rather than trusting the app.
+
+## Replay mode
+
+The World Cup fixtures the protocol was built against have finished, so the keeper can replay a capture of **real recorded TxLINE events** — real `messageId`s, real timestamps, real demargined `Pct` values, recorded off the live stream into `keeper/replay/odds-capture.json`.
+
+With `REPLAY_FILE` set, `replayFeed.ts` emits those events through the **same `onEvent` handler** the live stream feeds, with gaps preserved and timestamps rebased onto the replay clock. Signal buffering, board seeding, the in-window settlement backstop, and the post-window sweeper all run exactly as they do live. Everything on-chain — markets, deposits, resolve, claim — stays real. Only the feed source changes.
+
+`replay/fanout.json` fans one capture across several fixture ids, each entering the recording at a different offset with its own level shift, so the board shows a full slate rather than a single card.
+
+<Note>
+Replayed events carry their original `messageId`s, so TxLINE has no *current* proof batch for them. The real-validator path cannot be exercised from a replay; it is verified separately, as shown above.
+</Note>
